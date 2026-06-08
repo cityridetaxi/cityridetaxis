@@ -1,0 +1,444 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CityRideTaxi | Premium Access</title>
+    <link rel="icon" type="image/png" href="logo.png">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+    <script src="config.js"></script>
+    <style>
+        :root {
+            --glass-bg: rgba(14, 16, 22, 0.85);
+            --glass-border: rgba(255, 255, 255, 0.08);
+            --dark-charcoal: #ffffff;
+            --text-muted: #8e9297;
+            --primary-red: #B71C1C;
+            --primary-red-hover: #8E1515;
+            --white: #14161d;
+            --accents: rgba(255, 255, 255, 0.06);
+            --light-grey: #090a0f;
+            --shadow-lg: 0 24px 60px rgba(0, 0, 0, 0.8);
+        }
+
+        .auth-container {
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: linear-gradient(rgba(0, 0, 0, 0.8), rgba(0, 0, 0, 0.8)), url('logo.png') no-repeat center center/cover;
+            padding: 2rem;
+        }
+
+        .auth-card {
+            background: var(--glass-bg);
+            backdrop-filter: blur(20px);
+            border: 1px solid var(--glass-border);
+            padding: 4rem;
+            border-radius: 30px;
+            width: 100%;
+            max-width: 500px;
+            box-shadow: var(--shadow-lg);
+        }
+
+        .auth-tabs {
+            display: flex;
+            gap: 2rem;
+            margin-bottom: 3rem;
+            border-bottom: 1px solid rgba(0, 0, 0, 0.05);
+            padding-bottom: 1rem;
+        }
+
+        .auth-tab {
+            background: none;
+            border: none;
+            font-size: 1.25rem;
+            font-weight: 700;
+            cursor: pointer;
+            color: var(--dark-charcoal);
+            opacity: 0.4;
+            transition: var(--transition);
+        }
+
+        .auth-tab.active {
+            opacity: 1;
+            color: var(--primary-red);
+        }
+
+        .auth-form {
+            display: none;
+        }
+
+        .auth-form.active {
+            display: block;
+        }
+
+        .auth-form .input-group {
+            margin-bottom: 2rem;
+        }
+
+        .auth-footer {
+            margin-top: 2rem;
+            text-align: center;
+            font-size: 0.9rem;
+            color: var(--text-muted);
+        }
+
+        .checkbox-group {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            margin-bottom: 2rem;
+            cursor: pointer;
+            user-select: none;
+        }
+
+        .checkbox-group input {
+            width: 20px;
+            height: 20px;
+            cursor: pointer;
+            accent-color: var(--primary-red);
+        }
+
+        .checkbox-group label {
+            font-size: 0.9rem;
+            color: var(--text-muted);
+            cursor: pointer;
+        }
+
+        .checkbox-group a {
+            color: var(--primary-red);
+            text-decoration: none;
+            font-weight: 600;
+        }
+
+        .checkbox-group a:hover {
+            text-decoration: underline;
+        }
+    </style>
+</head>
+
+<body style="overflow: hidden;"> <!-- Lock scroll during splash -->
+    <div id="splash-screen">
+        <div class="splash-grid"></div>
+        <div class="splash-orb"></div>
+        <div class="splash-ring"></div>
+        <div class="splash-ring splash-ring-2"></div>
+        <div class="splash-logo-wrap">
+            <img src="logo.png" class="splash-logo" alt="CityRideTaxi">
+            <div class="splash-brand"><span>CityRide</span>Taxi</div>
+            <div class="splash-tagline">Premium Cab Booking</div>
+        </div>
+        <div class="splash-road-wrap">
+            <div class="splash-road"></div>
+            <svg class="splash-car" width="64" height="28" viewBox="0 0 64 28" fill="none">
+                <rect x="8" y="12" width="48" height="12" rx="4" fill="#dc143c"/>
+                <path d="M18 12 L22 4 L42 4 L46 12Z" fill="#c01030"/>
+                <rect x="23" y="5" width="8" height="6" rx="1" fill="rgba(150,220,255,0.7)"/>
+                <rect x="33" y="5" width="8" height="6" rx="1" fill="rgba(150,220,255,0.7)"/>
+                <circle cx="18" cy="24" r="4" fill="#1a1a1a" stroke="#555" stroke-width="1.5"/>
+                <circle cx="18" cy="24" r="1.5" fill="#888"/>
+                <circle cx="46" cy="24" r="4" fill="#1a1a1a" stroke="#555" stroke-width="1.5"/>
+                <circle cx="46" cy="24" r="1.5" fill="#888"/>
+                <ellipse cx="57" cy="16" rx="5" ry="3" fill="rgba(255,220,100,0.5)"/>
+                <rect x="54" y="14" width="3" height="4" rx="1" fill="#ffd700"/>
+            </svg>
+        </div>
+        <div class="splash-progress-wrap"><div class="splash-progress-bar"></div></div>
+        <div class="splash-status">Dispatching Systems…</div>
+    </div>
+    <div class="auth-container">
+        <div class="auth-card">
+            <div class="logo" style="margin-bottom: 3rem; text-align: center;">
+                <span class="logo-accent">CityRide</span>Taxi
+            </div>
+
+            <div class="auth-tabs">
+                <button class="auth-tab active" onclick="switchAuth('login')">Login</button>
+                <button class="auth-tab" onclick="switchAuth('register')">Register</button>
+            </div>
+
+            <!-- Login Form -->
+            <form id="login-form" class="auth-form active">
+                <div class="input-group">
+                    <label>Phone Number</label>
+                    <input type="tel" id="login-phone" placeholder="+91 98765 43210" required pattern="[0-9+\-\s]{7,15}">
+                </div>
+                <div class="input-group">
+                    <label>Password</label>
+                    <div class="password-wrapper">
+                        <input type="password" id="login-password" placeholder="••••••••" required>
+                        <button type="button" class="password-toggle" onclick="togglePasswordVisibility('login-password', this)">
+                            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="eye-icon"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                        </button>
+                    </div>
+                </div>
+                <button type="submit" class="btn btn-primary btn-large">Login to CityRideTaxi</button>
+                
+            </form>
+
+            <!-- Register Form (Passenger Only) -->
+            <form id="register-form" class="auth-form">
+                <div class="input-group">
+                    <label>Full Name</label>
+                    <input type="text" id="reg-name" placeholder="John Doe" required>
+                </div>
+                <div class="input-group">
+                    <label>Email Address</label>
+                    <div style="display: flex; gap: 0.5rem;">
+                        <input type="email" id="reg-email" placeholder="name@example.com" required style="flex: 1;">
+                    </div>
+                </div>
+                <div class="input-group">
+                    <label>Phone Number</label>
+                    <input type="tel" id="reg-phone" placeholder="+91 98765 43210" required>
+                </div>
+                <div class="input-group">
+                    <label>Password</label>
+                    <div class="password-wrapper">
+                        <input type="password" id="reg-password" placeholder="••••••••" required>
+                        <button type="button" class="password-toggle" onclick="togglePasswordVisibility('reg-password', this)">
+                            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="eye-icon"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                        </button>
+                    </div>
+                </div>
+
+                <div class="checkbox-group">
+                    <input type="checkbox" id="reg-terms" required>
+                    <label for="reg-terms">i have accept the <a href="#" onclick="openTermsModal(event)">terms and conditions</a>.</label>
+                </div>
+
+                <button type="submit" class="btn btn-primary btn-large">Finalize Registration</button>
+            </form>
+
+            <div class="auth-footer" style="text-align: left;">
+                <a href="/" class="btn-back" title="Back to Home">←</a>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        function openTermsModal(event) {
+            if (event) event.preventDefault();
+            document.getElementById('terms-modal').style.display = 'flex';
+        }
+
+        function closeTermsModal() {
+            document.getElementById('terms-modal').style.display = 'none';
+        }
+
+        function acceptTermsAndClose() {
+            document.getElementById('reg-terms').checked = true;
+            closeTermsModal();
+        }
+
+        function toggleDriverFields() {
+            const role = document.getElementById('reg-role').value;
+            const fields = document.getElementById('driver-fields');
+            fields.style.display = role === 'driver' ? 'block' : 'none';
+        }
+
+        function isPasswordStrong(password) {
+            const minLength = 8;
+            const hasNumber = /\d/.test(password);
+            const hasSymbol = /[!@#$%^&*(),.?":{}|<>]/.test(password);
+            return password.length >= minLength && hasNumber && hasSymbol;
+        }
+
+        function switchAuth(type) {
+            document.querySelectorAll('.auth-tab').forEach(t => t.classList.remove('active'));
+            document.querySelectorAll('.auth-form').forEach(f => f.classList.remove('active'));
+
+            if (type === 'login') {
+                document.querySelector('.auth-tab:nth-child(1)').classList.add('active');
+                document.getElementById('login-form').classList.add('active');
+                localStorage.setItem('auth_tab', 'login');
+            } else {
+                document.querySelector('.auth-tab:nth-child(2)').classList.add('active');
+                document.getElementById('register-form').classList.add('active');
+                localStorage.setItem('auth_tab', 'register');
+            }
+        }
+
+        // Persistence Logic
+        function setupPersistence(formId, storageKey) {
+            const form = document.getElementById(formId);
+            const saved = localStorage.getItem(storageKey);
+            
+            if (saved) {
+                const data = JSON.parse(saved);
+                Object.keys(data).forEach(id => {
+                    const el = document.getElementById(id);
+                    if (el) {
+                        if (el.type === 'checkbox') el.checked = data[id];
+                        else el.value = data[id];
+                    }
+                });
+            }
+
+            form.addEventListener('input', () => {
+                const data = {};
+                form.querySelectorAll('input').forEach(input => {
+                    if (input.id) {
+                        data[input.id] = input.type === 'checkbox' ? input.checked : input.value;
+                    }
+                });
+                localStorage.setItem(storageKey, JSON.stringify(data));
+            });
+        }
+
+        window.addEventListener('DOMContentLoaded', () => {
+            setupPersistence('login-form', 'cityride_login_draft');
+            setupPersistence('register-form', 'cityride_reg_draft');
+            
+            const savedTab = localStorage.getItem('auth_tab');
+            if (savedTab) switchAuth(savedTab);
+        });
+
+        // Handle Login
+        document.getElementById('login-form').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const data = {
+                phone: document.getElementById('login-phone').value.trim(),
+                password: document.getElementById('login-password').value
+            };
+
+            try {
+                const res = await fetch(`${API_BASE_URL}/api/auth/login`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(data)
+                });
+                const result = await res.json();
+                if (res.ok) {
+                    // This is only for travelers/passengers
+                    localStorage.setItem('cityride_member', JSON.stringify(result.user));
+                    localStorage.removeItem('cityride_login_draft');
+                    localStorage.removeItem('auth_tab');
+                    window.location.href = '/';
+                } else {
+                    alert(result.error);
+                }
+            } catch (err) { alert('Login failed'); }
+        });
+
+
+        // Handle Register
+        document.getElementById('register-form').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const data = {
+                name: document.getElementById('reg-name').value,
+                email: document.getElementById('reg-email').value,
+                phone: document.getElementById('reg-phone').value,
+                password: document.getElementById('reg-password').value,
+                role: 'user'
+            };
+
+            if (!isPasswordStrong(data.password)) {
+                return alert('Strength Required: Password must be at least 8 characters long and include a number and a symbol (!@#$%^&*, etc).');
+            }
+
+            if (!document.getElementById('reg-terms').checked) return alert('Please accept the terms and conditions.');
+
+            try {
+                const res = await fetch(`${API_BASE_URL}/api/auth/register`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(data)
+                });
+                const result = await res.json();
+                if (res.ok) {
+                    alert('Identity Verified! Welcome to the CityRide Network.');
+                    localStorage.removeItem('cityride_reg_draft');
+                    localStorage.removeItem('auth_tab');
+                    localStorage.setItem('cityride_member', JSON.stringify(result.user));
+                    window.location.href = '/';
+                } else {
+                    alert(result.error);
+                }
+            } catch (err) { alert('Identity Verification failed'); }
+        });
+    </script>
+    <script>
+        window.addEventListener('load', () => {
+            const splash = document.getElementById('splash-screen');
+            if (splash) {
+                setTimeout(() => {
+                    splash.classList.add('splash-hidden');
+                    document.body.style.setProperty('overflow', 'auto', 'important');
+                }, 3200);
+            }
+        });
+    </script>
+    <!-- Terms and Conditions Modal -->
+    <div id="terms-modal" class="map-modal" style="display: none;">
+        <div class="map-modal-content" style="max-width: 650px; height: 80vh; max-height: 85vh; border-radius: 30px; background: var(--white); color: var(--dark-charcoal); display: flex; flex-direction: column;">
+            <div class="map-header" style="border-bottom: 1px solid var(--accents); padding: 1.5rem 2rem;">
+                <h3 style="font-size: 1.8rem; font-weight: 800; color: var(--dark-charcoal); margin: 0;">Terms and Conditions</h3>
+                <button class="close-map" onclick="closeTermsModal()" style="font-size: 2.5rem; background: none; border: none; cursor: pointer; color: var(--text-muted);">&times;</button>
+            </div>
+            <div class="modal-body" style="padding: 2.5rem; overflow-y: auto; flex: 1;">
+                <p style="color: var(--text-muted); margin-bottom: 2rem; line-height: 1.8; font-size: 1rem;">Welcome to CityRideTaxi. These terms and conditions outline the rules and regulations for the use of our services.</p>
+
+                <div class="term-item" style="border-bottom: 1px solid var(--accents); padding-bottom: 1.5rem; margin-bottom: 1.5rem;">
+                    <strong style="display: block; font-size: 1.1rem; color: var(--dark-charcoal); margin-bottom: 0.5rem;">1. Acceptance of Terms</strong>
+                    <p style="color: var(--text-muted); line-height: 1.6; font-size: 0.95rem; margin: 0;">By accessing this website and using our services, you accept these terms and conditions in full. Do not continue to use CityRideTaxi's services if you do not accept all of the terms and conditions stated on this page.</p>
+                </div>
+
+                <div class="term-item" style="border-bottom: 1px solid var(--accents); padding-bottom: 1.5rem; margin-bottom: 1.5rem;">
+                    <strong style="display: block; font-size: 1.1rem; color: var(--dark-charcoal); margin-bottom: 0.5rem;">2. User Registration</strong>
+                    <p style="color: var(--text-muted); line-height: 1.6; font-size: 0.95rem; margin: 0;">During registration, you must provide accurate and complete information. You are responsible for maintaining the confidentiality of your account and password and for restricting access to your computer or mobile device.</p>
+                </div>
+
+                <div class="term-item" style="border-bottom: 1px solid var(--accents); padding-bottom: 1.5rem; margin-bottom: 1.5rem;">
+                    <strong style="display: block; font-size: 1.1rem; color: var(--dark-charcoal); margin-bottom: 0.5rem;">3. Service Usage</strong>
+                    <ul style="list-style: none; padding: 0; margin: 0;">
+                        <li style="position: relative; padding-left: 1.5rem; margin-bottom: 0.75rem; color: var(--text-muted); line-height: 1.6; font-size: 0.95rem;">
+                            <span style="position: absolute; left: 0; color: var(--primary-red); font-weight: 700;">•</span> Users must be at least 18 years of age.
+                        </li>
+                        <li style="position: relative; padding-left: 1.5rem; margin-bottom: 0.75rem; color: var(--text-muted); line-height: 1.6; font-size: 0.95rem;">
+                            <span style="position: absolute; left: 0; color: var(--primary-red); font-weight: 700;">•</span> Users must not use the service for any illegal or unauthorized purpose.
+                        </li>
+                        <li style="position: relative; padding-left: 1.5rem; margin-bottom: 0.75rem; color: var(--text-muted); line-height: 1.6; font-size: 0.95rem;">
+                            <span style="position: absolute; left: 0; color: var(--primary-red); font-weight: 700;">•</span> Users must respect the drivers and other passengers.
+                        </li>
+                        <li style="position: relative; padding-left: 1.5rem; margin-bottom: 0.75rem; color: var(--text-muted); line-height: 1.6; font-size: 0.95rem;">
+                            <span style="position: absolute; left: 0; color: var(--primary-red); font-weight: 700;">•</span> Fares are calculated based on distance, time, and vehicle type.
+                        </li>
+                    </ul>
+                </div>
+
+                <div class="term-item" style="border-bottom: 1px solid var(--accents); padding-bottom: 1.5rem; margin-bottom: 1.5rem;">
+                    <strong style="display: block; font-size: 1.1rem; color: var(--dark-charcoal); margin-bottom: 0.5rem;">4. Cancellation Policy</strong>
+                    <p style="color: var(--text-muted); line-height: 1.6; font-size: 0.95rem; margin: 0;">Cancellations may incur a fee depending on the timing of the cancellation relative to the scheduled pickup. Please review the specific cancellation terms before booking.</p>
+                </div>
+
+                <div class="term-item" style="border-bottom: 1px solid var(--accents); padding-bottom: 1.5rem; margin-bottom: 1.5rem;">
+                    <strong style="display: block; font-size: 1.1rem; color: var(--dark-charcoal); margin-bottom: 0.5rem;">5. Limitation of Liability</strong>
+                    <p style="color: var(--text-muted); line-height: 1.6; font-size: 0.95rem; margin: 0;">CityRideTaxi shall not be liable for any indirect, incidental, special, consequential or punitive damages, or any loss of profits or revenues, whether incurred directly or indirectly.</p>
+                </div>
+
+                <div class="term-item" style="border-bottom: 1px solid var(--accents); padding-bottom: 1.5rem; margin-bottom: 1.5rem;">
+                    <strong style="display: block; font-size: 1.1rem; color: var(--dark-charcoal); margin-bottom: 0.5rem;">6. Privacy Policy</strong>
+                    <p style="color: var(--text-muted); line-height: 1.6; font-size: 0.95rem; margin: 0;">Your privacy is important to us. Please refer to our Privacy Policy section to understand how we collect, use, and safeguard your personal information.</p>
+                </div>
+
+                <div class="term-item" style="border-bottom: none; margin-bottom: 0; padding-bottom: 0;">
+                    <strong style="display: block; font-size: 1.1rem; color: var(--dark-charcoal); margin-bottom: 0.5rem;">7. Governing Law</strong>
+                    <p style="color: var(--text-muted); line-height: 1.6; font-size: 0.95rem; margin: 0;">These terms and conditions are governed by and construed in accordance with the laws of the jurisdiction in which CityRideTaxi operates.</p>
+                </div>
+            </div>
+            <div class="map-footer" style="padding: 1.5rem 2rem; background: var(--light-grey); display: flex; justify-content: flex-end; align-items: center; border-top: 1px solid var(--accents); border-bottom-left-radius: 30px; border-bottom-right-radius: 30px;">
+                <button class="btn btn-primary" onclick="acceptTermsAndClose()" style="font-weight: 700; padding: 0.8rem 2rem; border-radius: 12px;">Accept & Close</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="alert.js"></script>
+</body>
+
+</html>

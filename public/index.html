@@ -1,0 +1,526 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CityRideTaxi: Premium Cab Booking | Local, Outstation & Rentals</title>
+    <meta name="description" content="Book premium cabs instantly with CityRideTaxi. We offer local city rides, one-way/round-trip outstation cabs, and hourly rentals with professional drivers at the best competitive fares.">
+    <meta name="keywords" content="CityRideTaxi, premium cab booking, taxi service, outstation cabs, one-way drop taxi, round-trip taxi, hourly cab rental, reliable taxi, safe drivers, book taxi online">
+    <meta name="author" content="CityRideTaxi">
+    <meta name="robots" content="index, follow">
+    <link rel="canonical" href="https://cityrides.up.railway.app/">
+    <link rel="icon" type="image/png" href="logo.png">
+    
+    <!-- Open Graph for Facebook/LinkedIn -->
+    <meta property="og:title" content="CityRideTaxi: Premium Cab Booking | Safe & Reliable">
+    <meta property="og:description" content="Book premium cabs instantly with CityRideTaxi. Enjoy highly competitive rates, secure outstation drops, and hourly rentals.">
+    <meta property="og:type" content="website">
+    <meta property="og:url" content="https://cityride.up.railway.app/">
+    <meta property="og:image" content="https://cityride.up.railway.app/logo.png">
+    <meta property="og:site_name" content="CityRideTaxi">
+    
+    <!-- Twitter Cards -->
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:title" content="CityRideTaxi: Premium Cab Booking">
+    <meta name="twitter:description" content="Book premium cabs instantly with CityRideTaxi. Enjoy highly competitive rates, secure outstation drops, and hourly rentals.">
+    <meta name="twitter:image" content="https://cityride.up.railway.app/logo.png">
+
+    <!-- Schema.org Structured Data -->
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "TaxiService",
+      "name": "CityRideTaxi",
+      "image": "https://cityride.up.railway.app/logo.png",
+      "description": "Premium Local, Outstation, and Hourly Rental Cab Booking platform with verified professional drivers.",
+      "url": "https://cityride.up.railway.app/",
+      "telephone": "+91-9000000000",
+      "priceRange": "₹₹",
+      "areaServed": [{
+        "@type": "State",
+        "name": "Tamil Nadu"
+      }],
+      "provider": {
+        "@type": "LocalBusiness",
+        "name": "CityRideTaxi",
+        "image": "https://cityride.up.railway.app/logo.png"
+      }
+    }
+    </script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self' data: gap: https://ssl.gstatic.com 'unsafe-eval' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://unpkg.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: https://*.tile.openstreetmap.org https://unpkg.com; script-src 'self' 'unsafe-inline' https://unpkg.com; connect-src 'self' https://*.railway.app https://photon.komoot.io https://router.project-osrm.org https://unpkg.com;">
+    <script src="config.js"></script>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
+    <style>
+        /* Live Location Button Enhancements */
+        .map-picker-link {
+            cursor: pointer;
+            color: var(--primary-red);
+            font-weight: 700;
+            font-size: 0.75rem;
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            padding: 4px 10px;
+            border-radius: 20px;
+            background: rgba(183, 28, 28, 0.05);
+            transition: var(--transition);
+        }
+
+        .map-picker-link:hover {
+            background: rgba(183, 28, 28, 0.1);
+            transform: translateY(-1px);
+        }
+
+        .live-location-btn {
+            color: #1a73e8 !important;
+            background: rgba(26, 115, 232, 0.08) !important;
+            border: 1px solid rgba(26, 115, 232, 0.2) !important;
+            position: relative;
+            padding-left: 26px !important;
+        }
+
+        .live-location-btn::before {
+            content: '';
+            position: absolute;
+            left: 10px;
+            top: 50%;
+            transform: translateY(-50%);
+            width: 8px;
+            height: 8px;
+            background: #1a73e8;
+            border-radius: 50%;
+            box-shadow: 0 0 0 rgba(26, 115, 232, 0.4);
+            animation: live-pulse 2s infinite;
+        }
+
+        @keyframes live-pulse {
+            0% { box-shadow: 0 0 0 0 rgba(26, 115, 232, 0.4); }
+            70% { box-shadow: 0 0 0 10px rgba(26, 115, 232, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(26, 115, 232, 0); }
+        }
+    </style>
+</head>
+
+<body style="overflow: hidden;"> <!-- Lock scroll during splash -->
+    <div id="splash-screen">
+        <div class="splash-grid"></div>
+        <div class="splash-orb"></div>
+        <div class="splash-ring"></div>
+        <div class="splash-ring splash-ring-2"></div>
+        <div class="splash-logo-wrap">
+            <img src="logo.png" class="splash-logo" alt="CityRideTaxi">
+            <div class="splash-brand"><span>CityRide</span>Taxi</div>
+            <div class="splash-tagline">Premium Cab Booking</div>
+        </div>
+        <div class="splash-road-wrap">
+            <div class="splash-road"></div>
+            <svg class="splash-car" width="64" height="28" viewBox="0 0 64 28" fill="none">
+                <rect x="8" y="12" width="48" height="12" rx="4" fill="#dc143c"/>
+                <path d="M18 12 L22 4 L42 4 L46 12Z" fill="#c01030"/>
+                <rect x="23" y="5" width="8" height="6" rx="1" fill="rgba(150,220,255,0.7)"/>
+                <rect x="33" y="5" width="8" height="6" rx="1" fill="rgba(150,220,255,0.7)"/>
+                <circle cx="18" cy="24" r="4" fill="#1a1a1a" stroke="#555" stroke-width="1.5"/>
+                <circle cx="18" cy="24" r="1.5" fill="#888"/>
+                <circle cx="46" cy="24" r="4" fill="#1a1a1a" stroke="#555" stroke-width="1.5"/>
+                <circle cx="46" cy="24" r="1.5" fill="#888"/>
+                <ellipse cx="57" cy="16" rx="5" ry="3" fill="rgba(255,220,100,0.5)"/>
+                <rect x="54" y="14" width="3" height="4" rx="1" fill="#ffd700"/>
+            </svg>
+        </div>
+        <div class="splash-progress-wrap"><div class="splash-progress-bar"></div></div>
+        <div class="splash-status">Dispatching Systems…</div>
+    </div>
+
+    <main>
+        <section id="home" class="hero">
+            <div class="hero-bg"></div>
+            <div class="container hero-content">
+                <div class="hero-text">
+                    <div class="hero-logo-box">
+                        <img src="logo.png" alt="CityRideTaxi">
+                    </div>
+                    <h1>City Professional <br><span class="text-accent">Travel Solutions</span></h1>
+                    <p>Experience the gold standard in premium transportation. Book your high-end journey with
+                        professional captains.</p>
+                    <div style="margin-top: 3rem; display: flex; gap: 1.5rem; flex-wrap: wrap;" id="hero-actions">
+                        <button class="btn btn-primary guest-action" onclick="openMapPicker()">Book Now</button>
+                        <button class="btn guest-action" style="border: 1px solid rgba(255,255,255,0.3); color: white;"
+                            onclick="document.getElementById('fleet').scrollIntoView({behavior: 'smooth'})">View
+                            Fleet</button>
+
+                        <button id="hero-dashboard-btn" class="btn btn-primary auth-action"
+                            style="display:none;">My Dashboard</button>
+                        <button class="btn auth-action"
+                            style="display:none; border: 1px solid rgba(255,255,255,0.3); color: white; background-color: rgba(0,0,0,0.5);"
+                            onclick="logoutUser()">Logout</button>
+                    </div>
+                </div>
+
+                <div class="booking-widget">
+                    <div class="service-category-tabs">
+                        <button type="button" class="category-btn active" data-category="local">Local</button>
+                        <button type="button" class="category-btn" data-category="outstation">Outstation</button>
+                        <button type="button" class="category-btn" data-category="rental">Rental</button>
+                    </div>
+
+                    <form id="booking-form" class="widget-form">
+                        <div class="form-grid">
+                            <div class="input-group">
+                                <label for="pickup">
+                                    Pickup Location 
+                                    <div class="location-actions">
+                                        <span class="map-picker-link live-location-btn" onclick="useLiveLocation(event)">
+                                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right:4px;"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>
+                                            Live Location
+                                        </span>
+                                        <span class="map-picker-link" onclick="openMapPicker('pickup', event)">
+                                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right:4px;"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path><circle cx="12" cy="10" r="3"></circle></svg>
+                                            Map
+                                        </span>
+                                    </div>
+                                </label>
+                                <input type="text" id="pickup" placeholder="Enter pickup address" required>
+                                <div id="pickup-suggestions" class="suggestions"></div>
+                            </div>
+                            <div class="input-group" id="destination-group">
+                                <label for="drop">Destination <span class="map-picker-link" onclick="openMapPicker('drop', event)"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right:4px;"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path><circle cx="12" cy="10" r="3"></circle></svg>Pick on Map</span></label>
+                                <input type="text" id="drop" placeholder="Enter destination" required autocomplete="off">
+                                <div id="drop-suggestions" class="suggestions"></div>
+                            </div>
+
+                            <div class="input-group" id="booking-type-group">
+                                <label for="booking-type">Booking Option</label>
+                                <select id="booking-type">
+                                    <option value="now" selected>Ride Now</option>
+                                    <option value="later">Ride Later (Advance Booking)</option>
+                                </select>
+                            </div>
+
+                            <div class="input-group" id="pickup-date-group">
+                                <label for="pickup-date">Departure Date</label>
+                                <input type="date" id="pickup-date" required>
+                            </div>
+                            <div class="input-group" id="pickup-time-group">
+                                <label for="pickup-time">Departure Time</label>
+                                <input type="time" id="pickup-time" required>
+                            </div>
+                            <div class="input-group" id="return-date-group" style="display:none;">
+                                <label for="return-date">Return Date (Optional)</label>
+                                <input type="date" id="return-date">
+                            </div>
+                            <div class="input-group" id="rental-package-group" style="display:none;">
+                                <label for="rental-package">Rental Package</label>
+                                <select id="rental-package">
+                                    <option value="2-20">2 Hours | 20 KM</option>
+                                    <option value="4-40">4 Hours | 40 KM</option>
+                                    <option value="8-80" selected>8 Hours | 80 KM</option>
+                                    <option value="12-120">12 Hours | 120 KM</option>
+                                </select>
+                            </div>
+                            <div class="input-group">
+                                <label for="passengers">Number of Passengers</label>
+                                <select id="passengers" required>
+                                    <option value="1">1 Passenger</option>
+                                    <option value="2">2 Passengers</option>
+                                    <option value="3">3 Passengers</option>
+                                    <option value="4">4 Passengers</option>
+                                    <option value="5">5 Passengers</option>
+                                    <option value="6">6 Passengers</option>
+                                    <option value="7">7 Passengers</option>
+                                    <option value="8">8 Passengers</option>
+                                </select>
+                            </div>
+                            <div class="input-group" style="display:none;">
+                                <label for="vehicle-type">Vehicle Preference</label>
+                                <select id="vehicle-type">
+                                    <option value="auto_select">Auto Select</option>
+                                    <option value="bike">Classy Bike Taxi (1 Seater)</option>
+                                    <option value="auto">Auto (3+1 Seater)</option>
+                                    <option value="hatchback">Hatchback (4+1 Seater)</option>
+                                    <option value="sedan" selected>Sedan (4+1 Seater)</option>
+                                    <option value="suv">SUV (Xylo / 6+1 Seater)</option>
+                                    <option value="8plus1">Tempo Traveller (8+1 Seater)</option>
+                                    <option value="van24">Omni Bus (24+1 Seater)</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <div id="vehicle-selection-container" class="vehicle-options-grid">
+                            <!-- Unified list will be rendered here -->
+                        </div>
+                        <!-- Populated via JS after distance calculation -->
+
+                        <div id="fare-estimate" class="fare-estimate hidden" style="display:none !important;">
+                            <div class="fare-details">
+                                <p style="font-weight:700;">Total KM: <span id="distance-val" style="color:var(--primary-red);">0</span> KM</p>
+                                <p style="font-weight:700;">Estimated Fare: <span id="fare-val" style="color:var(--primary-red);">₹0</span></p>
+                            </div>
+                            <div class="vehicle-auto-badge" id="vehicle-badge">
+                                Standard Sedan
+                            </div>
+                        </div>
+
+                        <button type="submit" class="btn btn-large btn-submit" style="background-color: #B71C1C; color: white;">Book Now!</button>
+                        <p style="text-align: center; font-size: 0.75rem; color: #666; margin-top: 1.5rem; letter-spacing: 0.5px;">&copy; 2026 CityRideTaxi. All Rights Reserved.</p>
+                    </form>
+                </div>
+            </div>
+        </section>
+    </main>
+
+
+    <!-- AI Chat & Support Ticket Floating Widget -->
+    <style>
+        .support-floating-btn {
+            position: fixed; bottom: 30px; right: 30px; z-index: 1000;
+            background-color: #B71C1C; color: white; border: none;
+            width: 60px; height: 60px; border-radius: 50%;
+            display: flex; justify-content: center; align-items: center;
+            box-shadow: 0 4px 15px rgba(183, 28, 28, 0.4);
+            cursor: pointer; transition: transform 0.3s;
+        }
+        .support-floating-btn:hover { transform: scale(1.1); }
+        .support-widget-panel {
+            position: fixed; bottom: 100px; right: 30px; z-index: 1000;
+            width: 350px; background: white; border-radius: 12px;
+            box-shadow: 0 8px 30px rgba(0,0,0,0.15); display: none;
+            flex-direction: column; overflow: hidden;
+            border: 1px solid #eee; height: 500px;
+        }
+        .support-widget-panel.open { display: flex; animation: slideUp 0.3s ease; }
+        @keyframes slideUp { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
+        .support-header { background: #B71C1C; color: white; padding: 15px; font-weight: 600; display: flex; justify-content: space-between; align-items: center; }
+        .support-header button { background: none; border: none; color: white; font-size: 1.2rem; cursor: pointer; }
+        
+        .support-tabs { display: flex; background: #f0f0f0; border-bottom: 1px solid #ccc; }
+        .support-tab { flex: 1; text-align: center; padding: 10px; cursor: pointer; font-size: 0.9rem; font-weight: 600; color: #555; transition: 0.3s; }
+        .support-tab.active { background: white; color: #B71C1C; border-bottom: 2px solid #B71C1C; }
+        
+        /* Chat UI */
+        .chat-area { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+        .chat-window { flex: 1; padding: 15px; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; background: #fafafa; }
+        .chat-bubble { max-width: 85%; padding: 10px 14px; border-radius: 16px; font-size: 0.9rem; line-height: 1.4; word-wrap: break-word;}
+        .chat-ai { background: #e0e0e0; color: #1a1a1a; align-self: flex-start; border-bottom-left-radius: 4px; }
+        .chat-user { background: #B71C1C; color: white; align-self: flex-end; border-bottom-right-radius: 4px; }
+        .chat-input-area { display: flex; border-top: 1px solid #ddd; padding: 10px; background: white; }
+        .chat-input-area input { flex: 1; padding: 10px; border: 1px solid #ccc; border-radius: 20px; outline: none; font-size: 0.9rem; }
+        .chat-input-area button { background: #B71C1C; color: white; border: none; width: 40px; height: 40px; border-radius: 50%; margin-left: 10px; cursor: pointer; display: flex; justify-content: center; align-items: center; }
+        
+        /* Ticket UI */
+        .ticket-area { flex: 1; display: none; flex-direction: column; padding: 15px; gap: 10px; overflow-y: auto; background: white; }
+        .support-input { width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 6px; font-family: inherit; font-size: 0.9rem; }
+        .support-textarea { height: 80px; resize: none; }
+        .support-submit { background: #1a1a1a; color: white; border: none; padding: 10px; border-radius: 6px; cursor: pointer; font-weight: 600; margin-top: 5px;}
+        .support-submit:hover { background: #333; }
+        .support-loader { display: none; text-align: center; font-size: 0.9rem; padding: 10px; color: #555; }
+
+        @media (max-width: 480px) {
+            .support-floating-btn { bottom: 20px; right: 20px; width: 50px; height: 50px; }
+            .support-widget-panel { width: calc(100vw - 40px); right: 20px; bottom: 80px; height: 450px; }
+        }
+    </style>
+
+    <button id="support-btn" class="support-floating-btn" onclick="toggleSupportWidget()">
+        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path><path d="M10 9h4"></path><path d="M12 11v4"></path></svg>
+    </button>
+
+    <div id="support-panel" class="support-widget-panel">
+        <div class="support-header">
+            <span>CityRide Assistant</span>
+            <button onclick="toggleSupportWidget()">&times;</button>
+        </div>
+        <div class="support-tabs">
+            <div class="support-tab active" id="tab-chat" onclick="switchWidgetTab('chat')">AI Chat</div>
+            <div class="support-tab" id="tab-ticket" onclick="switchWidgetTab('ticket')">Raise Ticket</div>
+        </div>
+        
+        <!-- Chat Area -->
+        <div class="chat-area" id="area-chat">
+            <div class="chat-window" id="chat-window">
+                <div class="chat-bubble chat-ai">Hello! I am the CityRide AI. How can I help you regarding pricing, outstation bookings, or local rides today?</div>
+            </div>
+            <div class="chat-input-area">
+                <input type="text" id="chat-input" placeholder="Type your message..." onkeypress="handleChatEnter(event)">
+                <button onclick="sendChatMessage()"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg></button>
+            </div>
+        </div>
+
+        <!-- Ticket Area -->
+        <div class="ticket-area" id="area-ticket">
+            <p style="font-size: 0.85rem; color: #666; margin: 0;">Need human support? Raise a ticket and our team will email you back shortly!</p>
+            <input type="text" id="supp-name" class="support-input" placeholder="Your Name" required>
+            <input type="email" id="supp-email" class="support-input" placeholder="Your Email Address" required>
+            <textarea id="supp-query" class="support-input support-textarea" placeholder="Describe your issue..." required></textarea>
+            <button id="supp-submit-btn" class="support-submit" onclick="submitSupportTicket()">Send Ticket</button>
+            <div id="supp-loader" class="support-loader">Sending ticket...</div>
+            <div id="ticket-success" style="display:none; text-align:center; padding: 20px;">
+                <h4 style="color:#2e7d32; margin-bottom:5px;">Ticket Sent!</h4>
+                <p style="font-size:0.85rem; color:#666;">We have received your query. Check your email inbox shortly.</p>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        function toggleSupportWidget() {
+            const panel = document.getElementById('support-panel');
+            panel.classList.toggle('open');
+        }
+
+        function switchWidgetTab(mode) {
+            if (mode === 'chat') {
+                document.getElementById('tab-chat').classList.add('active');
+                document.getElementById('tab-ticket').classList.remove('active');
+                document.getElementById('area-chat').style.display = 'flex';
+                document.getElementById('area-ticket').style.display = 'none';
+            } else {
+                document.getElementById('tab-ticket').classList.add('active');
+                document.getElementById('tab-chat').classList.remove('active');
+                document.getElementById('area-ticket').style.display = 'flex';
+                document.getElementById('area-chat').style.display = 'none';
+            }
+        }
+
+        function appendChatBubble(role, text) {
+            const windowEl = document.getElementById('chat-window');
+            const bubble = document.createElement('div');
+            bubble.className = `chat-bubble ${role === 'user' ? 'chat-user' : 'chat-ai'}`;
+            bubble.textContent = text;
+            windowEl.appendChild(bubble);
+            windowEl.scrollTop = windowEl.scrollHeight;
+        }
+
+        function handleChatEnter(e) {
+            if (e.key === 'Enter') sendChatMessage();
+        }
+
+        async function sendChatMessage() {
+            const inputEl = document.getElementById('chat-input');
+            const text = inputEl.value.trim();
+            if (!text) return;
+
+            // User Message
+            appendChatBubble('user', text);
+            inputEl.value = '';
+
+            // Loading state
+            const windowEl = document.getElementById('chat-window');
+            const loadBubble = document.createElement('div');
+            loadBubble.className = 'chat-bubble chat-ai';
+            loadBubble.id = 'chat-loader';
+            loadBubble.innerHTML = '<i>Typing...</i>';
+            windowEl.appendChild(loadBubble);
+            windowEl.scrollTop = windowEl.scrollHeight;
+
+            try {
+                const response = await fetch(`${API_BASE_URL || ''}/api/chat`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ message: text })
+                });
+                const result = await response.json();
+                
+                loadBubble.remove();
+                if (result.success) {
+                    appendChatBubble('ai', result.reply);
+                } else {
+                    appendChatBubble('ai', "I'm having trouble connecting to Ground Command. Please try again later.");
+                }
+            } catch (err) {
+                loadBubble.remove();
+                appendChatBubble('ai', "Neural Link offline. Please use the Ticket tab.");
+            }
+        }
+
+        async function submitSupportTicket() {
+            const name = document.getElementById('supp-name').value.trim();
+            const email = document.getElementById('supp-email').value.trim();
+            const query = document.getElementById('supp-query').value.trim();
+            
+            if (!name || !email || !query) {
+                showAlert('Please fill all fields to submit ticket.', 'error');
+                return;
+            }
+
+            document.getElementById('supp-submit-btn').style.display = 'none';
+            document.getElementById('supp-loader').style.display = 'block';
+
+            try {
+                const response = await fetch(`${API_BASE_URL || ''}/api/support/ticket`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name, email, query })
+                });
+                
+                const result = await response.json();
+                document.getElementById('supp-loader').style.display = 'none';
+                
+                if (result.success) {
+                    document.getElementById('ticket-success').style.display = 'block';
+                } else {
+                    throw new Error(result.error || 'Failed to submit.');
+                }
+            } catch (err) {
+                showAlert(err.message, 'error');
+                document.getElementById('supp-submit-btn').style.display = 'block';
+                document.getElementById('supp-loader').style.display = 'none';
+            }
+        }
+    </script>
+
+    <!-- Map Picker Modal -->
+    <div id="map-modal" class="map-modal">
+        <div class="map-modal-content">
+            <div class="map-header">
+                <h3>Select <span id="picking-type">pickup</span> on Map</h3>
+                <button class="close-map" onclick="closeMapPicker()">&times;</button>
+            </div>
+            <div id="map-picker"></div>
+            <div class="map-footer">
+                <div id="map-instructions">
+                    <p>Click on the map to set your location.</p>
+                </div>
+                <button id="confirm-location" class="btn btn-primary" style="display:none;" onclick="confirmMapPoint()">Confirm Point</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Booking Confirmation Modal -->
+    <div id="booking-modal" class="map-modal" style="display:none; padding: 20px;">
+        <div class="map-modal-content" style="max-width: 550px; width: 95%; height: auto; max-height: 92vh; border-radius: 24px;">
+            <div class="map-header">
+                <h3>Important Booking Policy</h3>
+                <button class="close-map" onclick="closeBookingModal()">&times;</button>
+            </div>
+            <div class="modal-body" style="padding: 1.5rem;">
+                <div id="booking-summary">
+                    <!-- Dynamic summary will be injected here -->
+                </div>
+                <div style="margin-top: 2rem; display: flex; gap: 1rem;">
+                    <button class="btn btn-primary" style="flex: 1;" onclick="confirmBookingWithTerms()">Accept & Continue</button>
+                    <button class="btn" style="flex: 1; border: 1px solid var(--accents);" onclick="closeBookingModal()">Cancel</button>
+                </div>
+            </div>
+        </div>
+    </div>
+    <script>
+        window.addEventListener('load', () => {
+            const splash = document.getElementById('splash-screen');
+            if (splash) {
+                setTimeout(() => {
+                    splash.classList.add('splash-hidden');
+                    document.body.style.setProperty('overflow', 'auto', 'important');
+                }, 3200);
+            }
+        });
+    </script>
+    <script src="app.js"></script>
+    <script src="alert.js"></script>
+</body>
+
+</html>

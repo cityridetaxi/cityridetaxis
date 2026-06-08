@@ -1,0 +1,15 @@
+User-agent: *
+Allow: /$
+Allow: /terms
+
+# Block private internal portals from indexing
+Disallow: /admin
+Disallow: /admin-login
+Disallow: /driver
+Disallow: /driver-login
+Disallow: /vendor
+Disallow: /vendor-login
+Disallow: /dashboard
+Disallow: /auth
+
+Sitemap: https://cityride.up.railway.app/sitemap.xml

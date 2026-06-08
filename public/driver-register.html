@@ -1,0 +1,474 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CityRideTaxi | Pilot Recruitment</title>
+    <link rel="icon" type="image/png" href="logo.png">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+    <script src="config.js"></script>
+    <style>
+        .reg-container {
+            min-height: 100vh;
+            background: linear-gradient(rgba(0, 0, 0, 0.8), rgba(0, 0, 0, 0.8)), url('logo.png') no-repeat center center/fixed;
+            background-size: 40%;
+            padding: 4rem 2rem;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .reg-card {
+            background: rgba(255, 255, 255, 0.98);
+            width: 100%;
+            max-width: 800px;
+            border-radius: 30px;
+            box-shadow: 0 50px 100px rgba(0, 0, 0, 0.3);
+            overflow: hidden;
+            position: relative;
+        }
+
+        .reg-header {
+            background: #1a1a1a;
+            color: white;
+            padding: 3rem;
+            text-align: center;
+        }
+
+        .reg-steps {
+            display: flex;
+            justify-content: center;
+            gap: 2rem;
+            padding: 2rem;
+            background: #f8f8f8;
+            border-bottom: 1px solid #eee;
+        }
+
+        .step-indicator {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            opacity: 0.3;
+            transition: 0.3s;
+        }
+
+        .step-indicator.active {
+            opacity: 1;
+            color: var(--primary-red);
+        }
+
+        .step-number {
+            width: 30px;
+            height: 30px;
+            background: #333;
+            color: white;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 700;
+            font-size: 0.8rem;
+        }
+
+        .step-indicator.active .step-number {
+            background: var(--primary-red);
+        }
+
+        .form-stage {
+            padding: 3rem;
+            display: none;
+        }
+
+        .form-stage.active {
+            display: block;
+            animation: fadeIn 0.5s ease;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .input-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 1.5rem;
+        }
+
+        .doc-upload-box {
+            border: 2px dashed #ddd;
+            padding: 1.5rem;
+            border-radius: 15px;
+            text-align: center;
+            transition: 0.3s;
+            cursor: pointer;
+            position: relative;
+        }
+
+        .doc-upload-box:hover {
+            border-color: var(--primary-red);
+            background: rgba(183, 28, 28, 0.02);
+        }
+
+        .doc-upload-box input {
+            position: absolute;
+            inset: 0;
+            opacity: 0;
+            cursor: pointer;
+        }
+
+        .doc-upload-box .icon {
+            font-size: 1.5rem;
+            margin-bottom: 0.5rem;
+            display: block;
+        }
+
+        .doc-upload-box .label {
+            font-size: 0.8rem;
+            font-weight: 600;
+            color: #666;
+        }
+
+        .preview-name {
+            font-size: 0.7rem;
+            color: var(--primary-red);
+            margin-top: 5px;
+            font-weight: 700;
+            display: none;
+        }
+
+        .nav-btns {
+            display: flex;
+            justify-content: space-between;
+            padding: 2rem 3rem;
+            background: #fafafa;
+            border-top: 1px solid #eee;
+        }
+
+        @media (max-width: 600px) {
+            .input-grid { grid-template-columns: 1fr; }
+            .reg-steps { flex-direction: column; gap: 1rem; align-items: flex-start; }
+            .input-row { flex-direction: column; }
+            .input-row .btn { width: 100%; border-radius: 12px !important; }
+        }
+
+        .input-row {
+            display: flex;
+            gap: 10px;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="reg-container">
+        <div class="reg-card">
+            <div class="reg-header">
+                <img src="logo.png" alt="CityRide" style="height: 50px; margin-bottom: 1rem;">
+                <h1 style="font-size: 1.8rem;">Fleet Partner Application</h1>
+                <p style="opacity: 0.6; font-size: 0.9rem;">Join the elite CityRideTaxi pilot network.</p>
+            </div>
+
+            <div class="reg-steps">
+                <div class="step-indicator active" id="step-i-1">
+                    <span class="step-number">1</span>
+                    <span class="step-label">Basic Bio</span>
+                </div>
+                <div class="step-indicator" id="step-i-2">
+                    <span class="step-number">2</span>
+                    <span class="step-label">Driver Verify</span>
+                </div>
+                <div class="step-indicator" id="step-i-3">
+                    <span class="step-number">3</span>
+                    <span class="step-label">Vehicle Ops</span>
+                </div>
+            </div>
+
+            <form id="driver-reg-form">
+                <!-- Step 1: Basic Bio -->
+                <div class="form-stage active" id="step-1">
+                    <h3>Account Credentials</h3>
+                    <p style="color: #888; font-size: 0.9rem; margin-bottom: 2rem;">Setup your primary access credentials for the pilot portal.</p>
+                    <div class="input-grid">
+                        <div class="input-group">
+                            <label>Full Name</label>
+                            <input type="text" name="name" placeholder="John Pilot" required>
+                        </div>
+                        <div class="input-group">
+                            <label>Email Address</label>
+                            <div class="input-row">
+                                <input type="email" id="driver-email" name="email" placeholder="pilot@cityridetaxi.com" required style="flex: 1;">
+                            </div>
+                        </div>
+                        <div class="input-group">
+                            <label>Contact Number</label>
+                            <input type="tel" name="phone" placeholder="+91 99887 76655" required>
+                        </div>
+                        <div class="input-group">
+                            <label>Portal Access Password</label>
+                            <div class="password-wrapper">
+                                <input type="password" id="reg-password" name="password" placeholder="••••••••" required>
+                                <button type="button" class="password-toggle" onclick="togglePasswordVisibility('reg-password', this)">
+                                    <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="eye-icon"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Step 2: Driver Documents -->
+                <div class="form-stage" id="step-2">
+                    <h3>Identity & Clearance</h3>
+                    <p style="color: #888; font-size: 0.9rem; margin-bottom: 2rem;">Upload your legal driving permits and identity documents.</p>
+                    <div class="input-grid">
+                        <div class="doc-upload-box">
+                            <span class="icon">🪪</span>
+                            <span class="label">Driving License (Front)</span>
+                            <input type="file" name="dl_front" accept="image/*,.pdf" onchange="previewFile(this)" required>
+                            <div class="preview-name"></div>
+                        </div>
+                        <div class="doc-upload-box">
+                            <span class="icon">🪪</span>
+                            <span class="label">Driving License (Back)</span>
+                            <input type="file" name="dl_back" accept="image/*,.pdf" onchange="previewFile(this)" required>
+                            <div class="preview-name"></div>
+                        </div>
+                        <div class="doc-upload-box">
+                            <span class="icon">📜</span>
+                            <span class="label">Police Verification (PVC)</span>
+                            <input type="file" name="pvc" accept="image/*,.pdf" onchange="previewFile(this)" required>
+                            <div class="preview-name"></div>
+                        </div>
+                        <div class="doc-upload-box">
+                            <span class="icon">🆔</span>
+                            <span class="label">Aadhar Card (Front)</span>
+                            <input type="file" name="aadhar_front" accept="image/*,.pdf" onchange="previewFile(this)" required>
+                            <div class="preview-name"></div>
+                        </div>
+                        <div class="doc-upload-box">
+                            <span class="icon">🆔</span>
+                            <span class="label">Aadhar Card (Back)</span>
+                            <input type="file" name="aadhar_back" accept="image/*,.pdf" onchange="previewFile(this)" required>
+                            <div class="preview-name"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Step 3: Vehicle Ops -->
+                <div class="form-stage" id="step-3">
+                    <h3>Vehicle Specifications</h3>
+                    <p style="color: #888; font-size: 0.9rem; margin-bottom: 2rem;">Register the vehicle you will be deploying for CityRide operations.</p>
+                    <div class="input-grid" style="margin-bottom: 2rem;">
+                        <div class="input-group">
+                            <label>Vehicle Model</label>
+                            <input type="text" name="car_model" placeholder="Toyota Glanza / Etios" required>
+                        </div>
+                        <div class="input-group">
+                            <label>Plate Number</label>
+                            <input type="text" name="car_number" placeholder="TN 01 AB 1234" required>
+                        </div>
+                        <div class="input-group">
+                            <label>Vehicle Class</label>
+                            <select name="vehicle_type">
+                                <option value="bike">Classy Bike+</option>
+                                <option value="auto">Auto (3+1)</option>
+                                <option value="hatchback">Hatchback (4+1)</option>
+                                <option value="sedan">Sedan (Standard)</option>
+                                <option value="suv">SUV (Premium)</option>
+                                <option value="8plus1">Tempo Traveller (8+1)</option>
+                                <option value="van24">Omni Bus (24+1)</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="input-grid">
+                        <div class="doc-upload-box">
+                            <span class="icon">📒</span>
+                            <span class="label">Vehicle RC Book</span>
+                            <input type="file" name="rc_book" accept="image/*,.pdf" onchange="previewFile(this)" required>
+                            <div class="preview-name"></div>
+                        </div>
+                        <div class="doc-upload-box">
+                            <span class="icon">🛡️</span>
+                            <span class="label">Insurance Policy</span>
+                            <input type="file" name="insurance" accept="image/*,.pdf" onchange="previewFile(this)" required>
+                            <div class="preview-name"></div>
+                        </div>
+                        <div class="doc-upload-box">
+                            <span class="icon">💨</span>
+                            <span class="label">Pollution Certificate</span>
+                            <input type="file" name="pollution" accept="image/*,.pdf" onchange="previewFile(this)" required>
+                            <div class="preview-name"></div>
+                        </div>
+                        <div class="doc-upload-box">
+                            <span class="icon">📝</span>
+                            <span class="label">Commercial Permit</span>
+                            <input type="file" name="permit" accept="image/*,.pdf" onchange="previewFile(this)" required>
+                            <div class="preview-name"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="nav-btns">
+                    <button type="button" class="btn" id="prev-btn" style="display: none; background: #eee; color: #333;" onclick="changeStep(-1)">Back</button>
+                    <button type="button" class="btn btn-primary" id="next-btn" onclick="changeStep(1)">Continue to Docs</button>
+                    <button type="submit" class="btn btn-primary" id="submit-btn" style="display: none;">Submit Application</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <script>
+        let currentStep = 1;
+        let isEmailVerified = true;
+        const REG_KEY = 'cityride_driver_reg_draft';
+
+        function setupPersistence() {
+            const form = document.getElementById('driver-reg-form');
+            const saved = localStorage.getItem(REG_KEY);
+            
+            if (saved) {
+                const data = JSON.parse(saved);
+                Object.keys(data).forEach(name => {
+                    const el = form.querySelector(`[name="${name}"]`);
+                    if (el && el.type !== 'file') {
+                        el.value = data[name];
+                    }
+                });
+                if (data._step) {
+                    const targetStep = parseInt(data._step);
+                    for (let i = 1; i < targetStep; i++) {
+                        changeStep(1, true); // Bypass validation when loading
+                    }
+                }
+            }
+
+            form.addEventListener('input', () => {
+                const data = JSON.parse(localStorage.getItem(REG_KEY) || '{}');
+                form.querySelectorAll('input, select').forEach(input => {
+                    if (input.name && input.type !== 'file') {
+                        data[input.name] = input.value;
+                    }
+                });
+                data._step = currentStep;
+                localStorage.setItem(REG_KEY, JSON.stringify(data));
+            });
+        }
+
+        window.addEventListener('DOMContentLoaded', setupPersistence);
+
+
+
+        function isPasswordStrong(password) {
+            const minLength = 8;
+            const hasNumber = /\d/.test(password);
+            const hasSymbol = /[!@#$%^&*(),.?":{}|<>]/.test(password);
+            return password.length >= minLength && hasNumber && hasSymbol;
+        }
+
+        function changeStep(delta, skipValidation = false) {
+            // Validation before moving forward
+            if (delta > 0 && !skipValidation) {
+                if (currentStep === 1) {
+                    const pass = document.querySelector('input[name="password"]').value;
+                    if (!isPasswordStrong(pass)) {
+                        alert('Strength Required: Portal password must be at least 8 characters long and include a number and a symbol (!@#$%^&*, etc).');
+                        return;
+                    }
+                }
+                const currentStage = document.getElementById(`step-${currentStep}`);
+                const inputs = currentStage.querySelectorAll('input[required], select[required]');
+                let valid = true;
+                inputs.forEach(input => {
+                    if (!input.value) {
+                        input.style.borderColor = 'red';
+                        valid = false;
+                    } else {
+                        input.style.borderColor = '#ddd';
+                    }
+                });
+                if (!valid) {
+                    alert('Please complete all required fields/uploads for this step.');
+                    return;
+                }
+            }
+
+            // Hide current
+            document.getElementById(`step-${currentStep}`).classList.remove('active');
+            document.getElementById(`step-i-${currentStep}`).classList.remove('active');
+
+            currentStep += delta;
+
+            // Show new
+            document.getElementById(`step-${currentStep}`).classList.add('active');
+            document.getElementById(`step-i-${currentStep}`).classList.add('active');
+
+            // Update button visibility and persistence
+            const data = JSON.parse(localStorage.getItem(REG_KEY) || '{}');
+            data._step = currentStep;
+            localStorage.setItem(REG_KEY, JSON.stringify(data));
+
+            // Update buttons
+            document.getElementById('prev-btn').style.display = currentStep > 1 ? 'block' : 'none';
+            
+            if (currentStep === 3) {
+                document.getElementById('next-btn').style.display = 'none';
+                document.getElementById('submit-btn').style.display = 'block';
+            } else {
+                document.getElementById('next-btn').style.display = 'block';
+                document.getElementById('submit-btn').style.display = 'none';
+                document.getElementById('next-btn').textContent = currentStep === 2 ? 'Vehicle Details' : 'Continue to Docs';
+            }
+        }
+
+        function previewFile(input) {
+            const preview = input.parentElement.querySelector('.preview-name');
+            if (input.files && input.files[0]) {
+                preview.textContent = "✓ " + input.files[0].name.substring(0, 20) + "...";
+                preview.style.display = 'block';
+                input.parentElement.style.borderColor = 'var(--primary-red)';
+            } else {
+                preview.style.display = 'none';
+                input.parentElement.style.borderColor = '#ddd';
+            }
+        }
+
+        document.getElementById('driver-reg-form').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            
+            const btn = document.getElementById('submit-btn');
+            btn.disabled = true;
+            btn.textContent = 'Transmitting...';
+
+            const formData = new FormData(e.target);
+            // Ensure disabled email is included
+            formData.set('email', document.getElementById('driver-email').value);
+            
+            try {
+                const res = await fetch(`${API_BASE_URL}/api/driver/register`, {
+                    method: 'POST',
+                    body: formData
+                });
+
+                const result = await res.json();
+
+                if (res.ok) {
+                    alert('APPLICATION TRANSMITTED!\nYour documents have been received by Ground Control. We will notify you via email once your identity is authorized.');
+                    localStorage.removeItem(REG_KEY);
+                    window.location.href = '/driver-login';
+                } else {
+                    alert('System Error: ' + result.error);
+                }
+            } catch (err) {
+                alert('Network Link failure. Document transmission failed.');
+            } finally {
+                btn.disabled = false;
+                btn.textContent = 'Submit Application';
+            }
+        });
+    </script>
+</body>
+
+</html>

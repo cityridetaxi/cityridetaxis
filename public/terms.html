@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Terms and Conditions | CityRideTaxi</title>
+    <link rel="icon" type="image/png" href="logo.png">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+    <style>
+        .terms-container {
+            min-height: 100vh;
+            background: var(--light-grey);
+            padding: 4rem 2rem;
+            display: flex;
+            justify-content: center;
+            align-items: flex-start;
+        }
+
+        .terms-content {
+            background: var(--white);
+            max-width: 900px;
+            width: 100%;
+            padding: 5rem;
+            border-radius: 30px;
+            box-shadow: var(--shadow-lg);
+        }
+
+        .terms-content h1 {
+            font-size: 3rem;
+            margin-bottom: 2rem;
+            color: var(--dark-charcoal);
+        }
+
+        .terms-content h2 {
+            font-size: 1.5rem;
+            margin-top: 3rem;
+            margin-bottom: 1rem;
+            color: var(--primary-red);
+        }
+
+        .terms-content p {
+            color: var(--text-muted);
+            margin-bottom: 1.5rem;
+            line-height: 1.8;
+        }
+
+        .terms-content ul {
+            list-style: none;
+            margin-bottom: 2rem;
+        }
+
+        .terms-content ul li {
+            position: relative;
+            padding-left: 1.5rem;
+            margin-bottom: 0.75rem;
+            color: var(--text-muted);
+        }
+
+        .terms-content ul li::before {
+            content: '•';
+            position: absolute;
+            left: 0;
+            color: var(--primary-red);
+            font-weight: 700;
+        }
+
+        .back-nav {
+            margin-bottom: 3rem;
+        }
+
+        @media (max-width: 768px) {
+            .terms-content {
+                padding: 2.5rem;
+            }
+            .terms-content h1 {
+                font-size: 2rem;
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <div class="terms-container">
+        <div class="terms-content">
+            <nav class="back-nav">
+                <a href='/auth' class="btn-back" title="Back to Registration">←</a>
+            </nav>
+
+            <h1>Terms and Conditions</h1>
+            <p>Welcome to CityRideTaxi. These terms and conditions outline the rules and regulations for the use of our services.</p>
+
+            <h2>1. Acceptance of Terms</h2>
+            <p>By accessing this website and using our services, you accept these terms and conditions in full. Do not continue to use CityRideTaxi's services if you do not accept all of the terms and conditions stated on this page.</p>
+
+            <h2>2. User Registration</h2>
+            <p>During registration, you must provide accurate and complete information. You are responsible for maintaining the confidentiality of your account and password and for restricting access to your computer or mobile device.</p>
+
+            <h2>3. Service Usage</h2>
+            <ul>
+                <li>Users must be at least 18 years of age.</li>
+                <li>Users must not use the service for any illegal or unauthorized purpose.</li>
+                <li>Users must respect the drivers and other passengers.</li>
+                <li>Fares are calculated based on distance, time, and vehicle type.</li>
+            </ul>
+
+            <h2>4. Cancellation Policy</h2>
+            <p>Cancellations may incur a fee depending on the timing of the cancellation relative to the scheduled pickup. Please review the specific cancellation terms before booking.</p>
+
+            <h2>5. Limitation of Liability</h2>
+            <p>CityRideTaxi shall not be liable for any indirect, incidental, special, consequential or punitive damages, or any loss of profits or revenues, whether incurred directly or indirectly.</p>
+
+            <h2>6. Privacy Policy</h2>
+            <p>Your privacy is important to us. Please refer to our Privacy Policy section to understand how we collect, use, and safeguard your personal information.</p>
+
+            <h2>7. Governing Law</h2>
+            <p>These terms and conditions are governed by and construed in accordance with the laws of the jurisdiction in which CityRideTaxi operates.</p>
+
+            <div style="margin-top: 5rem; border-top: 1px solid var(--accents); padding-top: 2rem; text-align: center;">
+                <p style="font-size: 0.9rem;">Last Updated: March 30, 2026</p>
+                <a href='/auth' class="btn btn-primary" style="margin-top: 1rem;">Back to Registration</a>
+            </div>
+        </div>
+    </div>
+</body>
+
+</html>

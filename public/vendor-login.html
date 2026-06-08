@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CityRideTaxi | Vendor Partner Access</title>
+    <link rel="icon" type="image/png" href="logo.png">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+    <script src="config.js"></script>
+    <style>
+        body {
+            background: #121212;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            margin: 0;
+            color: white;
+        }
+        .login-box {
+            background: #1a1a1a;
+            padding: 3rem;
+            border-radius: 24px;
+            width: 100%;
+            max-width: 400px;
+            box-shadow: 0 40px 100px rgba(0,0,0,0.5);
+            border: 1px solid rgba(255,255,255,0.05);
+            text-align: center;
+        }
+        .logo { margin-bottom: 2.5rem; }
+        .input-group { margin-bottom: 1.5rem; text-align: left; }
+        .input-group label { display: block; margin-bottom: 0.5rem; font-size: 0.8rem; color: #888; }
+        .input-group input { 
+            width: 100%; 
+            padding: 1rem; 
+            border-radius: 12px; 
+            background: #252525; 
+            border: 1px solid #333; 
+            color: white; 
+            font-size: 1rem;
+        }
+        .btn-login {
+            width: 100%;
+            padding: 1.2rem;
+            border-radius: 12px;
+            background: var(--primary-red);
+            color: white;
+            border: none;
+            font-weight: 700;
+            cursor: pointer;
+            margin-top: 1rem;
+        }
+        .btn-login:hover { background: #d32f2f; }
+        .footer-link { margin-top: 2rem; display: block; color: #555; text-decoration: none; font-size: 0.85rem; }
+    </style>
+</head>
+<body>
+    <div class="login-box">
+        <div class="logo">
+            <img src="logo.png" alt="CityRide" style="height: 50px;">
+            <h2 style="margin-top:1rem">Partner <span style="color:var(--primary-red)">Authorize</span></h2>
+            <p style="color:#666; font-size:0.9rem">Authorized Business Personnel Only</p>
+        </div>
+        <form id="vendor-login-form">
+            <div class="input-group">
+                <label>Vendor Partner ID</label>
+                <input type="text" id="v-id" placeholder="VENDOR001" required>
+            </div>
+            <div class="input-group">
+                <label>Security Key</label>
+                <div class="password-wrapper">
+                    <input type="password" id="v-pass" placeholder="••••••••" required>
+                    <button type="button" class="password-toggle" onclick="togglePasswordVisibility('v-pass', this)">
+                        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="eye-icon"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                    </button>
+                </div>
+            </div>
+            <button type="submit" class="btn-login">Verify Credentials</button>
+        </form>
+        <a href='/' class="footer-link">Return to Public Portal</a>
+    </div>
+
+    <script>
+        // Persistence Logic
+        const VENDOR_KEY = 'cityride_vendor_login_draft';
+        function setupPersistence() {
+            const form = document.getElementById('vendor-login-form');
+            const saved = localStorage.getItem(VENDOR_KEY);
+            if (saved) {
+                const data = JSON.parse(saved);
+                if (data.id) document.getElementById('v-id').value = data.id;
+                if (data.pass) document.getElementById('v-pass').value = data.pass;
+            }
+
+            form.addEventListener('input', () => {
+                const data = {
+                    id: document.getElementById('v-id').value,
+                    pass: document.getElementById('v-pass').value
+                };
+                localStorage.setItem(VENDOR_KEY, JSON.stringify(data));
+            });
+        }
+
+        window.addEventListener('DOMContentLoaded', setupPersistence);
+
+        document.getElementById('vendor-login-form').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const vendor_id = document.getElementById('v-id').value;
+            const password = document.getElementById('v-pass').value;
+
+            try {
+                const res = await fetch(`${API_BASE_URL}/api/vendor/login`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ vendor_id, password })
+                });
+                const data = await res.json();
+                if (res.ok) {
+                    localStorage.setItem('cityride_vendor', JSON.stringify(data.user));
+                    localStorage.removeItem(VENDOR_KEY);
+                    window.location.href = '/vendor';
+                } else {
+                    alert(data.error);
+                }
+            } catch (err) {
+                alert('Auth Service Offline');
+            }
+        });
+    </script>
+</body>
+</html>

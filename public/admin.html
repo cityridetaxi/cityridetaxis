@@ -1,0 +1,2856 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CityRideTaxi | Admin Dashboard</title>
+    <link rel="icon" type="image/png" href="logo.png">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+    <script src="config.js"></script>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="" />
+    <!-- Jspdf for Reporting -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.25/jspdf.plugin.autotable.min.js"></script>
+    <style>
+        :root {
+            --admin-sidebar: #0e1016;
+            --admin-bg: #090a0f;
+            --primary-red: #B71C1C;
+            --primary-red-hover: #8E1515;
+            --dark-charcoal: #ffffff;
+            --text-main: #ffffff;
+            --text-muted: #8e9297;
+            --white: #14161d;
+            --border-color: rgba(255, 255, 255, 0.06);
+            --success-green: #34c759;
+            --danger-red: #ff3b30;
+            --warning-amber: #ff9f0a;
+            --info-blue: #0a84ff;
+        }
+
+        body {
+            background: var(--admin-bg) !important;
+            color: var(--text-main) !important;
+            display: flex;
+            height: 100vh;
+            overflow: hidden;
+            scroll-behavior: smooth;
+        }
+
+        .sidebar {
+            width: 280px;
+            background: var(--admin-sidebar);
+            color: white;
+            padding: 2.5rem 1.5rem;
+            display: flex;
+            flex-direction: column;
+            flex-shrink: 0;
+            transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+            height: 100vh;
+            position: sticky;
+            top: 0;
+            overflow-y: auto;
+            padding-bottom: 4rem;
+            border-right: 1px solid var(--border-color);
+        }
+
+        .sidebar::-webkit-scrollbar {
+            width: 4px;
+        }
+
+        .sidebar::-webkit-scrollbar-thumb {
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 10px;
+        }
+
+        .sidebar .logo {
+            margin-bottom: 4rem;
+            cursor: pointer;
+        }
+
+        .sidebar-nav {
+            flex-grow: 1;
+            display: flex;
+            flex-direction: column;
+            min-height: min-content;
+        }
+
+        .nav-item {
+            padding: 1rem 1.2rem;
+            margin-bottom: 0.4rem;
+            border-radius: 12px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+            opacity: 0.6;
+            font-size: 0.9rem;
+            color: var(--text-main) !important;
+        }
+
+        .logout-item {
+            margin-top: 2rem;
+            border-top: 1px solid var(--border-color);
+            padding-top: 2rem;
+        }
+
+        .nav-item:hover,
+        .nav-item.active {
+            background: rgba(255, 255, 255, 0.03);
+            opacity: 1;
+        }
+
+        .nav-item.active {
+            border-left: 4px solid var(--primary-red);
+        }
+
+        .main-stage {
+            flex-grow: 1;
+            padding: 3rem;
+            overflow-y: auto;
+            background: var(--admin-bg);
+            scroll-behavior: smooth;
+        }
+
+        /* Premium Scrollbar for the Stage */
+        .main-stage::-webkit-scrollbar {
+            width: 8px;
+        }
+
+        .main-stage::-webkit-scrollbar-track {
+            background: var(--admin-bg);
+        }
+
+        .main-stage::-webkit-scrollbar-thumb {
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 10px;
+        }
+
+        .main-stage::-webkit-scrollbar-thumb:hover {
+            background: rgba(255, 255, 255, 0.15);
+        }
+
+        .stage-header {
+            margin-bottom: 4rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .stage-header h1 {
+            color: var(--text-main) !important;
+        }
+
+        .stage-header p {
+            color: var(--text-muted) !important;
+        }
+
+        .stat-banner {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 2rem;
+            margin-bottom: 4rem;
+        }
+
+        .b-card {
+            background: var(--white);
+            padding: 2.5rem;
+            border-radius: 24px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+            border: 1px solid var(--border-color);
+            color: var(--text-main) !important;
+        }
+
+        .b-card h4 {
+            font-size: 0.8rem;
+            text-transform: uppercase;
+            color: var(--text-muted);
+            margin-bottom: 1rem;
+            letter-spacing: 1px;
+        }
+
+        .b-card .val {
+            font-size: 2.2rem;
+            font-weight: 700;
+            color: var(--text-main);
+        }
+
+        /* Custom SweetAlert Dark Theme styling */
+        .swal2-popup {
+            background: #14161d !important;
+            color: #ffffff !important;
+            border: 1px solid rgba(255, 255, 255, 0.06) !important;
+            border-radius: 20px !important;
+        }
+
+        .swal2-title {
+            color: #ffffff !important;
+        }
+
+        .swal2-html-container {
+            color: #8e9297 !important;
+        }
+
+        .swal2-input,
+        .swal2-textarea,
+        .swal2-select {
+            background: #090a0f !important;
+            color: #ffffff !important;
+            border: 1px solid rgba(255, 255, 255, 0.06) !important;
+        }
+
+        .swal2-validation-message {
+            background: rgba(255, 59, 48, 0.1) !important;
+            color: #ff3b30 !important;
+        }
+
+        /* Global Inputs, Selects, and Textareas */
+        input,
+        select,
+        textarea {
+            background: rgba(255, 255, 255, 0.03) !important;
+            color: #ffffff !important;
+            border: 1px solid rgba(255, 255, 255, 0.08) !important;
+            padding: 0.75rem 1rem !important;
+            border-radius: 10px !important;
+            outline: none !important;
+            transition: all 0.3s ease !important;
+        }
+
+        input:focus,
+        select:focus,
+        textarea:focus {
+            border-color: var(--primary-red) !important;
+            background: rgba(255, 255, 255, 0.05) !important;
+            box-shadow: 0 0 10px rgba(183, 28, 28, 0.2) !important;
+        }
+
+        label {
+            color: var(--text-muted) !important;
+            font-weight: 600 !important;
+            font-size: 0.85rem !important;
+            margin-bottom: 0.5rem !important;
+            display: inline-block !important;
+        }
+
+        .data-table-container {
+            background: var(--white);
+            border-radius: 30px;
+            padding: 2.5rem;
+            box-shadow: 0 20px 50px rgba(0, 0, 0, 0.4);
+            overflow-x: auto;
+            -webkit-overflow-scrolling: touch;
+            border: 1px solid var(--border-color);
+        }
+
+        /* Custom Scrollbar */
+        .data-table-container::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+
+        .data-table-container::-webkit-scrollbar-track {
+            background: transparent;
+        }
+
+        .data-table-container::-webkit-scrollbar-thumb {
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 10px;
+        }
+
+        .data-table-container::-webkit-scrollbar-thumb:hover {
+            background: var(--primary-red);
+        }
+
+        .cityride-table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        .cityride-table th {
+            text-align: left;
+            padding: 1.5rem;
+            font-size: 0.75rem;
+            text-transform: uppercase;
+            color: var(--text-muted);
+            border-bottom: 2px solid var(--border-color);
+        }
+
+        .cityride-table td {
+            padding: 1.5rem;
+            border-bottom: 1px solid var(--border-color);
+            font-size: 0.95rem;
+            vertical-align: top;
+            color: var(--text-main);
+        }
+
+        .status-tag {
+            padding: 0.4rem 0.8rem;
+            border-radius: 8px;
+            font-size: 0.7rem;
+            font-weight: 800;
+            text-transform: uppercase;
+        }
+
+        .status-pending {
+            background: rgba(255, 159, 10, 0.1);
+            color: var(--warning-amber);
+        }
+
+        .status-assigned {
+            background: rgba(10, 132, 255, 0.1);
+            color: var(--info-blue);
+        }
+
+        .status-completed {
+            background: rgba(52, 199, 89, 0.1);
+            color: var(--success-green);
+        }
+
+        .status-cancelled {
+            background: rgba(255, 59, 48, 0.1);
+            color: var(--danger-red);
+        }
+
+        .status-cancel_requested {
+            background: rgba(255, 59, 48, 0.15);
+            color: var(--danger-red);
+        }
+
+        .action-btn {
+            background: none;
+            border: none;
+            cursor: pointer;
+            color: var(--primary-red);
+            font-weight: 600;
+            font-size: 0.85rem;
+        }
+
+        .action-btn:hover {
+            text-decoration: underline;
+        }
+
+        .tab-section {
+            display: none;
+        }
+
+        .tab-section.active {
+            display: block;
+            animation: fadeIn 0.4s ease;
+        }
+
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+                transform: translateY(10px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        /* Laptop Optimization */
+        @media (max-width: 1366px) {
+            .sidebar {
+                width: 220px;
+                padding: 1.5rem;
+            }
+
+            .main-stage {
+                padding: 2.5rem;
+            }
+
+            .stat-banner {
+                grid-template-columns: repeat(2, 1fr);
+                gap: 1.5rem;
+            }
+
+            .b-card {
+                padding: 2rem;
+            }
+
+            .b-card .val {
+                font-size: 1.8rem;
+            }
+        }
+
+        @media (max-width: 1024px) {
+            .stat-banner {
+                grid-template-columns: 1fr 1fr;
+            }
+
+            .sidebar {
+                width: 200px;
+            }
+        }
+
+        @media (max-width: 768px) {
+            body {
+                flex-direction: column;
+                overflow-y: auto;
+            }
+
+            .sidebar {
+                position: fixed;
+                left: -260px;
+                top: 0;
+                height: 100vh;
+                z-index: 10000;
+                transition: var(--transition);
+                width: 260px;
+                box-shadow: 20px 0 50px rgba(0, 0, 0, 0.1);
+            }
+
+            .sidebar.active {
+                left: 0;
+            }
+
+            .mobile-header {
+                display: flex;
+                background: var(--admin-sidebar);
+                color: white;
+                padding: 1.25rem 2rem;
+                justify-content: space-between;
+                align-items: center;
+                position: sticky;
+                top: 0;
+                z-index: 9000;
+            }
+
+            .sidebar .logo {
+                margin-bottom: 3rem;
+            }
+
+            .sidebar-nav {
+                display: block;
+            }
+
+            .main-stage {
+                padding: 1.5rem;
+                overflow: visible;
+            }
+
+            .data-table-container {
+                padding: 1.25rem;
+                border-radius: 15px;
+            }
+
+            .stage-header h1 {
+                font-size: 1.8rem;
+            }
+
+            .stat-banner {
+                grid-template-columns: 1fr;
+                gap: 1rem;
+            }
+
+            .b-card {
+                padding: 1.5rem;
+            }
+
+            .b-card .val {
+                font-size: 1.6rem;
+            }
+        }
+
+        /* Modal Styles */
+        .map-modal {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.4);
+            backdrop-filter: blur(8px);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 10000;
+        }
+
+        .map-modal-content {
+            background: var(--white);
+            padding: 0;
+            border-radius: 24px;
+            width: 90%;
+            max-width: 550px;
+            max-height: 90vh;
+            overflow-y: auto;
+            box-shadow: 0 30px 60px rgba(0, 0, 0, 0.5);
+            animation: modalSlideUp 0.4s ease;
+            border: 1px solid var(--border-color);
+            color: var(--text-main);
+        }
+
+        @keyframes modalSlideUp {
+            from {
+                opacity: 0;
+                transform: translateY(30px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .map-header {
+            background: var(--admin-sidebar);
+            color: white;
+            padding: 1.5rem 2rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .close-map {
+            background: none;
+            border: none;
+            color: white;
+            font-size: 1.5rem;
+            cursor: pointer;
+            opacity: 0.7;
+        }
+
+        .close-map:hover {
+            opacity: 1;
+        }
+
+        .btn-large {
+            padding: 1.2rem;
+            border-radius: 12px;
+            font-weight: 700;
+            font-size: 1rem;
+            cursor: pointer;
+            border: none;
+            transition: all 0.3s ease;
+        }
+
+        .btn-primary {
+            background: var(--primary-red);
+            color: white;
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 20px rgba(183, 28, 28, 0.2);
+        }
+
+        .mobile-header {
+            display: none;
+        }
+
+        /* --- RESPONSIVE COMMAND DECK --- */
+        @media (max-width: 1024px) {
+            body {
+                flex-direction: column;
+                overflow-y: auto;
+            }
+
+            .mobile-header {
+                display: flex;
+                background: var(--admin-sidebar);
+                color: white;
+                padding: 1.25rem 2rem;
+                justify-content: space-between;
+                align-items: center;
+                position: sticky;
+                top: 0;
+                z-index: 9000;
+                box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1);
+            }
+
+            .sidebar {
+                position: fixed;
+                left: -280px;
+                top: 0;
+                height: 100vh;
+                z-index: 10000;
+                transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+                width: 280px;
+                background: var(--admin-sidebar);
+                padding-top: 5rem;
+            }
+
+            .sidebar.active {
+                left: 0;
+            }
+
+            .sidebar-nav {
+                display: block;
+            }
+
+            .main-stage {
+                padding: 1.5rem;
+                overflow: visible;
+            }
+
+            .stat-banner {
+                grid-template-columns: 1fr;
+                gap: 1rem;
+            }
+
+            .data-table-container {
+                padding: 1rem;
+                border-radius: 12px;
+            }
+
+            .stage-header h1 {
+                font-size: 1.6rem;
+            }
+
+            .burger-menu {
+                display: flex;
+                flex-direction: column;
+                gap: 5px;
+                cursor: pointer;
+                z-index: 10001;
+                width: 44px;
+                height: 44px;
+                align-items: center;
+                justify-content: center;
+            }
+
+            .burger-menu span {
+                display: block;
+                width: 25px;
+                height: 2px;
+                background: white;
+                transition: 0.3s;
+                border-radius: 2px;
+            }
+
+            /* Transformation to X */
+            .burger-menu.active span:nth-child(1) {
+                transform: translateY(7px) rotate(45deg);
+            }
+
+            .burger-menu.active span:nth-child(2) {
+                opacity: 0;
+            }
+
+            .burger-menu.active span:nth-child(3) {
+                transform: translateY(-7px) rotate(-45deg);
+            }
+
+            #tariff-fields-container {
+                grid-template-columns: 1fr !important;
+            }
+
+            #create-vendor-form,
+            #create-driver-form {
+                grid-template-columns: 1fr !important;
+            }
+
+            /* Responsive Table Strategy */
+            .cityride-table thead {
+                display: none;
+            }
+
+            .cityride-table,
+            .cityride-table tbody,
+            .cityride-table tr,
+            .cityride-table td {
+                display: block;
+                width: 100%;
+            }
+
+            .cityride-table tr {
+                margin-bottom: 1.5rem;
+                background: var(--white);
+                border: 1px solid var(--border-color);
+                border-radius: 16px;
+                padding: 1.25rem;
+                box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+            }
+
+            .cityride-table td {
+                border: none;
+                padding: 0.85rem 0 0.85rem 130px;
+                display: block;
+                text-align: right;
+                border-bottom: 1px solid var(--border-color);
+                position: relative;
+                min-height: 2.5rem;
+            }
+
+            .cityride-table td:last-child {
+                border-bottom: none;
+                margin-top: 0.5rem;
+                padding-bottom: 0;
+            }
+
+            .cityride-table td::before {
+                content: attr(data-label);
+                font-weight: 800;
+                text-transform: uppercase;
+                font-size: 0.65rem;
+                color: var(--text-muted);
+                position: absolute;
+                left: 0;
+                top: 1rem;
+                text-align: left;
+                width: 120px;
+                white-space: nowrap;
+                overflow: hidden;
+                text-overflow: ellipsis;
+            }
+        }
+
+        /* Pilot Info Block Styles */
+        .pilot-info-block {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+            text-align: left;
+            min-width: 180px;
+        }
+
+        .pilot-info-block .p-name {
+            font-weight: 700;
+            color: var(--text-main);
+            font-size: 0.9rem;
+            line-height: 1.2;
+        }
+
+        .pilot-info-block .p-email a {
+            font-size: 0.75rem;
+            color: var(--info-blue);
+            text-decoration: none;
+            font-weight: 600;
+            display: block;
+            margin-top: 1px;
+        }
+
+        .pilot-info-block .p-phone a {
+            font-size: 0.75rem;
+            color: var(--primary-red);
+            text-decoration: none;
+            font-weight: 700;
+            display: block;
+        }
+
+        @media (max-width: 1024px) {
+            .pilot-info-block {
+                text-align: right;
+                align-items: flex-end;
+            }
+        }
+    </style>
+</head>
+
+<body style="overflow: hidden;"> <!-- Lock scroll during splash -->
+    <div id="splash-screen">
+        <div class="splash-grid"></div>
+        <div class="splash-orb"></div>
+        <div class="splash-ring"></div>
+        <div class="splash-ring splash-ring-2"></div>
+        <div class="splash-logo-wrap">
+            <img src="logo.png" class="splash-logo" alt="CityRideTaxi">
+            <div class="splash-brand"><span>CityRide</span>Taxi</div>
+            <div class="splash-tagline">Premium Cab Booking</div>
+        </div>
+        <div class="splash-road-wrap">
+            <div class="splash-road"></div>
+            <svg class="splash-car" width="64" height="28" viewBox="0 0 64 28" fill="none">
+                <rect x="8" y="12" width="48" height="12" rx="4" fill="#dc143c" />
+                <path d="M18 12 L22 4 L42 4 L46 12Z" fill="#c01030" />
+                <rect x="23" y="5" width="8" height="6" rx="1" fill="rgba(150,220,255,0.7)" />
+                <rect x="33" y="5" width="8" height="6" rx="1" fill="rgba(150,220,255,0.7)" />
+                <circle cx="18" cy="24" r="4" fill="#1a1a1a" stroke="#555" stroke-width="1.5" />
+                <circle cx="18" cy="24" r="1.5" fill="#888" />
+                <circle cx="46" cy="24" r="4" fill="#1a1a1a" stroke="#555" stroke-width="1.5" />
+                <circle cx="46" cy="24" r="1.5" fill="#888" />
+                <ellipse cx="57" cy="16" rx="5" ry="3" fill="rgba(255,220,100,0.5)" />
+                <rect x="54" y="14" width="3" height="4" rx="1" fill="#ffd700" />
+            </svg>
+        </div>
+        <div class="splash-progress-wrap">
+            <div class="splash-progress-bar"></div>
+        </div>
+        <div class="splash-status">Dispatching Systems…</div>
+    </div>
+    <div class="mobile-header">
+        <div class="logo" style="margin:0">
+            <img src="logo.png" alt="CityRideTaxi" style="height: 35px; width: auto;">
+        </div>
+        <div class="burger-menu" id="admin-burger">
+            <span></span>
+            <span></span>
+            <span></span>
+        </div>
+    </div>
+    <aside class="sidebar" id="admin-sidebar">
+        <div class="logo" onclick="window.location.href='/'" style="cursor:pointer;">
+            <img src="logo.png" alt="CityRideTaxi" style="height: 50px; width: auto;">
+        </div>
+        <div class="sidebar-nav">
+            <div class="nav-item active" onclick="switchTab('overview', this)">📊 Execution Overview</div>
+            <div class="nav-item" onclick="switchTab('bookings', this)">🚕 Mission Control</div>
+            <div class="nav-item" onclick="switchTab('fleet', this)">🏎️ Pilot Management</div>
+            <div class="nav-item" onclick="switchTab('wallets', this)">💳 Wallet Registry</div>
+            <div class="nav-item" onclick="switchTab('users', this)">👥 Member Registry</div>
+            <div class="nav-item" onclick="switchTab('vendors', this)">🤝 Network Partners</div>
+            <div class="nav-item" onclick="switchTab('tariffs', this)">💰 Rate Tariffs</div>
+        </div>
+        <div class="nav-item logout-item" onclick="logoutAdmin()">🚪 Sign Out</div>
+    </aside>
+
+    <main class="main-stage">
+        <!-- Overview Tab -->
+        <div id="overview" class="tab-section active">
+            <div class="stage-header">
+                <div>
+                    <h1>Platform <span class="text-accent">Insight</span></h1>
+                    <p>Real-time performance analytics for the fleet.</p>
+                </div>
+            </div>
+
+            <div class="stat-banner">
+                <div class="b-card">
+                    <h4>Total Revenue</h4>
+                    <div class="val" id="stat-revenue">₹0</div>
+                </div>
+                <div class="b-card">
+                    <h4>Live Missions</h4>
+                    <div class="val" id="stat-active">0</div>
+                </div>
+                <div class="b-card">
+                    <h4>Partners</h4>
+                    <div class="val" id="stat-drivers">0</div>
+                </div>
+                <div class="b-card">
+                    <h4>Member Base</h4>
+                    <div class="val" id="stat-users">0</div>
+                </div>
+            </div>
+
+            <div class="data-table-container">
+                <h3 style="margin-bottom: 2rem;">Recent Missions</h3>
+                <table class="cityride-table">
+                    <thead>
+                        <tr>
+                            <th>Mission ID</th>
+                            <th>Member</th>
+                            <th>Deployment</th>
+                            <th>Status</th>
+                            <th>Action</th>
+                        </tr>
+                    </thead>
+                    <tbody id="overview-table-body">
+                        <!-- Loaded via JS -->
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Mission Control Tab (Combined Bookings & Aborts) -->
+        <div id="bookings" class="tab-section">
+            <div class="stage-header">
+                <h1>Mission <span class="text-accent">Control</span></h1>
+                <div style="display: flex; gap: 1rem;">
+                    <button class="btn btn-primary"
+                        style="padding: 0.6rem 1.2rem; font-size: 0.8rem; background: #2e7d32;"
+                        onclick="downloadCSV()">CSV Report</button>
+                    <button class="btn btn-primary"
+                        style="padding: 0.6rem 1.2rem; font-size: 0.8rem; background: #c62828;"
+                        onclick="downloadPDF()">PDF Report</button>
+                </div>
+            </div>
+
+            <!-- Abort Requests Section (Conditional) -->
+            <div id="abort-requests-section" style="display: none; margin-bottom: 4rem;">
+                <h3 style="margin-bottom: 2rem; color: #d32f2f; display: flex; align-items: center; gap: 10px;">
+                    🛑 Pending Abort Requests
+                </h3>
+                <div class="data-table-container" style="border: 2px solid #ffebee;">
+                    <table class="cityride-table">
+                        <thead>
+                            <tr>
+                                <th>Mission ID</th>
+                                <th>Pilot / Member</th>
+                                <th>Reason for Abort</th>
+                                <th>Authorization</th>
+                            </tr>
+                        </thead>
+                        <tbody id="cancellations-table-body">
+                            <!-- Loaded via JS -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <div class="data-table-container">
+                <h3 style="margin-bottom: 2rem;">Mission Logs</h3>
+                <table class="cityride-table">
+                    <thead>
+                        <tr>
+                            <th>ID</th>
+                            <th>Customer</th>
+                            <th>Trip Data</th>
+                            <th>Financials</th>
+                            <th>Crew Assigned</th>
+                            <th>Status</th>
+                            <th>Operation</th>
+                            <th>Transfer</th>
+                        </tr>
+                    </thead>
+                    <tbody id="bookings-table-body">
+                        <!-- Loaded via JS -->
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Pilot Management Tab (Combined Drivers & Applications) -->
+        <div id="fleet" class="tab-section">
+            <div class="stage-header">
+                <h1>Pilot <span class="text-accent">Management</span></h1>
+                <p>Unified control for fleet onboarding and driver registry.</p>
+            </div>
+
+            <!-- Tab Sub-Navigation -->
+            <div style="display: flex; gap: 1rem; margin-bottom: 2rem;">
+                <button class="btn"
+                    style="background: var(--primary-red); color: white; padding: 0.6rem 1.2rem; border: none;"
+                    onclick="showFleetSubSection('active-pilots')">🏎️ Active Pilots</button>
+                <button class="btn"
+                    style="background: rgba(255, 255, 255, 0.03); color: var(--text-muted); padding: 0.6rem 1.2rem; border: 1px solid var(--border-color);"
+                    onclick="showFleetSubSection('pending-apps')">📋 Pending Applications</button>
+                <button class="btn"
+                    style="background: rgba(255, 255, 255, 0.03); color: var(--text-muted); padding: 0.6rem 1.2rem; border: 1px solid var(--border-color);"
+                    onclick="showFleetSubSection('onboarding-history')">📜 History</button>
+            </div>
+
+            <!-- Active Pilots Section -->
+            <div id="active-pilots-section" class="fleet-subsection">
+                <!-- Create Driver Form -->
+                <div class="data-table-container"
+                    style="margin-bottom: 3rem; background: var(--admin-sidebar); color: white;">
+                    <h3 style="margin-bottom: 2rem;">Induct Partner Pilot</h3>
+                    <form id="create-driver-form"
+                        style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 1.5rem;">
+                        <div class="input-group">
+                            <label style="color: rgba(255,255,255,0.7);">Full Name</label>
+                            <input type="text" id="d-name" placeholder="Pilot Name" required
+                                style="background: rgba(255,255,255,0.1); border-color: rgba(255,255,255,0.1); color: white;">
+                        </div>
+                        <div class="input-group">
+                            <label style="color: rgba(255,255,255,0.7);">Email</label>
+                            <input type="email" id="d-email" placeholder="pilot@cityridetaxi.com" required
+                                style="background: rgba(255,255,255,0.1); border-color: rgba(255,255,255,0.1); color: white;">
+                        </div>
+                        <div class="input-group">
+                            <label style="color: rgba(255,255,255,0.7);">Access Key (Password)</label>
+                            <input type="text" id="d-pass" placeholder="Pilot123!" required
+                                style="background: rgba(255,255,255,0.1); border-color: rgba(255,255,255,0.1); color: white;">
+                        </div>
+                        <div class="input-group">
+                            <label style="color: rgba(255,255,255,0.7);">Phone</label>
+                            <input type="text" id="d-phone" placeholder="Pilot Signal" required
+                                style="background: rgba(255,255,255,0.1); border-color: rgba(255,255,255,0.1); color: white;">
+                        </div>
+                        <div class="input-group">
+                            <label style="color: rgba(255,255,255,0.7);">Vehicle Model</label>
+                            <input type="text" id="d-car" placeholder="Black Sedan" required
+                                style="background: rgba(255,255,255,0.1); border-color: rgba(255,255,255,0.1); color: white;">
+                        </div>
+                        <div class="input-group">
+                            <label style="color: rgba(255,255,255,0.7);">Vehicle ID</label>
+                            <input type="text" id="d-num" placeholder="TN 01 CRT" required
+                                style="background: rgba(255,255,255,0.1); border-color: rgba(255,255,255,0.1); color: white;">
+                        </div>
+                        <div class="input-group">
+                            <label style="color: rgba(255,255,255,0.7);">Vehicle Type</label>
+                            <select id="d-type" required
+                                style="background: rgba(255,255,255,0.1); border-color: rgba(255,255,255,0.1); color: white; width: 100%; padding: 10px; border-radius: 8px;">
+                                <option value="bike" style="color: black;">Bike</option>
+                                <option value="auto" style="color: black;">Auto (3+1)</option>
+                                <option value="hatchback" style="color: black;">Hatchback (4+1)</option>
+                                <option value="sedan" style="color: black;">Sedan</option>
+                                <option value="suv" style="color: black;">SUV</option>
+                                <option value="8plus1" style="color: black;">Tempo Traveller (8+1)</option>
+                                <option value="van24" style="color: black;">Omni Bus (24+1)</option>
+                            </select>
+                        </div>
+                        <div style="grid-column: span 3;">
+                            <button type="submit" class="btn btn-primary" style="width: 100%;">Authorize Partner
+                                Pilot</button>
+                        </div>
+                    </form>
+                </div>
+
+                <div class="data-table-container">
+                    <table class="cityride-table">
+                        <thead>
+                            <tr>
+                                <th>Pilot ID</th>
+                                <th>Details</th>
+                                <th>Vehicle ID</th>
+                                <th>Category</th>
+                                <th>Model</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="fleet-table-body">
+                            <!-- Loaded via JS -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Pending Applications Section -->
+            <div id="pending-apps-section" class="fleet-subsection" style="display: none;">
+                <div class="data-table-container">
+                    <table class="cityride-table">
+                        <thead>
+                            <tr>
+                                <th>ID</th>
+                                <th>Identity</th>
+                                <th>Vehicle</th>
+                                <th>Docs Status</th>
+                                <th>Status</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="applications-table-body">
+                            <!-- Loaded via JS -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- History Section -->
+            <div id="onboarding-history-section" class="fleet-subsection" style="display: none;">
+                <div class="data-table-container">
+                    <table class="cityride-table">
+                        <thead>
+                            <tr>
+                                <th>ID</th>
+                                <th>Pilot</th>
+                                <th>Vehicle</th>
+                                <th>Authorized On</th>
+                                <th>Docs</th>
+                            </tr>
+                        </thead>
+                        <tbody id="app-history-table-body">
+                            <!-- Loaded via JS -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- Wallet Registry Tab -->
+        <div id="wallets" class="tab-section">
+            <div class="stage-header">
+                <h1>Wallet <span class="text-accent">Registry</span></h1>
+                <p>Quick balance management for all authorized platform pilots.</p>
+            </div>
+            <div class="data-table-container">
+                <table class="cityride-table">
+                    <thead>
+                        <tr>
+                            <th>Pilot ID</th>
+                            <th>Partner Details</th>
+                            <th>Current Balance</th>
+                            <th>Wallet Operations</th>
+                        </tr>
+                    </thead>
+                    <tbody id="wallets-table-body">
+                        <!-- Loaded via JS -->
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Users Tab -->
+        <div id="users" class="tab-section">
+            <div class="stage-header">
+                <h1>Network <span class="text-accent">Registry</span></h1>
+            </div>
+            <div class="data-table-container">
+                <table class="cityride-table">
+                    <thead>
+                        <tr>
+                            <th>Member ID</th>
+                            <th>Details</th>
+                            <th>Registration Date</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="users-table-body">
+                        <!-- Loaded via JS -->
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Vendors Tab -->
+        <div id="vendors" class="tab-section">
+            <div class="stage-header">
+                <h1>Business <span class="text-accent">Partners</span></h1>
+                <p>Manage secondary booking dealers and business growth partners.</p>
+            </div>
+            <div class="data-table-container"
+                style="margin-bottom: 3rem; background: var(--admin-sidebar); color: white;">
+                <h3 style="margin-bottom: 2rem;">Induct Business Partner</h3>
+                <form id="create-vendor-form"
+                    style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 1.5rem;">
+                    <div class="input-group">
+                        <label style="color: rgba(255,255,255,0.7);">Partner ID</label>
+                        <input type="text" id="v-id" placeholder="V-101" required
+                            style="background: rgba(255,255,255,0.1); border-color: rgba(255,255,255,0.1); color: white;">
+                    </div>
+                    <div class="input-group">
+                        <label style="color: rgba(255,255,255,0.7);">Full Name</label>
+                        <input type="text" id="v-name" placeholder="Contact Person" required
+                            style="background: rgba(255,255,255,0.1); border-color: rgba(255,255,255,0.1); color: white;">
+                    </div>
+                    <div class="input-group">
+                        <label style="color: rgba(255,255,255,0.7);">Business Name</label>
+                        <input type="text" id="v-business" placeholder="Travel Agency Name" required
+                            style="background: rgba(255,255,255,0.1); border-color: rgba(255,255,255,0.1); color: white;">
+                    </div>
+                    <div class="input-group">
+                        <label style="color: rgba(255,255,255,0.7);">Email</label>
+                        <input type="email" id="v-email" placeholder="vendor@partner.com" required
+                            style="background: rgba(255,255,255,0.1); border-color: rgba(255,255,255,0.1); color: white;">
+                    </div>
+                    <div class="input-group">
+                        <label style="color: rgba(255,255,255,0.7);">Access Key (Password)</label>
+                        <input type="text" id="v-pass" placeholder="Partner123!" required
+                            style="background: rgba(255,255,255,0.1); border-color: rgba(255,255,255,0.1); color: white;">
+                    </div>
+                    <div class="input-group">
+                        <label style="color: rgba(255,255,255,0.7);">Phone</label>
+                        <input type="text" id="v-phone" placeholder="9876543210" required
+                            style="background: rgba(255,255,255,0.1); border-color: rgba(255,255,255,0.1); color: white;">
+                    </div>
+                    <div style="grid-column: span 3;">
+                        <button type="submit" class="btn btn-primary" style="width: 100%;">Authorize Partner
+                            Dealer</button>
+                    </div>
+                </form>
+            </div>
+            <div class="data-table-container">
+                <table class="cityride-table">
+                    <thead>
+                        <tr>
+                            <th>Partner ID</th>
+                            <th>Business Details</th>
+                            <th>Contact Info</th>
+                            <th>Status</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="vendors-table-body">
+                        <!-- Loaded via JS -->
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Tariffs Tab -->
+        <div id="tariffs" class="tab-section">
+            <div class="stage-header">
+                <h1>Rate <span class="text-accent">Tariffs</span></h1>
+                <p>Manage pricing and fare rules for all vehicle categories.</p>
+            </div>
+            <div class="data-table-container">
+                <table class="cityride-table">
+                    <thead>
+                        <tr>
+                            <th>Vehicle</th>
+                            <th>Category</th>
+                            <th>Current Rates</th>
+                            <th>Last Updated</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="tariffs-table-body">
+                        <!-- Loaded via JS -->
+                    </tbody>
+                </table>
+            </div>
+
+            <div class="stage-header" style="margin-top: 4rem;">
+                <div>
+                    <h1>Peak Time <span class="text-accent">Surcharge Rules</span></h1>
+                    <p>Apply percentage-based increases for specific time windows.</p>
+                </div>
+                <button class="btn btn-primary" onclick="openPeakRuleModal()"
+                    style="padding: 0.8rem 1.5rem; background: #e65100;">+ New Peak Rule</button>
+            </div>
+
+            <div class="data-table-container">
+                <table class="cityride-table">
+                    <thead>
+                        <tr>
+                            <th>Start Time</th>
+                            <th>End Time</th>
+                            <th>Surcharge (%)</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="peak-rules-table-body">
+                        <!-- Loaded via JS -->
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+
+    </main>
+
+    <!-- Edit Driver Modal -->
+    <div id="edit-driver-modal" class="map-modal" style="display: none;">
+        <div class="map-modal-content" style="max-width: 500px;">
+            <div class="map-header">
+                <h3>Update Pilot Registry</h3>
+                <button class="close-map" onclick="closeEditModal()">&times;</button>
+            </div>
+            <div style="padding: 2rem;">
+                <form id="edit-driver-form">
+                    <input type="hidden" id="edit-d-id">
+                    <div class="input-group">
+                        <label>Pilot Name</label>
+                        <input type="text" id="edit-d-name" required>
+                    </div>
+                    <div class="input-group">
+                        <label>Phone Number</label>
+                        <input type="text" id="edit-d-phone" required>
+                    </div>
+                    <div class="input-group">
+                        <label>Vehicle Model</label>
+                        <input type="text" id="edit-d-car" required>
+                    </div>
+                    <div class="input-group">
+                        <label>Vehicle ID (Plate)</label>
+                        <input type="text" id="edit-d-num" required>
+                    </div>
+                    <div class="input-group">
+                        <label>Vehicle Type</label>
+                        <select id="edit-d-type" required
+                            style="width: 100%; padding: 0.85rem 1rem; border-radius: 10px; border: 1px solid rgba(0,0,0,0.1); font-family: inherit; font-size: 1rem;">
+                            <option value="bike">Bike</option>
+                            <option value="auto">Auto (3+1)</option>
+                            <option value="hatchback">Hatchback (4+1)</option>
+                            <option value="sedan">Sedan</option>
+                            <option value="suv">SUV</option>
+                            <option value="8plus1">Tempo Traveller (8+1)</option>
+                            <option value="van24">Omni Bus (24+1)</option>
+                        </select>
+                    </div>
+                    <button type="submit" class="btn btn-primary btn-large" style="width:100%; margin-top: 1rem;">Update
+                        Authorization</button>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Edit Wallet Modal -->
+    <div id="edit-wallet-modal" class="map-modal" style="display: none;">
+        <div class="map-modal-content" style="max-width: 400px;">
+            <div class="map-header">
+                <h3>Update Wallet Balance</h3>
+                <button class="close-map" onclick="closeWalletModal()">&times;</button>
+            </div>
+            <div style="padding: 2rem;">
+                <form id="edit-wallet-form">
+                    <input type="hidden" id="edit-w-id">
+                    <div class="input-group">
+                        <label>Balance (₹)</label>
+                        <input type="number" step="0.01" id="edit-w-balance" required>
+                    </div>
+                    <button type="submit" class="btn btn-primary btn-large" style="width:100%; margin-top: 1rem;">Update
+                        Balance</button>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Edit Vendor Modal -->
+    <div id="edit-vendor-modal" class="map-modal" style="display: none;">
+        <div class="map-modal-content" style="max-width: 500px;">
+            <div class="map-header">
+                <h3>Update Business Partner</h3>
+                <button class="close-map" onclick="closeEditVendorModal()">&times;</button>
+            </div>
+            <div style="padding: 2rem;">
+                <form id="edit-vendor-form">
+                    <input type="hidden" id="edit-v-db-id">
+                    <div class="input-group">
+                        <label>Partner ID</label>
+                        <input type="text" id="edit-v-id" required>
+                    </div>
+                    <div class="input-group">
+                        <label>Full Name</label>
+                        <input type="text" id="edit-v-name" required>
+                    </div>
+                    <div class="input-group">
+                        <label>Business Name</label>
+                        <input type="text" id="edit-v-business" required>
+                    </div>
+                    <div class="input-group">
+                        <label>Email</label>
+                        <input type="email" id="edit-v-email" required>
+                    </div>
+                    <div class="input-group">
+                        <label>Access Key (Leave blank to keep current)</label>
+                        <input type="text" id="edit-v-pass" placeholder="Enter new password if changing">
+                    </div>
+                    <div class="input-group">
+                        <label>Phone</label>
+                        <input type="text" id="edit-v-phone" required>
+                    </div>
+                    <div class="input-group">
+                        <label>Status</label>
+                        <select id="edit-v-status"
+                            style="width: 100%; padding: 0.85rem 1rem; border-radius: 10px; border: 1px solid rgba(0,0,0,0.1); font-family: inherit; font-size: 1rem;">
+                            <option value="0">Active</option>
+                            <option value="1">Deactivated</option>
+                        </select>
+                    </div>
+                    <button type="submit" class="btn btn-primary btn-large" style="width:100%; margin-top: 1rem;">Update
+                        Partner Details</button>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Transfer Ride Modal -->
+    <div id="transfer-ride-modal" class="map-modal" style="display: none;">
+        <div class="map-modal-content" style="max-width: 460px;">
+            <div class="map-header"
+                style="background: var(--admin-sidebar); border-bottom: 1px solid var(--border-color);">
+                <h3>🔄 Transfer Ride</h3>
+                <button class="close-map" onclick="closeTransferModal()">&#215;</button>
+            </div>
+            <div style="padding: 2rem;">
+                <input type="hidden" id="transfer-booking-id">
+                <div id="transfer-booking-info"
+                    style="background: rgba(255,255,255,0.02); border: 1px solid var(--border-color); border-radius:12px; padding:1rem; margin-bottom:1.5rem; font-size:0.9rem; color:var(--text-main);">
+                </div>
+                <div class="input-group" style="margin-bottom:1.5rem;">
+                    <label>Select New Driver</label>
+                    <select id="transfer-driver-select"
+                        style="width:100%; padding:0.85rem 1rem; border-radius:10px; font-family:inherit; font-size:1rem;">
+                        <option value="">-- Loading drivers... --</option>
+                    </select>
+                </div>
+                <button class="btn btn-primary btn-large" onclick="submitTransfer()"
+                    style="background: var(--primary-red); border: none;">Confirm Transfer</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Password Reset Modal -->
+    <div id="password-modal" class="map-modal" style="display: none;">
+        <div class="map-modal-content" style="max-width: 400px;">
+            <div class="map-header"
+                style="background: var(--admin-sidebar); border-bottom: 1px solid var(--border-color);">
+                <h3>🔐 Reset Password</h3>
+                <button class="close-map" onclick="closePasswordModal()">&#215;</button>
+            </div>
+            <div style="padding: 2rem;">
+                <p id="password-target-name" style="margin-bottom: 1.5rem; font-weight: 600; color: var(--text-muted);">
+                </p>
+                <form id="password-reset-form">
+                    <input type="hidden" id="pass-target-type">
+                    <input type="hidden" id="pass-target-id">
+                    <div class="input-group">
+                        <label>New Password</label>
+                        <div class="password-wrapper">
+                            <input type="password" id="new-password" placeholder="Enter new password" required>
+                            <button type="button" class="password-toggle"
+                                onclick="togglePasswordVisibility('new-password', this)">
+                                <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor"
+                                    stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="eye-icon">
+                                    <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+                                    <circle cx="12" cy="12" r="3" />
+                                </svg>
+                            </button>
+                        </div>
+                    </div>
+                    <div class="input-group" style="margin-top: 1rem;">
+                        <label>Confirm Password</label>
+                        <div class="password-wrapper">
+                            <input type="password" id="confirm-password" placeholder="Confirm new password" required>
+                            <button type="button" class="password-toggle"
+                                onclick="togglePasswordVisibility('confirm-password', this)">
+                                <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor"
+                                    stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="eye-icon">
+                                    <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+                                    <circle cx="12" cy="12" r="3" />
+                                </svg>
+                            </button>
+                        </div>
+                    </div>
+                    <button type="submit" class="btn btn-primary btn-large"
+                        style="width:100%; margin-top: 1.5rem; background: #f39c12;">Update Password</button>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Check if admin is logged in (Role Isolation)
+        const user = JSON.parse(localStorage.getItem('cityride_master'));
+        if (!user) {
+            window.location.href = '/admin-login';
+        }
+
+        function switchTab(tabId, el) {
+            const section = document.getElementById(tabId);
+            if (!section) {
+                console.warn('Mission Control Warning: Tab section not found ->', tabId);
+                return;
+            }
+
+            document.querySelectorAll('.tab-section').forEach(s => s.classList.remove('active'));
+            document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+
+            section.classList.add('active');
+            if (el) el.classList.add('active');
+
+            // Close mobile menu if open
+            const sidebar = document.getElementById('admin-sidebar');
+            const burger = document.getElementById('admin-burger');
+            if (window.innerWidth <= 1024) {
+                if (sidebar) sidebar.classList.remove('active');
+                if (burger) burger.classList.remove('active');
+            }
+
+            loadTabData(tabId);
+        }
+
+        // Mobile Sidebar Logic
+        const adminBurger = document.getElementById('admin-burger');
+        const adminSidebar = document.getElementById('admin-sidebar');
+
+        if (adminBurger && adminSidebar) {
+            adminBurger.addEventListener('click', () => {
+                adminBurger.classList.toggle('active');
+                adminSidebar.classList.toggle('active');
+            });
+        }
+
+        async function loadTabData(tabId) {
+            const bodyId = tabId === 'overview' ? 'overview-table-body' :
+                tabId === 'bookings' ? 'bookings-table-body' :
+                    tabId === 'fleet' ? 'fleet-table-body' :
+                        tabId === 'wallets' ? 'wallets-table-body' :
+                            tabId === 'users' ? 'users-table-body' :
+                                tabId === 'vendors' ? 'vendors-table-body' :
+                                    tabId === 'tariffs' ? 'tariffs-table-body' : null;
+
+            const body = bodyId ? document.getElementById(bodyId) : null;
+
+            try {
+                if (tabId === 'overview') {
+                    const res = await fetch(`${API_BASE_URL}/api/admin/stats`);
+                    if (!res.ok) throw new Error('Stats Fetch Failed');
+                    const stats = await res.json();
+
+                    const rev = document.getElementById('stat-revenue');
+                    const act = document.getElementById('stat-active');
+                    const dri = document.getElementById('stat-drivers');
+                    const usr = document.getElementById('stat-users');
+
+                    if (rev) rev.textContent = stats && stats.revenue !== undefined ? `₹${stats.revenue.toLocaleString()}` : '₹0';
+                    if (act) act.textContent = stats ? stats.activeBookings : '0';
+                    if (dri) dri.textContent = stats ? stats.totalDrivers : '0';
+                    if (usr) usr.textContent = stats ? stats.totalUsers : '0';
+
+                    const resB = await fetch(`${API_BASE_URL}/api/admin/bookings`);
+                    if (!resB.ok) throw new Error('Bookings Fetch Failed');
+                    const bookings = await resB.json();
+                    if (!body) return;
+                    body.innerHTML = '';
+                    if (Array.isArray(bookings)) {
+                        bookings.slice(0, 5).forEach(b => {
+                            body.innerHTML += `
+                                <tr>
+                                    <td data-label="Booking ID">#B${b.id}</td>
+                                    <td data-label="Customer">
+                                        <strong>${b.customer_name}</strong>
+                                        ${b.vendor_id ? `<span style="font-size:0.6rem; color:var(--info-blue); font-weight:800; margin-left:5px;">(VENDOR)</span>` : ''}<br>
+                                        <a href="tel:${b.customer_phone}" style="font-size:0.8rem; color:var(--primary-red); text-decoration:none; font-weight:700;">${b.customer_phone || ''}</a>
+                                    </td>
+                                    <td data-label="Route" style="padding: 1.5rem; text-align: left;">
+                                        <span style="font-size:0.65rem; font-weight:800; color:var(--primary-red); text-transform:uppercase; background:rgba(183, 28, 28, 0.15); padding:2px 6px; border-radius:4px; margin-bottom:0.3rem; display:inline-block;">${(b.trip_type === 'round' ? 'Round Trip' : (b.trip_type === 'rental' ? 'Local Rental' : (b.trip_type || 'One Way').replace('_', ' ')))}</span><br>
+                                        ${b.pickup_loc} → ${b.drop_loc}
+                                    </td>
+                                    <td data-label="Status"><span class="status-tag status-${b.status}">${b.status}</span></td>
+                                    <td data-label="Actions">${['pending', 'assigned'].includes(b.status) ? `<button class="action-btn" onclick="cancelBooking(${b.id})">Abort</button>` : '<span style="color:#ccc; font-size:0.8rem;">—</span>'}</td>
+                                </tr>
+                            `;
+                        });
+                    } else {
+                        body.innerHTML = '<tr><td colspan="5" style="text-align:center; color:#888;">No recent missions found or platform error.</td></tr>';
+                    }
+                } else if (tabId === 'tariffs') {
+                    const resT = await fetch(`${API_BASE_URL}/api/tariffs`);
+                    if (!resT.ok) throw new Error('Tariffs Fetch Failed');
+                    const tariffs = await resT.json();
+                    if (body) {
+                        body.innerHTML = '';
+                        tariffs.forEach(t => {
+                            const config = typeof t.config === 'string' ? JSON.parse(t.config) : t.config;
+                            let rateStr = '';
+                            if (t.category === 'rental') {
+                                rateStr = 'Package-based';
+                            } else {
+                                rateStr = `Base: ₹${config.base}, Rate: ₹${config.perKm}/km`;
+                            }
+                            body.innerHTML += `
+                                <tr>
+                                    <td data-label="Vehicle">${t.vehicle_type.toUpperCase()}</td>
+                                    <td data-label="Category">${t.category.toUpperCase()}</td>
+                                    <td data-label="Current Rates">${rateStr}</td>
+                                    <td data-label="Last Updated">${new Date(t.updated_at).toLocaleDateString()}</td>
+                                    <td data-label="Actions">
+                                        <button class="action-btn" onclick='openTariffModal(${JSON.stringify(t)})'>Configure</button>
+                                    </td>
+                                </tr>
+                            `;
+                        });
+                    }
+                    loadPeakRules();
+                } else if (tabId === 'bookings') {
+                    const res = await fetch(`${API_BASE_URL}/api/admin/bookings`);
+                    const bookings = await res.json();
+                    if (!body) return;
+                    body.innerHTML = '';
+
+                    if (!Array.isArray(bookings)) {
+                        body.innerHTML = '<tr><td colspan="8" style="text-align:center; color:#888;">Mission Log currently unavailable.</td></tr>';
+                        return;
+                    }
+
+                    // Handle Abort Requests Section Visibility
+                    const aborts = bookings.filter(b => b.status === 'cancel_requested');
+                    const abortSection = document.getElementById('abort-requests-section');
+                    const abortBody = document.getElementById('cancellations-table-body');
+
+                    if (aborts.length > 0) {
+                        abortSection.style.display = 'block';
+                        abortBody.innerHTML = '';
+                        aborts.forEach(b => {
+                            abortBody.innerHTML += `
+                                <tr>
+                                    <td data-label="ID">#B${b.id}</td>
+                                    <td data-label="Pilot">
+                                        <strong>${b.driver_name || 'Pilot'}</strong><br>
+                                        <span style="font-size:0.8rem; color:var(--text-muted)">${b.customer_name} (#B${b.id})</span>
+                                    </td>
+                                    <td data-label="Reason" style="color:var(--danger-red); font-weight:700;">${b.cancel_reason || 'No Reason Provided'}</td>
+                                    <td data-label="Actions">
+                                        <button class="action-btn" style="color:#28a745" onclick="approveCancel(${b.id})">Approve Abort</button>
+                                        <button class="action-btn" style="color:#dc3545; margin-left:10px" onclick="rejectCancel(${b.id})">Reject</button>
+                                    </td>
+                                </tr>
+                            `;
+                        });
+                    } else {
+                        abortSection.style.display = 'none';
+                    }
+
+                    bookings.forEach(b => {
+                        const isAssigned = b.status === 'assigned';
+                        const fareNum = parseFloat(b.fare.replace('₹', '')) || 0;
+                        const markupNum = parseFloat(b.vendor_markup || 0);
+                        const baseFare = fareNum - markupNum;
+
+                        let financialInfo = `<strong>₹${fareNum.toFixed(2)}</strong>`;
+                        if (b.vendor_id) {
+                            financialInfo = `
+                                <div style="font-size:0.85rem;">
+                                    <span style="color:var(--success-green); font-weight:700;">Profit: ₹${markupNum.toFixed(2)}</span><br>
+                                    <span style="color:var(--text-muted);">Base: ₹${baseFare.toFixed(2)}</span><br>
+                                    <strong style="color:var(--primary-red)">Total: ₹${fareNum.toFixed(2)}</strong>
+                                    <div style="font-size:0.65rem; color:var(--info-blue); font-weight:800; margin-top:4px;">VENDOR: ${b.vendor_business_name || 'PARTNER'}</div>
+                                </div>
+                            `;
+                        }
+
+                        body.innerHTML += `
+                            <tr>
+                                <td data-label="Booking ID">#B${b.id} ${b.vendor_id ? `<br><span style="background: rgba(10, 132, 255, 0.15); color: var(--info-blue); padding: 2px 6px; border-radius: 4px; font-size: 0.65rem; font-weight: bold; display: inline-block; margin-top: 4px;">Vendor</span>` : ''}</td>
+                                <td data-label="Customer">
+                                    <strong style="color:var(--primary-red)">${b.customer_name}</strong><br>
+                                    <a href="tel:${b.customer_phone}" style="font-size:0.8rem; color:var(--primary-red); text-decoration:none; font-weight:700;">${b.customer_phone}</a>
+                                </td>
+                                <td data-label="Details" style="padding: 1.5rem; text-align: left;">
+                                    <span style="font-size:0.65rem; font-weight:800; color:var(--primary-red); text-transform:uppercase; background:rgba(183, 28, 28, 0.15); padding:2px 6px; border-radius:4px; margin-bottom:0.3rem; display:inline-block;">${(b.trip_type === 'round' ? 'Round Trip' : (b.trip_type === 'rental' ? 'Local Rental' : (b.trip_type || 'One Way').replace('_', ' ')))}</span><br>
+                                    <strong>${b.pickup_loc}</strong><br>
+                                    <span style="font-size:0.8rem; color:var(--text-muted)">${b.drop_loc}</span><br>
+                                    <div style="font-size:0.75rem; color:#666; margin-top:4px;">
+                                        <b>Distance:</b> ${b.distance || '0 KM'}
+                                        ${b.estimated_duration ? ` | <b>Duration:</b> 🕒 ${b.estimated_duration}` : ''}
+                                    </div>
+                                    ${b.trip_type === 'rental' && b.start_odometer ? `
+                                        <div style="margin-top:0.5rem; font-size:0.75rem; background:rgba(255, 159, 10, 0.05); padding:8px; border-radius:8px; border:1px solid rgba(255, 159, 10, 0.15);">
+                                            <div style="font-weight:800; color:var(--warning-amber); font-size:0.65rem; text-transform:uppercase; margin-bottom:4px;">Rental Audit</div>
+                                            <b>Odo:</b> ${b.start_odometer} - ${b.end_odometer || '...'} <br>
+                                            ${b.journey_start_time && b.journey_end_time ? `<b>Time:</b> ${((new Date(b.journey_end_time) - new Date(b.journey_start_time)) / (1000 * 60 * 60)).toFixed(2)} Hrs` : ''}
+                                        </div>
+                                    ` : ''}
+                                </td>
+                                <td data-label="Financials">${financialInfo}</td>
+                                <td data-label="Driver">${b.driver_name || '<span style="color:#aaa">Unassigned</span>'}</td>
+                                <td data-label="Status"><span class="status-tag status-${b.status}">${b.status}</span></td>
+                                <td data-label="Abort">${['pending', 'assigned'].includes(b.status) ? `<button class="action-btn" onclick="cancelBooking(${b.id})">Cancel Mission</button>` : '<span style="color:#ccc; font-size:0.8rem;">—</span>'}</td>
+                                <td data-label="Transfer">${isAssigned ? `<button class="action-btn" style="color:var(--info-blue); font-weight:700;" onclick='openTransferModal(${b.id}, ${JSON.stringify(b.driver_name || "Unassigned")}, ${JSON.stringify(b.pickup_loc)}, ${JSON.stringify(b.drop_loc)})'>🔄 Transfer</button>` : '<span style="color:#ccc; font-size:0.8rem;">—</span>'}</td>
+                            </tr>
+                        `;
+                    });
+                } else if (tabId === 'fleet') {
+                    // Load Active Pilots
+                    const resD = await fetch(`${API_BASE_URL}/api/admin/drivers`);
+                    const drivers = await resD.json();
+                    const fleetBody = document.getElementById('fleet-table-body');
+                    if (fleetBody) {
+                        fleetBody.innerHTML = '';
+                        drivers.forEach(d => {
+                            fleetBody.innerHTML += `
+                                <tr>
+                                    <td data-label="Pilot ID">#P${d.id}</td>
+                                    <td data-label="Details">
+                                        <div class="pilot-info-block">
+                                            <div class="p-name">${d.name}</div>
+                                            <div class="p-email"><a href="mailto:${d.email}">${d.email}</a></div>
+                                            <div class="p-phone"><a href="tel:${d.phone}">${d.phone || 'N/A'}</a></div>
+                                        </div>
+                                    </td>
+                                    <td data-label="Vehicle ID">${d.car_number || '---'}</td>
+                                    <td data-label="Category"><span style="text-transform:uppercase; font-size:0.8rem; font-weight:700">${d.vehicle_type || 'sedan'}</span></td>
+                                    <td data-label="Model">${d.car_model || '---'}</td>
+                                    <td data-label="Actions">
+                                        <button class="action-btn" onclick='openEditModal(${JSON.stringify(d).replace(/"/g, "&quot;")})'>Edit</button>
+                                        <button class="action-btn" style="color:#2e7d32; margin-left:10px" onclick="viewDriverDocs(${d.id})">Docs</button>
+                                        <button class="action-btn" style="color:#f39c12; margin-left:10px" onclick="openPasswordModal('driver', ${d.id}, '${d.name}')">Password</button>
+                                        <button class="action-btn" style="color:#888; margin-left:10px" onclick="deleteDriver(${d.id})">Revoke</button>
+                                    </td>
+                                </tr>
+                            `;
+                        });
+                    }
+
+                    // Load Applications
+                    const resA = await fetch(`${API_BASE_URL}/api/admin/driver-applications`);
+                    const { applications } = await resA.json();
+                    const appBody = document.getElementById('applications-table-body');
+                    if (appBody) {
+                        appBody.innerHTML = '';
+                        applications.forEach(app => {
+                            const hasAllDocs = app.dl_front && app.rc_book && app.aadhar_front;
+                            appBody.innerHTML += `
+                                <tr>
+                                    <td data-label="App ID">#APP-${app.id}</td>
+                                    <td data-label="Pilot">
+                                        <div class="pilot-info-block">
+                                            <div class="p-name">${app.name}</div>
+                                            <div class="p-email"><a href="mailto:${app.email}">${app.email}</a></div>
+                                            <div class="p-phone"><a href="tel:${app.phone}">${app.phone}</a></div>
+                                        </div>
+                                    </td>
+                                    <td data-label="Vehicle">
+                                        ${app.car_model}<br>
+                                        <strong style="color:var(--primary-red)">${app.car_number}</strong>
+                                    </td>
+                                    <td data-label="Documents">
+                                        <span class="status-tag ${hasAllDocs ? 'status-completed' : 'status-pending'}">
+                                            ${hasAllDocs ? 'Full Set' : 'Incomplete'}
+                                        </span>
+                                    </td>
+                                    <td data-label="Status"><span class="status-tag status-${app.status}">${app.status}</span></td>
+                                    <td data-label="Actions">
+                                        <button class="action-btn" onclick='viewApplication(${JSON.stringify(app).replace(/"/g, "&quot;")})'>Verify Docs</button>
+                                    </td>
+                                </tr>
+                            `;
+                        });
+                    }
+
+                    // Load Application History
+                    const resH = await fetch(`${API_BASE_URL}/api/admin/driver-applications/history`);
+                    const { applications: history } = await resH.json();
+                    const historyBody = document.getElementById('app-history-table-body');
+                    if (historyBody) {
+                        historyBody.innerHTML = '';
+                        history.forEach(app => {
+                            historyBody.innerHTML += `
+                                <tr>
+                                    <td data-label="App ID">#APP-${app.id}</td>
+                                    <td data-label="Pilot">
+                                        <div class="pilot-info-block">
+                                            <div class="p-name">${app.name}</div>
+                                            <div class="p-email"><a href="mailto:${app.email}">${app.email}</a></div>
+                                            <div class="p-phone"><a href="tel:${app.phone}">${app.phone}</a></div>
+                                        </div>
+                                    </td>
+                                    <td data-label="Vehicle">
+                                        ${app.car_model}<br>
+                                        <strong style="color:var(--primary-red)">${app.car_number}</strong>
+                                    </td>
+                                    <td data-label="Date">${new Date(app.created_at).toLocaleDateString()}</td>
+                                    <td data-label="Docs">
+                                        <button class="action-btn" onclick='viewApplication(${JSON.stringify(app).replace(/"/g, "&quot;")})'>View Docs</button>
+                                    </td>
+                                </tr>
+                            `;
+                        });
+                    }
+                } else if (tabId === 'wallets') {
+                    const res = await fetch(`${API_BASE_URL}/api/admin/drivers`);
+                    const drivers = await res.json();
+                    if (!body) return;
+                    body.innerHTML = '';
+                    drivers.forEach(d => {
+                        body.innerHTML += `
+                            <tr>
+                                <td data-label="Pilot ID">#P${d.id}</td>
+                                <td data-label="Partner Details">
+                                    <div class="pilot-info-block">
+                                        <div class="p-name">${d.name}</div>
+                                        <div class="p-phone"><a href="tel:${d.phone}">${d.phone || 'N/A'}</a></div>
+                                    </div>
+                                </td>
+                                <td data-label="Current Balance"><strong style="color:var(--primary-red); font-size: 1.2rem;">₹${parseFloat(d.wallet_balance || 0).toFixed(2)}</strong></td>
+                                <td data-label="Wallet Operations">
+                                    <button class="btn btn-primary" style="padding: 0.5rem 1rem; font-size: 0.8rem;" onclick="openWalletModal(${d.id}, ${d.wallet_balance || 0})">💳 Quick Update</button>
+                                </td>
+                            </tr>
+                        `;
+                    });
+                } else if (tabId === 'users') {
+                    const res = await fetch(`${API_BASE_URL}/api/admin/users`);
+                    const users = await res.json();
+                    if (!body) return;
+                    body.innerHTML = '';
+                    users.forEach(u => {
+                        body.innerHTML += `
+                            <tr>
+                                <td data-label="Member ID">#M${u.id}</td>
+                                <td data-label="Details">
+                                    <div class="pilot-info-block">
+                                        <div class="p-name">${u.name}</div>
+                                        <div class="p-email"><a href="mailto:${u.email}">${u.email}</a></div>
+                                        <div class="p-phone"><a href="tel:${u.phone}">${u.phone || 'N/A'}</a></div>
+                                    </div>
+                                </td>
+                                <td data-label="Registration Date">${new Date(u.created_at).toLocaleDateString()}</td>
+                                <td data-label="Actions">
+                                    <button class="action-btn" onclick="openPasswordModal('user', ${u.id}, '${u.name}')">Password</button>
+                                    <button class="action-btn" style="color:#888; margin-left:10px" onclick="deletePassenger(${u.id})">Revoke</button>
+                                </td>
+                            </tr>
+                        `;
+                    });
+                } else if (tabId === 'vendors') {
+                    const res = await fetch(`${API_BASE_URL}/api/admin/vendors`);
+                    const vendors = await res.json();
+                    if (!body) return;
+                    body.innerHTML = '';
+                    vendors.forEach(v => {
+                        body.innerHTML += `
+                            <tr>
+                                <td data-label="Partner ID">${v.vendor_id}</td>
+                                <td data-label="Business Details">
+                                    <strong>${v.business_name}</strong><br>
+                                    <span style="font-size:0.85rem; color:var(--text-muted)">${v.name}</span>
+                                </td>
+                                <td data-label="Contact Info">
+                                    <div style="font-size:0.85rem;">
+                                        <a href="mailto:${v.email}">${v.email}</a><br>
+                                        <a href="tel:${v.phone}" style="color:var(--primary-red); text-decoration:none;">${v.phone}</a>
+                                    </div>
+                                </td>
+                                <td data-label="Status">
+                                    <span class="status-tag ${v.is_blocked ? 'status-cancelled' : 'status-completed'}">
+                                        ${v.is_blocked ? 'Deactivated' : 'Active'}
+                                    </span>
+                                </td>
+                                <td data-label="Actions">
+                                    <button class="action-btn" style="color:var(--text-muted); margin-right:10px;" onclick='openEditVendorModal(${JSON.stringify(v).replace(/"/g, "&quot;")})'>Edit</button>
+                                    <button class="action-btn" style="color:var(--text-muted)" onclick="deleteVendor(${v.id})">Revoke</button>
+                                </td>
+                            </tr>
+                        `;
+                    });
+                } else if (tabId === 'tariffs') {
+                    const res = await fetch(`${API_BASE_URL}/api/tariffs`);
+                    const tariffs = await res.json();
+                    if (!body) return;
+                    body.innerHTML = '';
+                    tariffs.forEach(t => {
+                        const config = typeof t.config === 'string' ? JSON.parse(t.config) : t.config;
+                        let rateDesc = '';
+                        if (t.category === 'rental') {
+                            rateDesc = Object.keys(config).map(pkg => `<div style="font-size:0.8rem;"><strong>${pkg}:</strong> ₹${config[pkg].base}</div>`).join('');
+                        } else {
+                            rateDesc = `
+                                <div style="font-weight:700; color:var(--primary-red)">Base: ₹${config.base || 0}</div>
+                                <div style="font-size:0.8rem; color:#888">₹${config.perKm || 0}/km · Min: ${config.minKm || config.minKmPerDay || 0}km</div>
+                            `;
+                        }
+
+                        body.innerHTML += `
+                            <tr>
+                                <td data-label="Vehicle" style="text-transform:uppercase; font-weight:700; color:var(--primary-red)">${t.vehicle_type}</td>
+                                <td data-label="Category" style="text-transform:capitalize">${t.category.replace('_', ' ')}</td>
+                                <td data-label="Rates" style="font-size:0.85rem; color:#666">
+                                    <div>${rateDesc}</div>
+                                </td>
+                                <td data-label="Updated">${new Date(t.updated_at).toLocaleString()}</td>
+                                <td data-label="Configure">
+                                    <button class="action-btn" onclick='openTariffModal(${JSON.stringify(t).replace(/"/g, "&quot;")})'>Configure</button>
+                                </td>
+                            </tr>
+                        `;
+                    });
+                }
+            } catch (err) { console.error(err); }
+        }
+
+        function showFleetSubSection(sectionId) {
+            document.querySelectorAll('.fleet-subsection').forEach(s => s.style.display = 'none');
+            document.getElementById(`${sectionId}-section`).style.display = 'block';
+
+            // Update button styles
+            const buttons = document.querySelectorAll('#fleet .btn');
+            buttons.forEach(btn => {
+                const text = btn.innerText.toLowerCase();
+                const matched = (sectionId === 'active-pilots' && text.includes('active')) ||
+                    (sectionId === 'pending-apps' && text.includes('pending')) ||
+                    (sectionId === 'onboarding-history' && text.includes('history'));
+                if (matched) {
+                    btn.style.background = 'var(--primary-red)';
+                    btn.style.color = 'white';
+                    btn.style.border = 'none';
+                } else {
+                    btn.style.background = 'rgba(255, 255, 255, 0.03)';
+                    btn.style.color = 'var(--text-muted)';
+                    btn.style.border = '1px solid var(--border-color)';
+                }
+            });
+        }
+
+        async function cancelBooking(id) {
+            if (!confirm('Abort this mission?')) return;
+            try {
+                const res = await fetch(`${API_BASE_URL}/api/bookings/update-status`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ bookingId: id, status: 'cancelled' })
+                });
+                if (res.ok) loadTabData('overview');
+            } catch (err) { alert('Action failed'); }
+        }
+
+        async function deletePassenger(id) {
+            if (!confirm('Revoke member access to the network?')) return;
+            try {
+                const res = await fetch(`${API_BASE_URL}/api/admin/delete-passenger`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ id })
+                });
+                if (res.ok) loadTabData('users');
+            } catch (err) { alert('Revocation failed'); }
+        }
+
+        async function deleteDriver(id) {
+            if (!confirm('Permanently de-authorize this Pilot from the fleet?')) return;
+            try {
+                const res = await fetch(`${API_BASE_URL}/api/admin/delete-driver`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ id })
+                });
+                if (res.ok) loadTabData('fleet');
+            } catch (err) { alert('Revocation failed'); }
+        }
+
+        async function deleteVendor(id) {
+            if (!confirm('Revoke this Partnership? All associated vendor credentials will be deactivated.')) return;
+            try {
+                const res = await fetch(`${API_BASE_URL}/api/admin/delete-vendor`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ id })
+                });
+                if (res.ok) loadTabData('vendors');
+            } catch (err) { alert('Operation failed'); }
+        }
+
+        async function approveCancel(bookingId) {
+            if (!confirm('Approve this mission abort?')) return;
+            try {
+                const res = await fetch(`${API_BASE_URL}/api/admin/approve-cancel`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ bookingId })
+                });
+                if (res.ok) loadTabData('bookings');
+            } catch (err) { alert('Action failed'); }
+        }
+
+        async function rejectCancel(bookingId) {
+            const note = prompt('Enter justification for rejection (optional):');
+            if (note === null) return; // cancelled prompt
+
+            if (!confirm('Reject this abort request? This mission will remain assigned.')) return;
+            try {
+                const res = await fetch(`${API_BASE_URL}/api/admin/reject-cancel`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ bookingId, note })
+                });
+                if (res.ok) loadTabData('bookings');
+            } catch (err) { alert('Action failed'); }
+        }
+
+        function logoutAdmin() {
+            localStorage.removeItem('cityride_master');
+            window.location.href = '/admin-login';
+        }
+
+        // Handle Driver Creation
+        document.getElementById('create-driver-form').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const data = {
+                name: document.getElementById('d-name').value,
+                email: document.getElementById('d-email').value,
+                password: document.getElementById('d-pass').value,
+                phone: document.getElementById('d-phone').value,
+                car_model: document.getElementById('d-car').value,
+                car_number: document.getElementById('d-num').value,
+                vehicle_type: document.getElementById('d-type').value
+            };
+
+            try {
+                const res = await fetch(`${API_BASE_URL}/api/admin/create-driver`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(data)
+                });
+                if (res.ok) {
+                    alert('Partner Authorized Successfully!');
+                    document.getElementById('create-driver-form').reset();
+                    loadTabData('fleet');
+                } else {
+                    const err = await res.json();
+                    alert(err.error);
+                }
+            } catch (err) { alert('Authorization failed'); }
+        });
+
+        // Handle Vendor Creation
+        document.getElementById('create-vendor-form').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const data = {
+                vendor_id: document.getElementById('v-id').value,
+                name: document.getElementById('v-name').value,
+                business_name: document.getElementById('v-business').value,
+                email: document.getElementById('v-email').value,
+                password: document.getElementById('v-pass').value,
+                phone: document.getElementById('v-phone').value
+            };
+
+            try {
+                const res = await fetch(`${API_BASE_URL}/api/admin/create-vendor`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(data)
+                });
+                if (res.ok) {
+                    alert('Business Partner Activated Successfully!');
+                    document.getElementById('create-vendor-form').reset();
+                    loadTabData('vendors');
+                } else {
+                    const err = await res.json();
+                    alert(err.error);
+                }
+            } catch (err) { alert('Induction sequence failed'); }
+        });
+
+        function openEditModal(d) {
+            document.getElementById('edit-d-id').value = d.id;
+            document.getElementById('edit-d-name').value = d.name;
+            document.getElementById('edit-d-phone').value = d.phone || '';
+            document.getElementById('edit-d-car').value = d.car_model || '';
+            document.getElementById('edit-d-num').value = d.car_number || '';
+            document.getElementById('edit-d-type').value = d.vehicle_type || 'sedan';
+            document.getElementById('edit-driver-modal').style.display = 'flex';
+        }
+
+        function closeEditModal() {
+            document.getElementById('edit-driver-modal').style.display = 'none';
+        }
+
+        document.getElementById('edit-driver-form').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const data = {
+                id: document.getElementById('edit-d-id').value,
+                name: document.getElementById('edit-d-name').value,
+                phone: document.getElementById('edit-d-phone').value,
+                car_model: document.getElementById('edit-d-car').value,
+                car_number: document.getElementById('edit-d-num').value,
+                vehicle_type: document.getElementById('edit-d-type').value
+            };
+
+            try {
+                const res = await fetch(`${API_BASE_URL}/api/admin/update-driver`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(data)
+                });
+                if (res.ok) {
+                    alert('Pilot Registry Updated Successfully.');
+                    closeEditModal();
+                    loadTabData('fleet');
+                } else {
+                    const err = await res.json();
+                    alert(err.error);
+                }
+            } catch (err) { alert('Update sequence failed.'); }
+        });
+
+        function openEditVendorModal(v) {
+            document.getElementById('edit-v-db-id').value = v.id;
+            document.getElementById('edit-v-id').value = v.vendor_id;
+            document.getElementById('edit-v-name').value = v.name;
+            document.getElementById('edit-v-business').value = v.business_name;
+            document.getElementById('edit-v-email').value = v.email;
+            document.getElementById('edit-v-phone').value = v.phone || '';
+            document.getElementById('edit-v-pass').value = '';
+            document.getElementById('edit-v-status').value = v.is_blocked || 0;
+            document.getElementById('edit-vendor-modal').style.display = 'flex';
+        }
+
+        function closeEditVendorModal() {
+            document.getElementById('edit-vendor-modal').style.display = 'none';
+        }
+
+        document.getElementById('edit-vendor-form').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const data = {
+                id: document.getElementById('edit-v-db-id').value,
+                vendor_id: document.getElementById('edit-v-id').value,
+                name: document.getElementById('edit-v-name').value,
+                business_name: document.getElementById('edit-v-business').value,
+                email: document.getElementById('edit-v-email').value,
+                password: document.getElementById('edit-v-pass').value || null,
+                phone: document.getElementById('edit-v-phone').value,
+                is_blocked: parseInt(document.getElementById('edit-v-status').value)
+            };
+
+            try {
+                const res = await fetch(`${API_BASE_URL}/api/admin/update-vendor`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(data)
+                });
+                if (res.ok) {
+                    alert('Business Partner Updated Successfully.');
+                    closeEditVendorModal();
+                    loadTabData('vendors');
+                } else {
+                    const err = await res.json();
+                    alert(err.error);
+                }
+            } catch (err) { alert('Update sequence failed.'); }
+        });
+
+        function openWalletModal(id, balance) {
+            document.getElementById('edit-w-id').value = id;
+            document.getElementById('edit-w-balance').value = parseFloat(balance || 0).toFixed(2);
+            document.getElementById('edit-wallet-modal').style.display = 'flex';
+        }
+
+        function closeWalletModal() {
+            document.getElementById('edit-wallet-modal').style.display = 'none';
+        }
+
+        document.getElementById('edit-wallet-form').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const data = {
+                id: document.getElementById('edit-w-id').value,
+                wallet_balance: document.getElementById('edit-w-balance').value
+            };
+
+            try {
+                const res = await fetch(`${API_BASE_URL}/api/admin/update-driver-wallet`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(data)
+                });
+                if (res.ok) {
+                    alert('Wallet Balance Updated Successfully.');
+                    closeWalletModal();
+                    loadTabData(_activeTab);
+                } else {
+                    const err = await res.json();
+                    alert(err.error);
+                }
+            } catch (err) { alert('Balance update failed.'); }
+        });
+
+        // Transfer Ride Functions
+        async function openTransferModal(bookingId, currentDriver, pickup, drop) {
+            document.getElementById('transfer-booking-id').value = bookingId;
+            document.getElementById('transfer-booking-info').innerHTML =
+                `<strong>#B${bookingId}:</strong> ${pickup} → ${drop}<br><span style="color:#888">Current Driver: ${currentDriver}</span>`;
+            document.getElementById('transfer-ride-modal').style.display = 'flex';
+
+            // Load drivers into dropdown
+            const select = document.getElementById('transfer-driver-select');
+            select.innerHTML = '<option value="">-- Select a driver --</option>';
+            try {
+                const res = await fetch(`${API_BASE_URL}/api/admin/drivers`);
+                const drivers = await res.json();
+                drivers.forEach(d => {
+                    const opt = document.createElement('option');
+                    opt.value = d.id;
+                    opt.textContent = `${d.name} (${d.vehicle_type?.toUpperCase() || 'N/A'} · ${d.car_number || '---'})`;
+                    select.appendChild(opt);
+                });
+            } catch (e) {
+                select.innerHTML = '<option value="">Failed to load drivers</option>';
+            }
+        }
+
+        function closeTransferModal() {
+            document.getElementById('transfer-ride-modal').style.display = 'none';
+        }
+
+        async function submitTransfer() {
+            const bookingId = document.getElementById('transfer-booking-id').value;
+            const newDriverId = document.getElementById('transfer-driver-select').value;
+            if (!newDriverId) { alert('Please select a driver.'); return; }
+            try {
+                const res = await fetch(`${API_BASE_URL}/api/admin/transfer-ride`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ bookingId: parseInt(bookingId), newDriverId: parseInt(newDriverId) })
+                });
+                const result = await res.json();
+                if (res.ok) {
+                    alert(`✅ ${result.message}`);
+                    closeTransferModal();
+                    loadTabData('bookings');
+                } else {
+                    alert(result.error);
+                }
+            } catch (err) { alert('Transfer failed.'); }
+        }
+
+        // Password Reset Functions
+        function openPasswordModal(type, id, name) {
+            document.getElementById('pass-target-type').value = type;
+            document.getElementById('pass-target-id').value = id;
+            document.getElementById('password-target-name').textContent = `Updating password for: ${name}`;
+            document.getElementById('new-password').value = '';
+            document.getElementById('confirm-password').value = '';
+            document.getElementById('password-modal').style.display = 'flex';
+        }
+
+        function closePasswordModal() {
+            document.getElementById('password-modal').style.display = 'none';
+        }
+
+        document.getElementById('password-reset-form').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const type = document.getElementById('pass-target-type').value;
+            const id = document.getElementById('pass-target-id').value;
+            const newPass = document.getElementById('new-password').value;
+            const confirmPass = document.getElementById('confirm-password').value;
+
+            if (newPass !== confirmPass) {
+                alert('Passwords do not match!');
+                return;
+            }
+
+            if (newPass.length < 6) {
+                alert('Password must be at least 6 characters long.');
+                return;
+            }
+
+            try {
+                const endpoint = type === 'driver' ? `${API_BASE_URL}/api/admin/update-driver-password` : `${API_BASE_URL}/api/admin/update-passenger-password`;
+                const res = await fetch(endpoint, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ id, password: newPass })
+                });
+
+                if (res.ok) {
+                    alert('Password updated successfully.');
+                    closePasswordModal();
+                } else {
+                    const err = await res.json();
+                    alert(err.error || 'Password update failed.');
+                }
+            } catch (err) {
+                alert('Network error occurred.');
+            }
+        });
+
+        let lightboxRotation = 0;
+        let lightboxZoom = 1;
+
+        function openDocument(path, label) {
+            if (!path) return;
+            lightboxRotation = 0;
+            lightboxZoom = 1;
+            const img = document.getElementById('lightbox-img');
+            img.src = path;
+            img.style.transform = `scale(1) rotate(0deg)`;
+            document.getElementById('lightbox-title').textContent = label || 'Document Viewer';
+            document.getElementById('lightbox-modal').style.display = 'flex';
+        }
+
+        function closeLightbox() {
+            document.getElementById('lightbox-modal').style.display = 'none';
+            document.getElementById('lightbox-img').src = '';
+        }
+
+        function rotateLightbox(deg) {
+            lightboxRotation += deg;
+            updateLightboxTransform();
+        }
+
+        function zoomLightbox(factor) {
+            lightboxZoom += factor;
+            if (lightboxZoom < 0.2) lightboxZoom = 0.2;
+            if (lightboxZoom > 3) lightboxZoom = 3;
+            updateLightboxTransform();
+        }
+
+        function updateLightboxTransform() {
+            const img = document.getElementById('lightbox-img');
+            img.style.transform = `scale(${lightboxZoom}) rotate(${lightboxRotation}deg)`;
+        }
+
+        function downloadLightboxDoc() {
+            const img = document.getElementById('lightbox-img');
+            if (!img || !img.src || img.src === window.location.href) {
+                alert('No document available to download.');
+                return;
+            }
+
+            const title = document.getElementById('lightbox-title').textContent || 'document';
+            const cleanTitle = title.toLowerCase().replace(/[^a-z0-9]/g, '_');
+
+            const tempImg = new Image();
+
+            if (img.src.startsWith('http') || img.src.startsWith('//')) {
+                tempImg.crossOrigin = 'anonymous';
+            }
+
+            function triggerDirectDownload() {
+                if (img.src.startsWith('data:')) {
+                    try {
+                        const parts = img.src.split(',');
+                        const contentType = parts[0].split(':')[1].split(';')[0];
+                        const byteString = atob(parts[1]);
+                        const arrayBuffer = new ArrayBuffer(byteString.length);
+                        const uint8Array = new Uint8Array(arrayBuffer);
+                        for (let i = 0; i < byteString.length; i++) {
+                            uint8Array[i] = byteString.charCodeAt(i);
+                        }
+                        const blob = new Blob([uint8Array], { type: 'image/png' });
+                        const url = URL.createObjectURL(blob);
+                        const link = document.createElement('a');
+                        link.href = url;
+                        link.download = `${cleanTitle}.png`;
+                        document.body.appendChild(link);
+                        link.click();
+                        document.body.removeChild(link);
+                    } catch (e) {
+                        console.error('Base64 blob conversion failed', e);
+                    }
+                } else {
+                    fetch(img.src)
+                        .then(res => res.blob())
+                        .then(blob => {
+                            const url = URL.createObjectURL(blob);
+                            const link = document.createElement('a');
+                            link.href = url;
+                            link.download = `${cleanTitle}.png`;
+                            document.body.appendChild(link);
+                            link.click();
+                            document.body.removeChild(link);
+                        })
+                        .catch(err => {
+                            console.error('Fetch blob failed, trying direct link', err);
+                            const link = document.createElement('a');
+                            link.href = img.src;
+                            link.download = `${cleanTitle}.png`;
+                            link.target = '_blank';
+                            document.body.appendChild(link);
+                            link.click();
+                            document.body.removeChild(link);
+                        });
+                }
+            }
+
+            tempImg.onload = function () {
+                try {
+                    const canvas = document.createElement('canvas');
+                    canvas.width = tempImg.naturalWidth || 800;
+                    canvas.height = tempImg.naturalHeight || 800;
+                    const ctx = canvas.getContext('2d');
+                    ctx.drawImage(tempImg, 0, 0);
+
+                    canvas.toBlob(function (blob) {
+                        if (!blob) {
+                            triggerDirectDownload();
+                            return;
+                        }
+                        const url = URL.createObjectURL(blob);
+                        const link = document.createElement('a');
+                        link.href = url;
+                        link.download = `${cleanTitle}.png`;
+                        document.body.appendChild(link);
+                        link.click();
+                        document.body.removeChild(link);
+                    }, 'image/png');
+                } catch (err) {
+                    console.error('Canvas export failed, falling back', err);
+                    triggerDirectDownload();
+                }
+            };
+
+            tempImg.onerror = function (err) {
+                console.error('Image load failed, falling back', err);
+                triggerDirectDownload();
+            };
+
+            tempImg.src = img.src;
+        }
+
+        async function viewDriverDocs(driverId) {
+            try {
+                const res = await fetch(`${API_BASE_URL}/api/admin/driver/${driverId}`);
+                if (!res.ok) throw new Error('Failed to fetch pilot details');
+                const data = await res.json();
+                viewApplication(data.driver);
+            } catch (err) {
+                alert('Could not retrieve pilot documents: ' + err.message);
+            }
+        }
+
+        // Application Management Functions
+        function viewApplication(app) {
+            const viewer = document.getElementById('doc-viewer-content');
+            document.querySelector('#doc-modal h3').textContent = `Verify: ${app.name} (${app.phone})`;
+            viewer.innerHTML = '';
+
+            const docs = [
+                { label: 'DL Front', path: app.dl_front },
+                { label: 'DL Back', path: app.dl_back },
+                { label: 'PVC', path: app.pvc },
+                { label: 'Aadhar Front', path: app.aadhar_front },
+                { label: 'Aadhar Back', path: app.aadhar_back },
+                { label: 'RC Book', path: app.rc_book },
+                { label: 'Insurance', path: app.insurance },
+                { label: 'Pollution', path: app.pollution },
+                { label: 'Permit', path: app.permit }
+            ];
+
+            docs.forEach(doc => {
+                if (doc.path) {
+                    viewer.innerHTML += `
+                        <div style="border: 1px solid #eee; padding: 10px; border-radius: 10px;">
+                            <p style="font-size: 0.7rem; font-weight: 800; margin-bottom: 10px;">${doc.label}</p>
+                            <img src="${doc.path}" 
+                                 onerror="this.src='https://placehold.co/400x300?text=File+Not+Found+On+Server'; this.style.cursor='default'; this.onclick=null;" 
+                                 style="width: 100%; border-radius: 5px; cursor: pointer;" 
+                                 onclick="openDocument(this.src, '${doc.label}')">
+                        </div>
+                    `;
+                } else {
+                    viewer.innerHTML += `
+                        <div style="border: 1px solid #eee; padding: 10px; border-radius: 10px; background: #fffcfc; opacity: 0.5;">
+                            <p style="font-size: 0.7rem; font-weight: 800; margin-bottom: 25px;">${doc.label}</p>
+                            <div style="text-align: center; color: #ccc;">No Doc Uploaded</div>
+                        </div>
+                    `;
+                }
+            });
+
+            document.getElementById('btn-approve-app').onclick = () => appDecision(app.id, 'approved');
+            document.getElementById('btn-reject-app').onclick = () => appDecision(app.id, 'rejected');
+
+            // Hide/Show approval buttons based on application status
+            const footer = document.getElementById('doc-footer');
+            if (app.status === 'approved' || app.wallet_balance !== undefined) {
+                // This is a driver record or an approved application history
+                document.getElementById('btn-approve-app').style.display = 'none';
+                document.getElementById('btn-reject-app').style.display = 'none';
+            } else {
+                document.getElementById('btn-approve-app').style.display = 'block';
+                document.getElementById('btn-reject-app').style.display = 'block';
+            }
+
+            document.getElementById('doc-modal').style.display = 'flex';
+        }
+
+        function closeDocModal() {
+            document.getElementById('doc-modal').style.display = 'none';
+        }
+
+        async function appDecision(appId, status) {
+            let note = '';
+            if (status === 'rejected') {
+                note = prompt('Enter rejection reason:');
+                if (note === null) return;
+                if (!note) { alert('Reason is required for rejection.'); return; }
+            } else {
+                if (!confirm('Authorize this Pilot? Moving to active fleet.')) return;
+            }
+
+            try {
+                const res = await fetch(`${API_BASE_URL}/api/admin/driver-applications/decision`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ appId, status, note })
+                });
+
+                if (res.ok) {
+                    alert(`Application ${status}!`);
+                    closeDocModal();
+                    loadTabData('fleet');
+                } else {
+                    const err = await res.json();
+                    alert('Decision Error: ' + err.error);
+                }
+            } catch (err) { alert('Signal failure.'); }
+        }
+
+        // --- REPORTING LOGIC (CSV/PDF) ---
+        function downloadCSV() {
+            fetch(`${API_BASE_URL}/api/admin/bookings`)
+                .then(res => res.json())
+                .then(data => {
+                    const csvRows = [];
+                    const headers = ['ID', 'Customer', 'Phone', 'Type', 'Pickup', 'Drop', 'Vehicle', 'Fare', 'Status', 'Driver', 'Car', 'Date'];
+                    csvRows.push(headers.join(','));
+
+                    data.forEach(b => {
+                        const row = [
+                            b.id,
+                            `"${b.customer_name}"`,
+                            `"${b.customer_phone}"`,
+                            `"${b.trip_type || 'oneway'}"`,
+                            `"${b.pickup_loc}"`,
+                            `"${b.drop_loc}"`,
+                            b.vehicle_type,
+                            b.fare,
+                            b.status,
+                            `"${b.driver_name || 'N/A'}"`,
+                            `"${b.car_number || 'N/A'}"`,
+                            `"${new Date(b.created_at).toLocaleDateString()}"`
+                        ];
+                        csvRows.push(row.join(','));
+                    });
+
+                    const blob = new Blob([csvRows.join('\n')], { type: 'text/csv' });
+                    const url = window.URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.setAttribute('href', url);
+                    a.setAttribute('download', `CityRide-Report-${new Date().toISOString().split('T')[0]}.csv`);
+                    a.click();
+                });
+        }
+
+        async function downloadPDF() {
+            const { jsPDF } = window.jspdf;
+            const doc = new jsPDF();
+
+            try {
+                const res = await fetch(`${API_BASE_URL}/api/admin/bookings`);
+                const data = await res.json();
+
+                doc.text("CityRideTaxi - Platform Mission Intelligence Report", 14, 15);
+                doc.setFontSize(10);
+                doc.text(`Generated: ${new Date().toLocaleString()}`, 14, 22);
+
+                const tableData = data.map(b => [
+                    b.id,
+                    b.customer_name,
+                    (b.trip_type || 'oneway').toUpperCase(),
+                    b.pickup_loc.substring(0, 30) + (b.pickup_loc.length > 30 ? '...' : ''),
+                    b.drop_loc.substring(0, 30) + (b.drop_loc.length > 30 ? '...' : ''),
+                    b.fare,
+                    b.status
+                ]);
+
+                doc.autoTable({
+                    head: [['ID', 'Member', 'Type', 'Pickup', 'Dest', 'Fare', 'Status']],
+                    body: tableData,
+                    startY: 30,
+                    styles: { fontSize: 8 }
+                });
+
+                doc.save(`CityRide-Intelligence-Matrix-${new Date().toISOString().split('T')[0]}.pdf`);
+            } catch (err) {
+                console.error('PDF Report generation failed', err);
+                alert("Failed to generate PDF Report");
+            }
+        }
+
+        // Consolidation: Script continues after the HTML modals
+    </script>
+    <!-- Image Lightbox Modal -->
+    <div id="lightbox-modal" class="map-modal"
+        style="display: none; background: rgba(0,0,0,0.92); z-index: 11000; flex-direction: column; justify-content: flex-start; align-items: stretch; padding: 0;">
+        <div
+            style="width: 100%; display: flex; justify-content: space-between; align-items: center; padding: 0.8rem 1.2rem; background: rgba(0,0,0,0.5); border-bottom: 1px solid rgba(255,255,255,0.1); z-index: 11001; box-sizing: border-box;">
+            <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
+                <button onclick="rotateLightbox(-90)" class="btn btn-secondary"
+                    style="padding: 0.4rem 0.8rem; font-size: 0.85rem; background: rgba(255,255,255,0.2); border: 1px solid rgba(255,255,255,0.3); color: white; border-radius: 6px; cursor: pointer;">↺
+                    Rotate</button>
+                <button onclick="rotateLightbox(90)" class="btn btn-secondary"
+                    style="padding: 0.4rem 0.8rem; font-size: 0.85rem; background: rgba(255,255,255,0.2); border: 1px solid rgba(255,255,255,0.3); color: white; border-radius: 6px; cursor: pointer;">↻
+                    Rotate</button>
+                <button onclick="zoomLightbox(0.1)" class="btn btn-secondary"
+                    style="padding: 0.4rem 0.8rem; font-size: 0.85rem; background: rgba(255,255,255,0.2); border: 1px solid rgba(255,255,255,0.3); color: white; border-radius: 6px; cursor: pointer;">Zoom
+                    +</button>
+                <button onclick="zoomLightbox(-0.1)" class="btn btn-secondary"
+                    style="padding: 0.4rem 0.8rem; font-size: 0.85rem; background: rgba(255,255,255,0.2); border: 1px solid rgba(255,255,255,0.3); color: white; border-radius: 6px; cursor: pointer;">Zoom
+                    -</button>
+                <button onclick="downloadLightboxDoc()" class="btn btn-primary"
+                    style="padding: 0.4rem 0.8rem; font-size: 0.85rem; background: #28a745; border: 1px solid #28a745; color: white; border-radius: 6px; cursor: pointer; font-weight: 500;">⬇
+                    Download</button>
+            </div>
+            <button onclick="closeLightbox()"
+                style="color: white; font-size: 2.2rem; background: none; border: none; cursor: pointer; line-height: 1; padding: 0 0.5rem; transition: color 0.2s; min-width: 44px; min-height: 44px; display: flex; align-items: center; justify-content: center;">&times;</button>
+        </div>
+        <div
+            style="display: flex; flex-direction: column; align-items: center; justify-content: center; flex-grow: 1; width: 100%; height: calc(100% - 70px); padding: 1.5rem; box-sizing: border-box;">
+            <h3 id="lightbox-title"
+                style="color: white; margin-top: 0; margin-bottom: 1.5rem; font-weight: 500; letter-spacing: 1px; font-size: 1.2rem;">
+                Document</h3>
+            <div
+                style="overflow: auto; width: 100%; height: 100%; display: flex; justify-content: center; align-items: center;">
+                <img id="lightbox-img" src=""
+                    style="max-width: 90%; max-height: 80%; border-radius: 8px; box-shadow: 0 10px 30px rgba(0,0,0,0.5); transition: transform 0.2s ease; transform: scale(1) rotate(0deg);">
+            </div>
+        </div>
+    </div>
+
+    <!-- Application Document Modal -->
+    <div id="doc-modal" class="map-modal" style="display: none;">
+        <div class="map-modal-content" style="max-width: 900px; width: 95%;">
+            <div class="map-header">
+                <h3>Document Verification</h3>
+                <button class="close-map" onclick="closeDocModal()">×</button>
+            </div>
+            <div id="doc-viewer-content"
+                style="padding: 2rem; display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem; max-height: 70vh; overflow-y: auto;">
+                <!-- Images loaded here -->
+            </div>
+            <div id="doc-footer"
+                style="padding: 1.5rem; background: #f8f8f8; display: flex; justify-content: flex-end; gap: 1rem; border-top: 1px solid #eee;">
+                <button class="btn btn-primary" id="btn-approve-app" style="background: #2e7d32;">Approve
+                    Application</button>
+                <button class="btn btn-primary" id="btn-reject-app" style="background: #c62828;">Reject
+                    Application</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Tariff Configuration Modal -->
+    <div id="tariff-modal" class="map-modal" style="display: none;">
+        <div class="map-modal-content" style="max-width: 600px; width: 95%;">
+            <div class="map-header">
+                <h3>Configure Rate Tariff</h3>
+                <button class="close-map" onclick="closeTariffModal()">×</button>
+            </div>
+            <div style="padding: 2rem;">
+                <p id="tariff-info" style="margin-bottom: 1.5rem; font-weight: 700; color: var(--primary-red);"></p>
+                <form id="tariff-form">
+                    <input type="hidden" id="edit-t-id">
+                    <input type="hidden" id="edit-t-category">
+                    <div id="tariff-fields-container" style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+                        <!-- Dynamic fields based on category -->
+                    </div>
+                    <div style="margin-top: 2rem;">
+                        <button type="submit" class="btn btn-primary" style="width: 100%;">Save Configuration</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        function openTariffModal(t) {
+            const config = typeof t.config === 'string' ? JSON.parse(t.config) : t.config;
+            document.getElementById('edit-t-id').value = t.id;
+            document.getElementById('edit-t-category').value = t.category;
+            document.getElementById('tariff-info').textContent = `${t.vehicle_type.toUpperCase()} - ${t.category.toUpperCase()}`;
+
+            const container = document.getElementById('tariff-fields-container');
+            container.innerHTML = '';
+
+            if (t.category === 'rental') {
+                Object.keys(config).forEach(pkg => {
+                    const pkgData = config[pkg];
+                    container.innerHTML += `
+                        <div style="grid-column: span 2; padding: 10px; background: #f8f8f8; border-radius: 8px; font-weight: 700; font-size: 0.8rem;">Package: ${pkg}</div>
+                        <div class="input-group">
+                            <label>Base Fare (₹)</label>
+                            <input type="number" step="0.01" value="${pkgData.base}" data-pkg="${pkg}" data-key="base" required>
+                        </div>
+                        <div class="input-group">
+                            <label>Extra KM (₹)</label>
+                            <input type="number" step="0.01" value="${pkgData.extraKm}" data-pkg="${pkg}" data-key="extraKm" required>
+                        </div>
+                        <div class="input-group">
+                            <label>Extra Hour (₹)</label>
+                            <input type="number" step="0.01" value="${pkgData.extraHour}" data-pkg="${pkg}" data-key="extraHour" required>
+                        </div>
+                        <div style="height: 10px; grid-column: span 2;"></div>
+                    `;
+                });
+            } else {
+                container.innerHTML = `
+                    <div class="input-group">
+                        <label>Base Fare (₹)</label>
+                        <input type="number" step="0.01" id="edit-t-base" value="${config.base || 0}" required>
+                    </div>
+                    <div class="input-group">
+                        <label>Rate Per KM (₹)</label>
+                        <input type="number" step="0.01" id="edit-t-perKm" value="${config.perKm || 0}" required>
+                    </div>
+                    <div class="input-group">
+                        <label>${t.category === 'round' ? 'Min KM Per Day' : 'Min KM Distance'}</label>
+                        <input type="number" id="edit-t-min" value="${config.minKm || config.minKmPerDay || 0}" required>
+                    </div>
+                `;
+                if (t.category === 'oneway' && t.vehicle_type !== 'bike') {
+                    // One-way convenience/allowance logic is hardcoded in app.js but we could add it here
+                }
+            }
+
+            document.getElementById('tariff-modal').style.display = 'flex';
+        }
+
+        function closeTariffModal() {
+            document.getElementById('tariff-modal').style.display = 'none';
+        }
+
+        document.getElementById('tariff-form').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const id = document.getElementById('edit-t-id').value;
+            const category = document.getElementById('edit-t-category').value;
+            let config = {};
+
+            if (category === 'rental') {
+                const inputs = document.querySelectorAll('#tariff-fields-container input');
+                inputs.forEach(input => {
+                    const pkg = input.dataset.pkg;
+                    const key = input.dataset.key;
+                    if (!config[pkg]) config[pkg] = {};
+                    config[pkg][key] = parseFloat(input.value);
+                });
+            } else {
+                config = {
+                    base: parseFloat(document.getElementById('edit-t-base').value),
+                    perKm: parseFloat(document.getElementById('edit-t-perKm').value)
+                };
+                const minVal = parseInt(document.getElementById('edit-t-min').value);
+                if (category === 'round') config.minKmPerDay = minVal;
+                else config.minKm = minVal;
+            }
+
+            try {
+                const res = await fetch(`${API_BASE_URL}/api/admin/update-tariff`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ id, config })
+                });
+                if (res.ok) {
+                    alert('Tariff updated successfully!');
+                    closeTariffModal();
+                    loadTabData('tariffs');
+                } else {
+                    const err = await res.json();
+                    alert(err.error);
+                }
+            } catch (err) { alert('Update failed'); }
+        });
+
+        // --- PEAK RULES MANAGEMENT ---
+        let _peakRulesData = [];
+
+        async function loadPeakRules() {
+            try {
+                const res = await fetch(`${API_BASE_URL}/api/peak-rules`);
+                const rules = await res.json();
+                _peakRulesData = rules; // Store globally
+                const body = document.getElementById('peak-rules-table-body');
+                if (!body) return;
+                body.innerHTML = '';
+                rules.forEach(r => {
+                    body.innerHTML += `
+                        <tr>
+                            <td data-label="Start Time">${r.start_time}</td>
+                            <td data-label="End Time">${r.end_time}</td>
+                            <td data-label="Surcharge"><strong style="color:#e65100">+${r.surcharge_percentage}%</strong></td>
+                            <td data-label="Actions">
+                                <button class="action-btn" style="color:#1565c0" onclick="openPeakRuleModal(${r.id})">Edit</button>
+                                <button class="action-btn" style="color:#d32f2f; margin-left: 8px;" onclick="deletePeakRule(${r.id})">Remove</button>
+                            </td>
+                        </tr>
+                    `;
+                });
+            } catch (err) { console.error('Failed to load peak rules', err); }
+        }
+
+        function openPeakRuleModal(ruleId = null) {
+            let rule = null;
+            if (ruleId) {
+                // If it's an event object (from + New Peak Rule button without args), it won't match a number
+                if (typeof ruleId === 'number' || typeof ruleId === 'string') {
+                    rule = _peakRulesData.find(r => r.id == ruleId);
+                }
+            }
+
+            if (rule) {
+                document.getElementById('p-id').value = rule.id;
+                document.getElementById('p-start').value = rule.start_time ? rule.start_time.substring(0, 5) : '';
+                document.getElementById('p-end').value = rule.end_time ? rule.end_time.substring(0, 5) : '';
+                document.getElementById('p-percent').value = rule.surcharge_percentage;
+                document.querySelector('#peak-rule-modal h3').textContent = 'Edit Peak Rule';
+                document.querySelector('#peak-rule-modal .btn').textContent = 'Update Rule';
+            } else {
+                document.getElementById('p-id').value = '';
+                document.getElementById('p-start').value = '';
+                document.getElementById('p-end').value = '';
+                document.getElementById('p-percent').value = '';
+                document.querySelector('#peak-rule-modal h3').textContent = 'Add Peak Rule';
+                document.querySelector('#peak-rule-modal .btn').textContent = 'Add Rule';
+            }
+            document.getElementById('peak-rule-modal').style.display = 'flex';
+        }
+
+        function closePeakRuleModal() {
+            document.getElementById('peak-rule-modal').style.display = 'none';
+        }
+
+        async function savePeakRule(e) {
+            e.preventDefault();
+            const id = document.getElementById('p-id').value;
+            const data = {
+                start_time: document.getElementById('p-start').value,
+                end_time: document.getElementById('p-end').value,
+                surcharge_percentage: document.getElementById('p-percent').value
+            };
+
+            try {
+                const endpoint = id ? `${API_BASE_URL}/api/admin/peak-rules/update` : `${API_BASE_URL}/api/admin/peak-rules/add`;
+                if (id) data.id = id;
+
+                const res = await fetch(endpoint, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(data)
+                });
+                if (res.ok) {
+                    alert(id ? 'Peak rule updated!' : 'Peak rule added!');
+                    closePeakRuleModal();
+                    loadPeakRules();
+                } else {
+                    const err = await res.json();
+                    alert(err.error || 'Failed to save rule');
+                }
+            } catch (err) { alert('Failed to save rule'); }
+        }
+
+        async function deletePeakRule(id) {
+            if (!confirm('Remove this peak surcharge rule?')) return;
+            try {
+                const res = await fetch(`${API_BASE_URL}/api/admin/peak-rules/delete`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ id })
+                });
+                if (res.ok) loadPeakRules();
+            } catch (err) { alert('Failed to delete rule'); }
+        }
+
+        // --- INITIALIZATION ---
+        let _activeTab = 'overview';
+
+        // Handle Sidebar Tab Switching
+        document.querySelectorAll('.nav-item').forEach(item => {
+            item.addEventListener('click', () => {
+                const match = item.getAttribute('onclick')?.match(/switchTab\('(\w+)'/);
+                if (match) _activeTab = match[1];
+            });
+        });
+
+        // Initial Load
+        loadTabData('overview');
+
+        // Central Command Live Radar Poll (5 seconds)
+        setInterval(() => { loadTabData(_activeTab); }, 5000);
+    </script>
+    <!-- Peak Rule Modal -->
+    <div id="peak-rule-modal" class="map-modal" style="display: none;">
+        <div class="map-modal-content" style="max-width: 400px; width: 95%;">
+            <div class="map-header" style="background: #e65100;">
+                <h3>Add Peak Rule</h3>
+                <button class="close-map" onclick="closePeakRuleModal()">×</button>
+            </div>
+            <div style="padding: 2rem;">
+                <form onsubmit="savePeakRule(event)">
+                    <input type="hidden" id="p-id">
+                    <div class="input-group">
+                        <label>Start Time</label>
+                        <input type="time" id="p-start" required>
+                    </div>
+                    <div class="input-group" style="margin-top: 1rem;">
+                        <label>End Time</label>
+                        <input type="time" id="p-end" required>
+                    </div>
+                    <div class="input-group" style="margin-top: 1rem;">
+                        <label>Surcharge Percentage (%)</label>
+                        <input type="number" id="p-percent" placeholder="e.g. 25" required>
+                    </div>
+                    <div style="margin-top: 2rem;">
+                        <button type="submit" class="btn btn-primary" style="width: 100%; background: #e65100;">Add
+                            Rule</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+    <script src="alert.js"></script>
+    <script>
+        window.addEventListener('load', () => {
+            const splash = document.getElementById('splash-screen');
+            if (splash) {
+                setTimeout(() => {
+                    splash.classList.add('splash-hidden');
+                    document.body.style.setProperty('overflow', 'auto', 'important');
+                }, 3200);
+            }
+        });
+    </script>
+</body>
+
+</html>
