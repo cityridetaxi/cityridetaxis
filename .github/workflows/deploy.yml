@@ -1,37 +1,68 @@
 name: Deploy CityRide
 
 on:
-  push:
-    branches:
-      - main
+push:
+branches:
+- main
 
 jobs:
-  deploy:
-    runs-on:
-      - self-hosted
-      - Linux
-      - X64
+deploy:
+runs-on:
+- self-hosted
+- Linux
+- X64
 
-    steps:
-      - uses: actions/checkout@v4
+```
+steps:
+  - name: Checkout Source Code
+    uses: actions/checkout@v4
 
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
+  - name: Setup Node.js
+    uses: actions/setup-node@v4
+    with:
+      node-version: 22
 
-      - run: npm install
+  - name: Install Dependencies
+    run: npm install
 
-      - run: |
-          rsync -av --delete \
-          --exclude=node_modules \
-          --exclude=.git \
-          $GITHUB_WORKSPACE/ \
-          /home/ubuntu/cityridetaxis/
+  - name: Ensure Deployment Directory Exists
+    run: |
+      mkdir -p /home/ubuntu/cityridetaxis
 
-      - run: |
-          cd /home/ubuntu/cityridetaxis
-          npm install
+  - name: Sync Application Files
+    run: |
+      rsync -av --delete \
+        --exclude=node_modules \
+        --exclude=.git \
+        --exclude=.github \
+        --exclude=.env \
+        $GITHUB_WORKSPACE/ \
+        /home/ubuntu/cityridetaxis/
 
-      - run: |
-          pm2 restart cityride || pm2 start server.js --name cityride
-          pm2 save
+  - name: Verify Environment File
+    run: |
+      echo "Checking .env file..."
+      ls -la /home/ubuntu/cityridetaxis/.env
+
+  - name: Install Production Dependencies
+    run: |
+      cd /home/ubuntu/cityridetaxis
+      npm install
+
+  - name: Restart Application
+    run: |
+      cd /home/ubuntu/cityridetaxis
+      pm2 restart cityride --update-env || pm2 start server.js --name cityride
+      pm2 save
+
+  - name: Wait For Startup
+    run: sleep 10
+
+  - name: Verify PM2 Status
+    run: |
+      pm2 status
+      pm2 logs cityride --lines 50 --nostream || true
+
+  - name: Verify Port 3000
+    run: |
+      sudo ss -tulnp | grep 3000 || true
