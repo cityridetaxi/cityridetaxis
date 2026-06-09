@@ -12,7 +12,6 @@ runs-on:
 - Linux
 - X64
 
-```
 steps:
   - name: Checkout Source Code
     uses: actions/checkout@v4
