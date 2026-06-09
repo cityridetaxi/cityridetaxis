@@ -7,37 +7,31 @@ on:
 
 jobs:
   deploy:
-    runs-on: cityride
+    runs-on:
+      - self-hosted
+      - Linux
+      - X64
 
     steps:
-      - name: Checkout Code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Setup Node
-        uses: actions/setup-node@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: 22
 
-      - name: Install Dependencies
-        run: npm install
+      - run: npm install
 
-      - name: Copy Code To Deployment Folder
-        run: |
+      - run: |
           rsync -av --delete \
           --exclude=node_modules \
           --exclude=.git \
           $GITHUB_WORKSPACE/ \
           /home/ubuntu/cityridetaxis/
 
-      - name: Install Production Packages
-        run: |
+      - run: |
           cd /home/ubuntu/cityridetaxis
           npm install
 
-      - name: Restart Application
-        run: |
+      - run: |
           pm2 restart cityride || pm2 start server.js --name cityride
           pm2 save
-
-
-
