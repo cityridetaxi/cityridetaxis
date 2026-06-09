@@ -61,4 +61,3 @@ steps:
 
   - name: Verify Port 3000
     run: sudo ss -tulnp | grep 3000 || true
-```
