@@ -26,8 +26,7 @@ steps:
     run: npm install
 
   - name: Ensure Deployment Directory Exists
-    run: |
-      mkdir -p /home/ubuntu/cityridetaxis
+    run: mkdir -p /home/ubuntu/cityridetaxis
 
   - name: Sync Application Files
     run: |
@@ -36,12 +35,11 @@ steps:
         --exclude=.git \
         --exclude=.github \
         --exclude=.env \
-        $GITHUB_WORKSPACE/ \
+        "$GITHUB_WORKSPACE/" \
         /home/ubuntu/cityridetaxis/
 
   - name: Verify Environment File
     run: |
-      echo "Checking .env file..."
       ls -la /home/ubuntu/cityridetaxis/.env
 
   - name: Install Production Dependencies
@@ -59,10 +57,8 @@ steps:
     run: sleep 10
 
   - name: Verify PM2 Status
-    run: |
-      pm2 status
-      pm2 logs cityride --lines 50 --nostream || true
+    run: pm2 status
 
   - name: Verify Port 3000
-    run: |
-      sudo ss -tulnp | grep 3000 || true
+    run: sudo ss -tulnp | grep 3000 || true
+```
