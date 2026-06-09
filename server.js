@@ -146,11 +146,7 @@ async function initDB() {
     const publicPassword = process.env.DB_PASSWORD || '';
     const publicDatabase = process.env.DB_NAME || 'railway';
 
-    // If DB_HOST is explicitly configured (e.g., pointing to an external DB like AWS RDS),
-    // we MUST prioritize it even if running inside a Railway Container.
-    const hasExplicitExternalDB = process.env.DB_HOST && !process.env.DB_HOST.includes('localhost') && !process.env.DB_HOST.includes('127.0.0.1');
-
-    if (isRailway && !hasExplicitExternalDB) {
+    if (isRailway) {
         host = process.env.MYSQLHOST || publicHost;
         port = parseInt(process.env.MYSQLPORT) || publicPort;
         user = process.env.MYSQLUSER || publicUser;
@@ -163,7 +159,7 @@ async function initDB() {
         user = publicUser;
         password = publicPassword;
         database = publicDatabase;
-        console.log('Connecting to MySQL at:', host, 'on port:', port);
+        console.log('Detected Local/PC environment. Connecting to MySQL proxy at:', host, 'on port:', port);
     }
     
     const dbConfig = {
