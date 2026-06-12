@@ -2070,6 +2070,83 @@
             setTimeout(() => {
                 driverMap.invalidateSize();
             }, 100);
+
+            // Enable manual location mock on click for local testing/insecure origins
+            driverMap.on('click', (e) => {
+                const dot = document.getElementById('gps-status-dot');
+                const isSearching = dot && (dot.classList.contains('searching') || dot.classList.contains('disabled'));
+                const isInsecure = dot && dot.parentNode && dot.parentNode.textContent.includes('Insecure');
+                
+                if (!gpsWatchId || isSearching || isInsecure) {
+                    const lat = e.latlng.lat;
+                    const lng = e.latlng.lng;
+                    const acc = 5;
+
+                    updateGpsUI('locked', acc);
+                    updateDriverLocationOnMap(lat, lng);
+
+                    // Speed calculation
+                    let speedKmh = 25;
+                    if (window.lastGpsCoords) {
+                        const timeDiffSec = (Date.now() - window.lastGpsCoords.time) / 1000;
+                        if (timeDiffSec > 0.5) {
+                            const distKm = getDistance(window.lastGpsCoords.lat, window.lastGpsCoords.lng, lat, lng);
+                            speedKmh = Math.round(distKm / (timeDiffSec / 3600));
+                            if (speedKmh > 160) speedKmh = 25;
+                        }
+                    }
+                    window.lastGpsCoords = { lat, lng, time: Date.now() };
+
+                    const floatSpeedVal = document.getElementById('float-speed-val');
+                    if (floatSpeedVal) floatSpeedVal.textContent = speedKmh;
+
+                    // Client-side real-time odometer accumulator
+                    if (activeRideObj && activeRideObj.status === 'ongoing') {
+                        if (!window.clientKalmanFilter) {
+                            window.clientKalmanFilter = new LatLngKalmanFilter(4.0);
+                        }
+                        
+                        const smoothed = window.clientKalmanFilter.process(lat, lng, acc, Date.now());
+                        
+                        if (window.lastOdoCalcTime) {
+                            const dtSeconds = Math.max(0.1, (Date.now() - window.lastOdoCalcTime) / 1000.0);
+                            let incrementalDistanceKm = 0;
+
+                            if (window.lastSmoothedCoords) {
+                                const segmentDist = getDistance(window.lastSmoothedCoords.lat, window.lastSmoothedCoords.lng, smoothed.lat, smoothed.lng);
+                                const calculatedSpeedMPS = (segmentDist * 1000.0) / dtSeconds;
+
+                                if (calculatedSpeedMPS <= 45.0 && segmentDist >= 0.001 && calculatedSpeedMPS >= 0.05) {
+                                    incrementalDistanceKm = segmentDist;
+                                }
+                            }
+
+                            if (incrementalDistanceKm > 0 && incrementalDistanceKm < 5.0) {
+                                window.localDistanceCovered = (window.localDistanceCovered || 0) + incrementalDistanceKm;
+                            }
+                        }
+                        
+                        window.lastSmoothedCoords = { lat: smoothed.lat, lng: smoothed.lng };
+                        window.lastOdoCalcTime = Date.now();
+
+                        const offlineKey = `offline_gps_${acceptedOpportunityId}`;
+                        const offlineLogs = JSON.parse(localStorage.getItem(offlineKey)) || [];
+                        const lastLog = offlineLogs.length > 0 ? offlineLogs[offlineLogs.length - 1] : null;
+                        
+                        if (!lastLog || (Date.now() - lastLog.time >= 1000)) {
+                            offlineLogs.push({ latitude: lat, longitude: lng, accuracy: acc, speed: speedKmh, time: Date.now() });
+                            localStorage.setItem(offlineKey, JSON.stringify(offlineLogs));
+                        }
+                    }
+
+                    // Send live GPS tracking log to backend if trip is active
+                    const now = Date.now();
+                    if (acceptedOpportunityId && (now - lastGpsSendTime >= 9000)) {
+                        lastGpsSendTime = now;
+                        sendGpsTrackingUpdate(acceptedOpportunityId, lat, lng, acc, speedKmh);
+                    }
+                }
+            });
         }
 
         // Smooth Visual Odometer Interpolator (Zero-Latency Rendering)
@@ -2222,7 +2299,11 @@
                 }
             }, (err) => {
                 console.warn('GPS Fail:', err.message);
-                updateGpsUI('searching');
+                if (err.message.includes('Only secure origins are allowed') || err.message.includes('secure origin') || err.code === 1) {
+                    updateGpsUI('insecure');
+                } else {
+                    updateGpsUI('searching');
+                }
             }, {
                 enableHighAccuracy: true,
                 timeout: 10000,
@@ -2254,6 +2335,9 @@
             } else if (status === 'disabled') {
                 dot.classList.add('disabled');
                 lbl.textContent = 'GPS Offline';
+            } else if (status === 'insecure') {
+                dot.classList.add('disabled');
+                lbl.innerHTML = '<span style="color:#FFA500;">GPS Insecure (Click map to simulate location)</span>';
             }
         }
 
@@ -3018,7 +3102,12 @@
                 });
                 lat = pos.coords.latitude;
                 lng = pos.coords.longitude;
-            } catch(e) {}
+            } catch(e) {
+                if (window.lastGpsCoords) {
+                    lat = window.lastGpsCoords.lat;
+                    lng = window.lastGpsCoords.lng;
+                }
+            }
 
             try {
                 const res = await fetch(`${API_BASE_URL}/api/bookings/start-journey`, {
@@ -3177,7 +3266,12 @@
                 });
                 lat = pos.coords.latitude;
                 lng = pos.coords.longitude;
-            } catch(e) {}
+            } catch(e) {
+                if (window.lastGpsCoords) {
+                    lat = window.lastGpsCoords.lat;
+                    lng = window.lastGpsCoords.lng;
+                }
+            }
 
             try {
                 // Sync any remaining offline GPS logs before finishing the trip

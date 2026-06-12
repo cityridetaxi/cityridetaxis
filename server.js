@@ -481,6 +481,8 @@ async function initDB() {
         try { await db.query('ALTER TABLE taxi_bookings ADD COLUMN is_deviated TINYINT DEFAULT 0'); } catch(e){}
         try { await db.query('ALTER TABLE taxi_bookings ADD COLUMN original_fare VARCHAR(50) DEFAULT NULL'); } catch(e){}
         try { await db.query('ALTER TABLE taxi_bookings ADD COLUMN return_date DATE DEFAULT NULL'); } catch(e){}
+        try { await db.query('ALTER TABLE taxi_bookings ADD COLUMN start_gps_coords VARCHAR(100) DEFAULT NULL'); } catch(e){}
+        try { await db.query('ALTER TABLE taxi_bookings ADD COLUMN end_gps_coords VARCHAR(100) DEFAULT NULL'); } catch(e){}
 
         // Migration: Dual Distance Calculation (Static + Dynamic)
         try { await db.query('ALTER TABLE taxi_bookings ADD COLUMN estimated_distance VARCHAR(50) DEFAULT NULL'); } catch(e){}
@@ -2597,6 +2599,7 @@ app.post('/api/bookings/start-journey', async (req, res) => {
             dynamicFare: dynamicFareStr
         });
     } catch (err) {
+        console.error('Error in start-journey:', err);
         res.status(500).json({ error: err.message });
     }
 });
