@@ -2,6 +2,56 @@
  * CityRideTaxi - Main Application Logic
  */
 
+// Global Fetch Interceptor with Silent Token Refresh (Dual-Token Architecture)
+(function() {
+    const originalFetch = window.fetch;
+    let isRefreshing = false;
+    let refreshPromise = null;
+
+    async function attemptTokenRefresh() {
+        if (isRefreshing) return refreshPromise;
+        isRefreshing = true;
+        refreshPromise = originalFetch('/api/auth/refresh', { method: 'POST', credentials: 'include' })
+            .then(r => { isRefreshing = false; return r.ok; })
+            .catch(() => { isRefreshing = false; return false; });
+        return refreshPromise;
+    }
+
+    function getLoginRedirect(url) {
+        if (typeof url === 'string' && url.includes('/api/')) {
+            if (url.includes('/api/admin/')) return 'admin-login.html';
+            if (url.includes('/api/vendor/')) return 'vendor-login.html';
+            if (url.includes('/api/driver/') || url.includes('/api/bookings/')) {
+                return window.location.pathname.includes('driver') ? 'driver-login.html' : 'auth.html';
+            }
+            return 'auth.html';
+        }
+        return null;
+    }
+
+    window.fetch = async function (...args) {
+        const response = await originalFetch(...args);
+        const url = args[0];
+        
+        if (typeof url === 'string' && (url.includes('/api/auth/refresh') || url.includes('/api/auth/logout'))) {
+            return response;
+        }
+
+        if (response.status === 401) {
+            const refreshed = await attemptTokenRefresh();
+            if (refreshed) {
+                return originalFetch(...args);
+            }
+            const redirect = getLoginRedirect(url);
+            if (redirect) window.location.href = redirect;
+        } else if (response.status === 403) {
+            const redirect = getLoginRedirect(url);
+            if (redirect) window.location.href = redirect;
+        }
+        return response;
+    };
+})();
+
 const VEHICLE_ICONS = {
     bike: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5.5 17.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5s2.5 1.12 2.5 2.5s-1.12 2.5-2.5 2.5z"/><path d="M18.5 17.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5s2.5 1.12 2.5 2.5s-1.12 2.5-2.5 2.5z"/><path d="M10 15h4l2-4h-8z"/><path d="M12 11V7c0-1-1-2-2-2"/><path d="M8 5h4"/></svg>`,
     auto: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 11h11l2 3h3v2a1 1 0 0 1-1 1h-2a1 1 0 0 1-1-1v-1H6v1a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1v-2l2-3z"/><circle cx="5" cy="15" r="2" fill="currentColor"/><circle cx="16" cy="15" r="2" fill="currentColor"/><path d="M7 11V8a1 1 0 0 1 1-1h5a1 1 0 0 1 1 1v3"/></svg>`,
@@ -973,6 +1023,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     window.logoutUser = function () {
+        fetch('/api/auth/logout', { method: 'POST' }).catch(() => {});
         localStorage.removeItem('cityride_member');
         localStorage.removeItem('cityride_pilot');
         localStorage.removeItem('cityride_master');

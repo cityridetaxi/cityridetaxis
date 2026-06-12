@@ -11,24 +11,226 @@ const rateLimit = require('express-rate-limit');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 const multer = require('multer');
 const sharp = require('sharp');
+const helmet = require('helmet');
+const compression = require('compression');
+const cookieParser = require('cookie-parser');
+const jwt = require('jsonwebtoken');
+const crypto = require('crypto');
 require('dotenv').config();
 
 const app = express();
-app.use(cors());
-app.use(bodyParser.json());
-app.use(express.static('public'));
+
+// --- MIDDLEWARE HARDENING & OPTIMIZATIONS ---
+app.use(helmet({
+    contentSecurityPolicy: false // Disable CSP to prevent blocking inline scripts and Leaflet/SweetAlert CDNs
+}));
+app.disable('x-powered-by');
+app.use(compression());
+app.use(cookieParser());
+
+// Trust Proxy for Nginx (for accurate rate-limiting client IP capture)
+app.set('trust proxy', 1);
+
+// Limit request sizes (brute force payload protection)
+app.use(express.json({ limit: '2mb' }));
+app.use(express.urlencoded({ limit: '2mb', extended: true }));
+
+// Restrict CORS to approved domains
+const allowedOrigins = (process.env.ALLOWED_ORIGINS || '').split(',').map(o => o.trim()).filter(Boolean);
+app.use(cors({
+    origin: (origin, callback) => {
+        if (!origin || allowedOrigins.length === 0) {
+            return callback(null, true);
+        }
+        if (allowedOrigins.includes(origin)) {
+            return callback(null, true);
+        }
+        return callback(new Error('CORS Policy: Origin not allowed.'));
+    },
+    credentials: true
+}));
+
+// Browser caching for static assets
+app.use(express.static(path.join(__dirname, 'public'), {
+    maxAge: '1d', // 1 day cache
+    etag: true,
+    lastModified: true
+}));
+
+// Request Logger Middleware
+app.use((req, res, next) => {
+    const start = Date.now();
+    res.on('finish', () => {
+        const duration = Date.now() - start;
+        console.log(`[REQUEST] ${req.method} ${req.originalUrl} - Status: ${res.statusCode} - Duration: ${duration}ms - IP: ${req.ip}`);
+    });
+    next();
+});
 
 // Fallback for missing uploads (prevents 404 console errors by redirecting to a placeholder)
 app.use('/uploads', (req, res) => {
     res.redirect('https://placehold.co/600x400?text=File+Not+Found+On+Server');
 });
 
-// --- MULTER STORAGE CONFIGURATION (IN-MEMORY FOR BASE64 STORAGE) ---
+// --- JWT CONFIGURATION & HELPERS (Dual-Token Architecture) ---
+const JWT_SECRET = process.env.JWT_SECRET || 'cityride_super_secure_jwt_key_2026';
+const REFRESH_SECRET = process.env.REFRESH_TOKEN_SECRET || 'cityride_refresh_rotation_key_2026';
+const ACCESS_TOKEN_EXPIRY = '15m'; // Short-lived access token
+const REFRESH_TOKEN_EXPIRY_DAYS = 30;
+
+// Generate device fingerprint from IP + User-Agent
+function generateFingerprint(req) {
+    const ip = req.ip || req.connection.remoteAddress || 'unknown';
+    const ua = req.headers['user-agent'] || 'unknown';
+    return crypto.createHash('sha256').update(`${ip}::${ua}`).digest('hex');
+}
+
+async function setAuthCookie(res, req, user, role) {
+    const fingerprint = generateFingerprint(req);
+    
+    // 1. Short-lived Access Token (15 min, bound to fingerprint)
+    const accessPayload = {
+        id: user.id,
+        role: role,
+        name: user.name,
+        email: user.email || null,
+        phone: user.phone || null,
+        fp: fingerprint
+    };
+    const accessToken = jwt.sign(accessPayload, JWT_SECRET, { expiresIn: ACCESS_TOKEN_EXPIRY });
+    res.cookie('cityride_token', accessToken, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === 'production',
+        sameSite: 'Strict',
+        maxAge: 15 * 60 * 1000 // 15 minutes
+    });
+
+    // 2. Long-lived Refresh Token (30 days, stored in DB for rotation)
+    const refreshTokenId = crypto.randomBytes(32).toString('hex');
+    const refreshPayload = {
+        id: user.id,
+        role: role,
+        tid: refreshTokenId, // Unique token ID for rotation tracking
+        fp: fingerprint
+    };
+    const refreshToken = jwt.sign(refreshPayload, REFRESH_SECRET, { expiresIn: `${REFRESH_TOKEN_EXPIRY_DAYS}d` });
+    res.cookie('cityride_refresh', refreshToken, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === 'production',
+        sameSite: 'Strict',
+        path: '/api/auth/refresh', // Only sent to the refresh endpoint
+        maxAge: REFRESH_TOKEN_EXPIRY_DAYS * 24 * 60 * 60 * 1000
+    });
+
+    // 3. Store refresh token in DB (enables server-side revocation)
+    if (db) {
+        const expiresAt = new Date(Date.now() + REFRESH_TOKEN_EXPIRY_DAYS * 24 * 60 * 60 * 1000);
+        try {
+            await db.query(
+                'INSERT INTO taxi_refresh_tokens (token_id, user_id, role, fingerprint, expires_at) VALUES (?, ?, ?, ?, ?)',
+                [refreshTokenId, user.id, role, fingerprint, expiresAt]
+            );
+        } catch (e) {
+            console.error('[REFRESH] Failed to store refresh token:', e.message);
+        }
+    }
+}
+
+function authenticateJWT(req, res, next) {
+    const token = req.cookies.cityride_token || (req.headers.authorization && req.headers.authorization.split(' ')[1]);
+    if (!token) {
+        return res.status(401).json({ error: 'Access denied. No authentication token provided.' });
+    }
+    try {
+        const decoded = jwt.verify(token, JWT_SECRET);
+        
+        // Fingerprint verification: reject if device changed
+        if (decoded.fp) {
+            const currentFingerprint = generateFingerprint(req);
+            if (decoded.fp !== currentFingerprint) {
+                console.warn(`[SECURITY] Fingerprint mismatch for user ${decoded.id} (role: ${decoded.role}). Possible token theft.`);
+                return res.status(403).json({ error: 'Session integrity check failed. Please log in again.' });
+            }
+        }
+        
+        req.user = decoded;
+        next();
+    } catch (err) {
+        // If access token expired, tell client to refresh
+        if (err.name === 'TokenExpiredError') {
+            return res.status(401).json({ error: 'Access token expired.', code: 'TOKEN_EXPIRED' });
+        }
+        return res.status(403).json({ error: 'Invalid or expired authentication token.' });
+    }
+}
+
+function requireRole(roles) {
+    return (req, res, next) => {
+        if (!req.user || !roles.includes(req.user.role)) {
+            return res.status(403).json({ error: 'Access denied. Unauthorized access role.' });
+        }
+        next();
+    };
+}
+
+async function verifyBookingAccess(req, res, next) {
+    const bookingId = req.params.bookingId || req.body.bookingId || req.query.bookingId;
+    if (!bookingId) return res.status(400).json({ error: 'Booking ID is required.' });
+    try {
+        const [bookings] = await db.query('SELECT user_id, driver_id FROM taxi_bookings WHERE id = ?', [bookingId]);
+        if (bookings.length === 0) return res.status(404).json({ error: 'Booking not found.' });
+        
+        const b = bookings[0];
+        if (req.user.role === 'admin') return next();
+        if (req.user.role === 'driver' && b.driver_id === req.user.id) return next();
+        if (req.user.role === 'user' && b.user_id === req.user.id) return next();
+        
+        return res.status(403).json({ error: 'Access Denied: You do not have permission to view or modify this booking.' });
+    } catch (err) {
+        return res.status(500).json({ error: 'Booking verification failed.' });
+    }
+}
+
+// --- INPUT VALIDATION & SANITIZATION HELPERS ---
+function escapeHTML(str) {
+    if (typeof str !== 'string') return '';
+    return str
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
+
+function validateEmail(email) {
+    const re = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    return re.test(String(email).toLowerCase());
+}
+
+function validatePhone(phone) {
+    const re = /^\+?[0-9\s\-()]{7,15}$/;
+    return re.test(String(phone));
+}
+
+function cleanString(str) {
+    if (typeof str !== 'string') return '';
+    return str.trim();
+}
+
+// --- MULTER STORAGE CONFIGURATION (IN-MEMORY WITH FILE FILTERING) ---
 const storage = multer.memoryStorage();
 const upload = multer({ 
     storage: storage,
     limits: {
-        fileSize: 10 * 1024 * 1024 // 10MB limit per file
+        fileSize: 5 * 1024 * 1024 // 5MB size limit
+    },
+    fileFilter: (req, file, cb) => {
+        const allowedMimeTypes = ['image/jpeg', 'image/png', 'image/webp'];
+        if (allowedMimeTypes.includes(file.mimetype)) {
+            cb(null, true);
+        } else {
+            cb(new Error('MIME Policy: Only JPEG, PNG, and WEBP image files are allowed.'), false);
+        }
     }
 });
 
@@ -55,11 +257,10 @@ const optimizeAndGetBase64 = async (fileArray) => {
     }
 };
 
-// --- RATE LIMITING (DDoS & Thread Attack Protection) ---
-// Global rule for general traffic (prevents basic floods)
+// --- RATE LIMITING ---
 const globalLimiter = rateLimit({
     windowMs: 15 * 60 * 1000, 
-    max: 3000, // Increased for polling
+    max: 3000, 
     message: { error: 'Security Limit: Too many requests from this IP.' },
     standardHeaders: true, 
     legacyHeaders: false,
@@ -67,14 +268,23 @@ const globalLimiter = rateLimit({
 
 const apiLimiter = rateLimit({
     windowMs: 15 * 60 * 1000, 
-    max: 2500, // Explicitly set to 2500 for high-frequency polling
+    max: 2500, 
     message: { error: 'API Rate limit exceeded. Please lower your request frequency.' },
     standardHeaders: true,
     legacyHeaders: false,
 });
 
-app.use(globalLimiter); // Apply to all
-app.use('/api/', apiLimiter); // Extra layer for backend routes
+// Strict authentication rate limiter
+const authRateLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000, 
+    max: 15, 
+    message: { error: 'Security Limit: Too many attempts. Try again in 15 minutes.' },
+    standardHeaders: true,
+    legacyHeaders: false,
+});
+
+app.use(globalLimiter);
+app.use('/api/', apiLimiter);
 
 // Clean Navigation Routes
 app.get('/driver', (req, res) => res.sendFile(path.join(__dirname, 'public', 'driver.html')));
@@ -492,6 +702,8 @@ async function initDB() {
         try { await db.query('ALTER TABLE taxi_bookings ADD COLUMN dynamic_fare VARCHAR(50) DEFAULT NULL'); } catch(e){}
         try { await db.query('ALTER TABLE taxi_bookings ADD COLUMN reached_pickup_time DATETIME NULL'); } catch(e){}
         try { await db.query('ALTER TABLE taxi_bookings ADD COLUMN end_otp VARCHAR(10) DEFAULT NULL'); } catch(e){}
+        try { await db.query('ALTER TABLE taxi_bookings ADD COLUMN rating TINYINT NULL'); } catch(e){}
+        try { await db.query('ALTER TABLE taxi_bookings ADD COLUMN rating_comment TEXT NULL'); } catch(e){}
         
         // GPS Logs Table
         await db.query(`
@@ -857,6 +1069,35 @@ async function initDB() {
                 console.error('Tariff initialization failed:', e.message);
             }
 
+        // Refresh Tokens Table (Dual-Token Architecture)
+        await db.query(`
+            CREATE TABLE IF NOT EXISTS taxi_refresh_tokens (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                token_id VARCHAR(64) UNIQUE NOT NULL,
+                user_id INT NOT NULL,
+                role VARCHAR(20) NOT NULL,
+                fingerprint VARCHAR(64),
+                expires_at TIMESTAMP NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                INDEX idx_refresh_user (user_id, role),
+                INDEX idx_refresh_expiry (expires_at)
+            )
+        `);
+
+        // 4. Create Indexes for performance
+        try {
+            await db.query('CREATE INDEX idx_bookings_user_id ON taxi_bookings(user_id)');
+            console.log('✅ Migration: Index idx_bookings_user_id created on taxi_bookings.');
+        } catch (e) { /* Already exists or not supported */ }
+        try {
+            await db.query('CREATE INDEX idx_bookings_driver_id ON taxi_bookings(driver_id)');
+            console.log('✅ Migration: Index idx_bookings_driver_id created on taxi_bookings.');
+        } catch (e) { /* Already exists or not supported */ }
+        try {
+            await db.query('CREATE INDEX idx_bookings_status ON taxi_bookings(status)');
+            console.log('✅ Migration: Index idx_bookings_status created on taxi_bookings.');
+        } catch (e) { /* Already exists or not supported */ }
+
         console.log('MySQL schema and default admin ensured.');
     } catch (err) {
         console.error('Database Initialization Failed:', err.message);
@@ -869,6 +1110,18 @@ cron.schedule('0 * * * *', async () => {
     if (db) {
         await db.query('DELETE FROM taxi_otps WHERE expires_at < NOW()');
         console.log('--- OTP CLEANUP COMPLETED ---');
+    }
+});
+
+// Maintenance: Clean up expired refresh tokens daily at midnight
+cron.schedule('0 0 * * *', async () => {
+    if (db) {
+        try {
+            const [result] = await db.query('DELETE FROM taxi_refresh_tokens WHERE expires_at < NOW()');
+            console.log(`--- REFRESH TOKEN CLEANUP: ${result.affectedRows} expired tokens purged ---`);
+        } catch (e) {
+            console.error('[CRON] Refresh token cleanup failed:', e.message);
+        }
     }
 });
 
@@ -1096,46 +1349,57 @@ app.post('/api/auth/send-otp', async (req, res) => {
 });
 
 // 2. Passenger Registry (With OTP Validation)
-app.post('/api/auth/register', async (req, res) => {
+app.post('/api/auth/register', authRateLimiter, async (req, res) => {
     try {
-        const { name, email, password, phone, otp } = req.body;
+        let { name, email, password, phone } = req.body;
+        name = cleanString(name);
+        email = cleanString(email);
+        phone = cleanString(phone);
         
-        // 1. Validate OTP (DISABLED)
-        // const [otpRows] = await db.query('SELECT * FROM taxi_otps WHERE email = ? AND otp = ? AND expires_at > NOW()', [email, otp]);
-        // if (otpRows.length === 0) return res.status(400).json({ error: 'Invalid or expired OTP.' });
+        if (!name || !email || !password || !phone) {
+            return res.status(400).json({ error: 'All fields are required.' });
+        }
+        if (name.length < 2 || name.length > 100) {
+            return res.status(400).json({ error: 'Name must be between 2 and 100 characters.' });
+        }
+        if (!validateEmail(email)) {
+            return res.status(400).json({ error: 'Invalid email address format.' });
+        }
+        if (!validatePhone(phone)) {
+            return res.status(400).json({ error: 'Invalid phone number format.' });
+        }
+        if (password.length < 6) {
+            return res.status(400).json({ error: 'Password must be at least 6 characters.' });
+        }
 
-        // 2. Check for Existing Member
+        // Check for Existing Member
         const [existing] = await db.query('SELECT id FROM passengers WHERE phone = ? OR email = ?', [phone, email]);
         if (existing.length > 0) return res.status(400).json({ error: 'Identity already registered in the mainframe.' });
 
-        // 3. Register Member
+        // Register Member
         const salt = await bcrypt.genSalt(10);
         const hashedPassword = await bcrypt.hash(password, salt);
         const sql = 'INSERT INTO passengers (name, email, password, phone) VALUES (?, ?, ?, ?)';
         const [result] = await db.query(sql, [name, email, hashedPassword, phone]);
         
-        // Cleanup OTP (DISABLED)
-        // await db.query('DELETE FROM taxi_otps WHERE email = ?', [email]);
-        
-        res.json({ 
-            success: true, 
-            user: {
-                id: result.insertId,
-                name,
-                email,
-                phone,
-                role: 'user'
-            }
-        });
+        const user = {
+            id: result.insertId,
+            name,
+            email,
+            phone,
+            role: 'user'
+        };
+        await setAuthCookie(res, req, user, 'user');
+        res.json({ success: true, user });
     } catch (err) {
         res.status(500).json({ error: 'Registry Failure' });
     }
 });
 
-app.post('/api/auth/login', async (req, res) => {
+app.post('/api/auth/login', authRateLimiter, async (req, res) => {
     try {
         const { phone, email, password } = req.body;
-        const identifier = phone || email;
+        const identifier = cleanString(phone || email);
         
         if (!identifier || !password) {
             return res.status(400).json({ error: 'Identifier (phone/email) and password are required.' });
@@ -1154,20 +1418,27 @@ app.post('/api/auth/login', async (req, res) => {
             if (isMatch) {
                 delete user.password;
                 user.role = 'user';
+                await setAuthCookie(res, req, user, 'user');
                 return res.json({ success: true, user });
             }
         }
-        res.status(401).json({ error: 'Invalid phone number or password.' });
+        res.status(401).json({ error: 'Invalid phone number/email or password.' });
     } catch (err) {
         res.status(500).json({ error: 'Auth Failure' });
     }
 });
 
-// 3. Admin Command Login
-app.post('/api/admin/login', async (req, res) => {
+// Admin Command Login
+app.post('/api/admin/login', authRateLimiter, async (req, res) => {
     try {
         const { email, password } = req.body;
-        const [taxi_admins] = await db.query('SELECT id, name, email, password FROM taxi_admins WHERE email = ?', [email]);
+        const cleanEmail = cleanString(email);
+        
+        if (!cleanEmail || !password) {
+            return res.status(400).json({ error: 'Email and password are required.' });
+        }
+
+        const [taxi_admins] = await db.query('SELECT id, name, email, password FROM taxi_admins WHERE email = ?', [cleanEmail]);
         
         if (taxi_admins.length > 0) {
             const user = taxi_admins[0];
@@ -1175,6 +1446,7 @@ app.post('/api/admin/login', async (req, res) => {
             if (isMatch) {
                 delete user.password;
                 user.role = 'admin';
+                await setAuthCookie(res, req, user, 'admin');
                 return res.json({ success: true, user });
             }
         }
@@ -1184,11 +1456,17 @@ app.post('/api/admin/login', async (req, res) => {
     }
 });
 
-// 4. Partner Pilot Login
-app.post('/api/driver/login', async (req, res) => {
+// Partner Pilot Login
+app.post('/api/driver/login', authRateLimiter, async (req, res) => {
     try {
         const { phone, password } = req.body;
-        const [drivers] = await db.query('SELECT id, name, email, phone, car_model, car_number, vehicle_type, wallet_balance, password, is_blocked FROM taxi_drivers WHERE phone = ?', [phone]);
+        const cleanPhone = cleanString(phone);
+        
+        if (!cleanPhone || !password) {
+            return res.status(400).json({ error: 'Phone and password are required.' });
+        }
+
+        const [drivers] = await db.query('SELECT id, name, email, phone, car_model, car_number, vehicle_type, wallet_balance, password, is_blocked FROM taxi_drivers WHERE phone = ?', [cleanPhone]);
         
         if (drivers.length > 0) {
             const user = drivers[0];
@@ -1197,12 +1475,100 @@ app.post('/api/driver/login', async (req, res) => {
             if (isMatch) {
                 delete user.password;
                 user.role = 'driver';
+                await setAuthCookie(res, req, user, 'driver');
                 return res.json({ success: true, user });
             }
         }
         res.status(401).json({ error: 'Pilot Authorization Denied. Invalid phone number or password.' });
     } catch (err) {
         res.status(500).json({ error: 'Pilot Auth Failure' });
+    }
+});
+
+app.post('/api/auth/logout', async (req, res) => {
+    // Revoke refresh token from DB if present
+    const refreshToken = req.cookies.cityride_refresh;
+    if (refreshToken && db) {
+        try {
+            const decoded = jwt.verify(refreshToken, REFRESH_SECRET);
+            if (decoded.tid) {
+                await db.query('DELETE FROM taxi_refresh_tokens WHERE token_id = ?', [decoded.tid]);
+            }
+        } catch (e) { /* Token invalid/expired, cleanup not needed */ }
+    }
+    res.clearCookie('cityride_token');
+    res.clearCookie('cityride_refresh', { path: '/api/auth/refresh' });
+    res.json({ success: true, message: 'Logged out successfully' });
+});
+
+// --- REFRESH TOKEN ROTATION ENDPOINT ---
+app.post('/api/auth/refresh', async (req, res) => {
+    const refreshToken = req.cookies.cityride_refresh;
+    if (!refreshToken) {
+        return res.status(401).json({ error: 'No refresh token provided.', code: 'NO_REFRESH' });
+    }
+
+    try {
+        const decoded = jwt.verify(refreshToken, REFRESH_SECRET);
+        
+        // Verify fingerprint
+        const currentFingerprint = generateFingerprint(req);
+        if (decoded.fp && decoded.fp !== currentFingerprint) {
+            // Possible token theft - revoke ALL tokens for this user
+            if (db) {
+                await db.query('DELETE FROM taxi_refresh_tokens WHERE user_id = ? AND role = ?', [decoded.id, decoded.role]);
+            }
+            console.warn(`[SECURITY] Refresh token fingerprint mismatch for user ${decoded.id}. All sessions revoked.`);
+            res.clearCookie('cityride_token');
+            res.clearCookie('cityride_refresh', { path: '/api/auth/refresh' });
+            return res.status(403).json({ error: 'Session security violation. All sessions revoked.', code: 'FINGERPRINT_MISMATCH' });
+        }
+
+        // Verify token exists in DB (not revoked)
+        if (db && decoded.tid) {
+            const [rows] = await db.query('SELECT id FROM taxi_refresh_tokens WHERE token_id = ? AND user_id = ?', [decoded.tid, decoded.id]);
+            if (rows.length === 0) {
+                // Token was revoked (possible replay attack)
+                console.warn(`[SECURITY] Revoked refresh token reuse detected for user ${decoded.id}. Revoking all sessions.`);
+                await db.query('DELETE FROM taxi_refresh_tokens WHERE user_id = ? AND role = ?', [decoded.id, decoded.role]);
+                res.clearCookie('cityride_token');
+                res.clearCookie('cityride_refresh', { path: '/api/auth/refresh' });
+                return res.status(403).json({ error: 'Token reuse detected. All sessions revoked for security.', code: 'TOKEN_REUSE' });
+            }
+
+            // Rotate: delete old token
+            await db.query('DELETE FROM taxi_refresh_tokens WHERE token_id = ?', [decoded.tid]);
+        }
+
+        // Fetch fresh user data from DB
+        let user = null;
+        if (decoded.role === 'user') {
+            const [users] = await db.query('SELECT id, name, email, phone FROM passengers WHERE id = ?', [decoded.id]);
+            user = users[0];
+        } else if (decoded.role === 'driver') {
+            const [drivers] = await db.query('SELECT id, name, email, phone FROM taxi_drivers WHERE id = ?', [decoded.id]);
+            user = drivers[0];
+        } else if (decoded.role === 'admin') {
+            const [admins] = await db.query('SELECT id, name, email FROM taxi_admins WHERE id = ?', [decoded.id]);
+            user = admins[0];
+        } else if (decoded.role === 'vendor') {
+            const [vendors] = await db.query('SELECT id, name, email, phone FROM taxi_vendors WHERE id = ?', [decoded.id]);
+            user = vendors[0];
+        }
+
+        if (!user) {
+            return res.status(403).json({ error: 'User no longer exists.', code: 'USER_NOT_FOUND' });
+        }
+
+        // Issue new token pair (rotation)
+        await setAuthCookie(res, req, user, decoded.role);
+        res.json({ success: true, message: 'Tokens rotated successfully.' });
+    } catch (err) {
+        if (err.name === 'TokenExpiredError') {
+            res.clearCookie('cityride_refresh', { path: '/api/auth/refresh' });
+            return res.status(401).json({ error: 'Refresh token expired. Please log in again.', code: 'REFRESH_EXPIRED' });
+        }
+        return res.status(403).json({ error: 'Invalid refresh token.' });
     }
 });
 
@@ -1265,7 +1631,7 @@ app.post('/api/driver/register/verify-otp', (req, res) => {
 });
 
 // --- DRIVER REGISTRATION (MULTI-STEP WITH DOCS) ---
-app.post('/api/driver/register', upload.fields([
+app.post('/api/driver/register', authRateLimiter, upload.fields([
     { name: 'dl_front', maxCount: 1 },
     { name: 'dl_back', maxCount: 1 },
     { name: 'pvc', maxCount: 1 },
@@ -1277,7 +1643,13 @@ app.post('/api/driver/register', upload.fields([
     { name: 'permit', maxCount: 1 }
 ]), async (req, res) => {
     try {
-        const { name, email, password, phone, car_model, car_number, vehicle_type } = req.body;
+        let { name, email, password, phone, car_model, car_number, vehicle_type } = req.body;
+        name = cleanString(name);
+        email = cleanString(email);
+        phone = cleanString(phone);
+        car_model = cleanString(car_model);
+        car_number = cleanString(car_number);
+        vehicle_type = cleanString(vehicle_type);
         
         // Validation
         if (!name || !email || !password || !phone) {
@@ -1339,6 +1711,14 @@ app.post('/api/driver/register', upload.fields([
     }
 });
 
+// --- ADMIN ROUTE PROTECTION MIDDLEWARE ---
+app.use('/api/admin/', (req, res, next) => {
+    if (req.path === '/login') return next();
+    return authenticateJWT(req, res, () => {
+        return requireRole(['admin'])(req, res, next);
+    });
+});
+
 // --- ADMIN: MANAGE DRIVER APPLICATIONS ---
 app.get('/api/admin/driver-applications', async (req, res) => {
     try {
@@ -1357,6 +1737,7 @@ app.get('/api/admin/driver-applications', async (req, res) => {
         sql += ' ORDER BY created_at DESC';
         
         const [apps] = await db.query(sql, params);
+        apps.forEach(app => delete app.password);
         res.json({ success: true, applications: apps });
     } catch (err) {
         res.status(500).json({ error: 'Failed to fetch applications.' });
@@ -1366,6 +1747,7 @@ app.get('/api/admin/driver-applications', async (req, res) => {
 app.get('/api/admin/driver-applications/history', async (req, res) => {
     try {
         const [apps] = await db.query('SELECT * FROM taxi_driver_applications WHERE status = "approved" ORDER BY created_at DESC');
+        apps.forEach(app => delete app.password);
         res.json({ success: true, applications: apps });
     } catch (err) {
         res.status(500).json({ error: 'Failed to fetch application history.' });
@@ -1379,6 +1761,7 @@ app.post('/api/admin/driver-applications/decision', async (req, res) => {
         if (apps.length === 0) return res.status(404).json({ error: 'Application not found.' });
         
         const app = apps[0];
+        const escapedNote = escapeHTML(note || 'Processed by Command.');
 
         if (status === 'approved') {
             // Move to drivers table with all documents
@@ -1397,7 +1780,7 @@ app.post('/api/admin/driver-applications/decision', async (req, res) => {
             await db.query(sql, values);
             
             // Mark application as approved (History Storage)
-            await db.query('UPDATE taxi_driver_applications SET status = "approved", admin_note = ? WHERE id = ?', [note || 'Approved by Command', appId]);
+            await db.query('UPDATE taxi_driver_applications SET status = "approved", admin_note = ? WHERE id = ?', [escapedNote, appId]);
 
             // Optional: Send Email Notification
             await sendBrevoMail(app.email, 'CityRide Pilot Identity Verified', `<h2>Welcome to the fleet, Pilot!</h2><p>Your application has been authorized by Command. You can now log in to the Driver Portal and begin your missions.</p>`).catch(e => console.error('Approval notification failed', e));
@@ -1406,9 +1789,8 @@ app.post('/api/admin/driver-applications/decision', async (req, res) => {
             // REJECTED: Delete application data as requested
             await db.query('DELETE FROM taxi_driver_applications WHERE id = ?', [appId]);
             
-            // Optional: Send Email Notification before deletion? 
-            // Better to send first then delete, but we already have 'app' data in memory.
-            await sendBrevoMail(app.email, 'Pilot Application Update', `<h2>Ground Control Update</h2><p>Your application was not authorized at this time.</p><p><strong>Reason:</strong> ${note}</p>`).catch(e => console.error('Rejection notification failed', e));
+            // Optional: Send Email Notification
+            await sendBrevoMail(app.email, 'Pilot Application Update', `<h2>Ground Control Update</h2><p>Your application was not authorized at this time.</p><p><strong>Reason:</strong> ${escapedNote}</p>`).catch(e => console.error('Rejection notification failed', e));
         }
 
         res.json({ success: true, message: `Application ${status} successfully.` });
@@ -1419,11 +1801,15 @@ app.post('/api/admin/driver-applications/decision', async (req, res) => {
 });
 
 // 4.1 Get Latest Driver Info
-app.get('/api/driver/info/:id', async (req, res) => {
+app.get('/api/driver/info/:id', authenticateJWT, requireRole(['driver', 'user', 'admin']), async (req, res) => {
     try {
         const [drivers] = await db.query('SELECT id, name, email, phone, car_model, car_number, vehicle_type, wallet_balance FROM taxi_drivers WHERE id = ?', [req.params.id]);
         if (drivers.length > 0) {
-            res.json({ success: true, driver: drivers[0] });
+            const driver = drivers[0];
+            const [ratingRows] = await db.query('SELECT AVG(rating) as avg_rating, COUNT(rating) as total_ratings FROM taxi_bookings WHERE driver_id = ? AND rating IS NOT NULL', [req.params.id]);
+            driver.avg_rating = ratingRows[0].avg_rating ? parseFloat(ratingRows[0].avg_rating).toFixed(1) : '5.0';
+            driver.total_ratings = ratingRows[0].total_ratings || 0;
+            res.json({ success: true, driver });
         } else {
             res.status(404).json({ error: 'Pilot not found.' });
         }
@@ -1433,10 +1819,16 @@ app.get('/api/driver/info/:id', async (req, res) => {
 });
 
 // 5. Vendor Partner Login
-app.post('/api/vendor/login', async (req, res) => {
+app.post('/api/vendor/login', authRateLimiter, async (req, res) => {
     try {
         const { vendor_id, password } = req.body;
-        const [rows] = await db.query('SELECT * FROM taxi_vendors WHERE vendor_id = ?', [vendor_id]);
+        const cleanVendorId = cleanString(vendor_id);
+        
+        if (!cleanVendorId || !password) {
+            return res.status(400).json({ error: 'Vendor ID and password are required.' });
+        }
+
+        const [rows] = await db.query('SELECT * FROM taxi_vendors WHERE vendor_id = ?', [cleanVendorId]);
         
         if (rows.length > 0) {
             const vendor = rows[0];
@@ -1445,6 +1837,7 @@ app.post('/api/vendor/login', async (req, res) => {
             if (isMatch) {
                 delete vendor.password;
                 vendor.role = 'vendor';
+                await setAuthCookie(res, req, vendor, 'vendor');
                 return res.json({ success: true, user: vendor });
             }
         }
@@ -1457,8 +1850,10 @@ app.post('/api/vendor/login', async (req, res) => {
 // --- AI CHATBOT / SUPPORT WIDGET API ---
 app.post('/api/chat', async (req, res) => {
     try {
-        const { message } = req.body;
+        let { message } = req.body;
+        message = cleanString(message);
         if (!message) return res.status(400).json({ error: 'Message required' });
+        if (message.length > 500) return res.status(400).json({ error: 'Message too long (max 500 characters).' });
 
         // Offline Fallback
         if (!process.env.GEMINI_API_KEY) {
@@ -1503,21 +1898,30 @@ app.post('/api/chat', async (req, res) => {
 
 app.post('/api/support/ticket', async (req, res) => {
     try {
-        const { name, email, query } = req.body;
+        let { name, email, query } = req.body;
+        name = cleanString(name);
+        email = cleanString(email);
+        query = cleanString(query);
+        
         if (!name || !email || !query) return res.status(400).json({ error: 'All fields required.' });
+        if (!validateEmail(email)) return res.status(400).json({ error: 'Invalid email address.' });
+
+        const escapedName = escapeHTML(name);
+        const escapedEmail = escapeHTML(email);
+        const escapedQuery = escapeHTML(query);
 
         // Send email to admin (Receiver)
         const adminEmail = process.env.REPORT_RECEIVER_EMAIL || 'sureshit2005@gmail.com';
-        const subject = `🎫 New Support Ticket from ${name}`;
+        const subject = `🎫 New Support Ticket from ${escapedName}`;
         const html = `
             <div style="font-family: sans-serif; padding: 20px; border: 1px solid #ddd; max-width: 600px;">
                 <h2 style="color: #ff5252;">New Support Ticket</h2>
-                <p><strong>Customer Name:</strong> ${name}</p>
-                <p><strong>Reply to Email:</strong> ${email}</p>
+                <p><strong>Customer Name:</strong> ${escapedName}</p>
+                <p><strong>Reply to Email:</strong> ${escapedEmail}</p>
                 <hr style="border-top: 1px dashed #ccc;" />
                 <p><strong>Issue/Query:</strong></p>
                 <div style="background: #f8f8f8; padding: 15px; border-radius: 8px;">
-                    ${query}
+                    ${escapedQuery}
                 </div>
             </div>
         `;
@@ -1545,7 +1949,10 @@ app.post('/api/support/ticket', async (req, res) => {
 });
 
 // 2. Booking Management
-app.post('/api/bookings/create', async (req, res) => {
+app.post('/api/bookings/create', authenticateJWT, requireRole(['user']), (req, res, next) => {
+    req.body.userId = req.user.id;
+    next();
+}, async (req, res) => {
     try {
         const booking = req.body;
         const journeyOtp = Math.floor(1000 + Math.random() * 9000).toString(); // 4-digit OTP
@@ -1590,7 +1997,7 @@ app.post('/api/bookings/create', async (req, res) => {
 });
 
 // Search drivers by vehicle/car number
-app.get('/api/drivers/search-by-vehicle', async (req, res) => {
+app.get('/api/drivers/search-by-vehicle', authenticateJWT, requireRole(['vendor', 'admin']), async (req, res) => {
     try {
         const query = req.query.q || '';
         if (!query) {
@@ -1604,6 +2011,14 @@ app.get('/api/drivers/search-by-vehicle', async (req, res) => {
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
+});
+
+// --- VENDOR ROUTE PROTECTION MIDDLEWARE ---
+app.use('/api/vendor/', (req, res, next) => {
+    if (req.path === '/login') return next();
+    return authenticateJWT(req, res, () => {
+        return requireRole(['vendor'])(req, res, next);
+    });
 });
 
 // --- VENDOR CUSTOM TARIFF CONTROLLERS ---
@@ -1635,7 +2050,12 @@ app.get('/api/vendor/tariffs/:vendorId', async (req, res) => {
     }
 });
 
-app.post('/api/vendor/update-tariff', async (req, res) => {
+app.post('/api/vendor/update-tariff', (req, res, next) => {
+    if (req.user.id !== parseInt(req.body.vendorId)) {
+        return res.status(403).json({ error: 'Access Denied: Vendor ID mismatch.' });
+    }
+    next();
+}, async (req, res) => {
     try {
         const { vendorId, vehicleType, category, config } = req.body;
         if (!vendorId || !vehicleType || !category || !config) {
@@ -1655,7 +2075,12 @@ app.post('/api/vendor/update-tariff', async (req, res) => {
 });
 
 // 2.1.1 Cancel Ride (Passenger) — with 3-cancel-per-day ban enforcement
-app.post('/api/user/cancel-ride', async (req, res) => {
+app.post('/api/user/cancel-ride', authenticateJWT, requireRole(['user']), (req, res, next) => {
+    if (req.user.id !== parseInt(req.body.userId)) {
+        return res.status(403).json({ error: 'Access Denied: You cannot cancel another user\'s booking.' });
+    }
+    next();
+}, async (req, res) => {
     try {
         const { bookingId, userId } = req.body;
         if (!bookingId || !userId) return res.status(400).json({ error: 'bookingId and userId are required.' });
@@ -1713,7 +2138,12 @@ app.post('/api/user/cancel-ride', async (req, res) => {
 
 
 // 2.1.2 Check Passenger Ban Status
-app.get('/api/user/ban-status/:userId', async (req, res) => {
+app.get('/api/user/ban-status/:userId', authenticateJWT, (req, res, next) => {
+    if (req.user.role !== 'admin' && req.user.id !== parseInt(req.params.userId)) {
+        return res.status(403).json({ error: 'Access Denied: You cannot view another user\'s ban status.' });
+    }
+    next();
+}, async (req, res) => {
     try {
         let [rows] = await db.query('SELECT banned_until FROM passengers WHERE id = ?', [req.params.userId]);
         if (rows.length === 0) {
@@ -1729,7 +2159,12 @@ app.get('/api/user/ban-status/:userId', async (req, res) => {
 });
 
 // 2.2 User Ride History
-app.get('/api/user/bookings/:userId', async (req, res) => {
+app.get('/api/user/bookings/:userId', authenticateJWT, (req, res, next) => {
+    if (req.user.role !== 'admin' && req.user.id !== parseInt(req.params.userId)) {
+        return res.status(403).json({ error: 'Access Denied: You cannot view another user\'s bookings.' });
+    }
+    next();
+}, async (req, res) => {
     try {
         const sql = `
             SELECT b.*, 
@@ -1748,7 +2183,12 @@ app.get('/api/user/bookings/:userId', async (req, res) => {
 });
 
 // 2.3 Accept Ride (Driver Action)
-app.post('/api/bookings/accept', async (req, res) => {
+app.post('/api/bookings/accept', authenticateJWT, requireRole(['driver']), (req, res, next) => {
+    if (req.user.id !== parseInt(req.body.driverId)) {
+        return res.status(403).json({ error: 'Access Denied: Driver ID mismatch.' });
+    }
+    next();
+}, async (req, res) => {
     try {
         const { bookingId, driverId } = req.body;
         const [bookings] = await db.query('SELECT fare FROM taxi_bookings WHERE id = ? AND status = "pending"', [bookingId]);
@@ -1779,7 +2219,12 @@ app.post('/api/bookings/accept', async (req, res) => {
 });
 
 // 2.3.1 Request Cancellation (Driver Action)
-app.post('/api/driver/request-cancel', async (req, res) => {
+app.post('/api/driver/request-cancel', authenticateJWT, requireRole(['driver']), (req, res, next) => {
+    if (req.user.id !== parseInt(req.body.driverId)) {
+        return res.status(403).json({ error: 'Access Denied: Driver ID mismatch.' });
+    }
+    next();
+}, async (req, res) => {
     try {
         const { bookingId, driverId, reason } = req.body;
         const [bookings] = await db.query('SELECT status FROM taxi_bookings WHERE id = ? AND driver_id = ?', [bookingId, driverId]);
@@ -1838,7 +2283,12 @@ app.get('/api/admin/rejection-history', async (req, res) => {
 });
 
 // 2.4 Driver Current Jobs
-app.get('/api/driver/my-jobs/:driverId', async (req, res) => {
+app.get('/api/driver/my-jobs/:driverId', authenticateJWT, (req, res, next) => {
+    if (req.user.role !== 'admin' && req.user.id !== parseInt(req.params.driverId)) {
+        return res.status(403).json({ error: 'Access Denied: You cannot view another pilot\'s jobs.' });
+    }
+    next();
+}, async (req, res) => {
     try {
         const sql = `
             SELECT b.*, 
@@ -1949,7 +2399,9 @@ app.get('/api/admin/driver/:id', async (req, res) => {
     try {
         const [drivers] = await db.query('SELECT * FROM taxi_drivers WHERE id = ?', [req.params.id]);
         if (drivers.length > 0) {
-            res.json({ success: true, driver: drivers[0] });
+            const driver = drivers[0];
+            delete driver.password;
+            res.json({ success: true, driver: driver });
         } else {
             res.status(404).json({ error: 'Driver not found.' });
         }
@@ -2411,12 +2863,24 @@ app.get('/api/driver/dashboard-stats/:driverId', async (req, res) => {
              ORDER BY COALESCE(b.journey_end_time, b.created_at) DESC LIMIT 50`, [driverId]
         );
         
+        // Average rating & total ratings count
+        const [ratingStats] = await db.query(
+            `SELECT AVG(rating) as avg_rating, COUNT(rating) as total_ratings 
+             FROM taxi_bookings WHERE driver_id = ? AND rating IS NOT NULL`, [driverId]
+        );
+        const avgRating = ratingStats[0].avg_rating ? parseFloat(ratingStats[0].avg_rating).toFixed(1) : '5.0';
+        const totalRatings = ratingStats[0].total_ratings || 0;
+        
         res.json({
             totals: completedStats[0],
             today: todayStats[0],
             week: weekStats[0],
             statusCounts: statusCounts,
-            rideHistory: rideHistory
+            rideHistory: rideHistory,
+            rating: {
+                average: avgRating,
+                count: totalRatings
+            }
         });
     } catch (err) {
         console.error('Driver dashboard stats error:', err);
@@ -2424,7 +2888,7 @@ app.get('/api/driver/dashboard-stats/:driverId', async (req, res) => {
     }
 });
 
-app.post('/api/bookings/reached-pickup', async (req, res) => {
+app.post('/api/bookings/reached-pickup', authenticateJWT, requireRole(['driver']), verifyBookingAccess, async (req, res) => {
     try {
         const { bookingId } = req.body;
         if (!bookingId) return res.status(400).json({ error: 'Booking ID is required.' });
@@ -2442,7 +2906,7 @@ app.post('/api/bookings/reached-pickup', async (req, res) => {
 });
 
 // 5. Update Booking Status & Odometer/Timer Logic
-app.post('/api/bookings/start-journey', async (req, res) => {
+app.post('/api/bookings/start-journey', authenticateJWT, requireRole(['driver']), verifyBookingAccess, async (req, res) => {
     try {
         const { bookingId, startOdometer, latitude, longitude, otp } = req.body;
         if (!bookingId) return res.status(400).json({ error: 'Booking ID is required.' });
@@ -2604,7 +3068,7 @@ app.post('/api/bookings/start-journey', async (req, res) => {
     }
 });
 
-app.post('/api/bookings/update-status', async (req, res) => {
+app.post('/api/bookings/update-status', authenticateJWT, requireRole(['driver', 'user', 'admin']), verifyBookingAccess, async (req, res) => {
     try {
         const { status, bookingId, otp, endOdometer } = req.body;
         
@@ -2662,8 +3126,35 @@ app.post('/api/bookings/update-status', async (req, res) => {
     }
 });
 
+app.post('/api/bookings/rate-driver', authenticateJWT, requireRole(['user']), async (req, res) => {
+    try {
+        const { bookingId, rating, comment } = req.body;
+        if (!bookingId || rating === undefined) {
+            return res.status(400).json({ error: 'bookingId and rating are required.' });
+        }
+        const parsedRating = parseInt(rating);
+        if (isNaN(parsedRating) || parsedRating < 1 || parsedRating > 5) {
+            return res.status(400).json({ error: 'Rating must be an integer between 1 and 5.' });
+        }
+
+        const [bookings] = await db.query('SELECT driver_id FROM taxi_bookings WHERE id = ?', [bookingId]);
+        if (bookings.length === 0) return res.status(404).json({ error: 'Booking not found.' });
+        
+        const booking = bookings[0];
+        if (!booking.driver_id) {
+            return res.status(400).json({ error: 'No driver is assigned to this booking.' });
+        }
+
+        await db.query('UPDATE taxi_bookings SET rating = ?, rating_comment = ? WHERE id = ?', [parsedRating, comment || null, bookingId]);
+        res.json({ success: true, message: 'Thank you for your rating!' });
+    } catch (err) {
+        console.error('Error in rate-driver:', err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
 // 2.8 Finish Trip (Odometer Input & Fare Calculation / GPS finalization)
-app.post('/api/bookings/finish-trip', async (req, res) => {
+app.post('/api/bookings/finish-trip', authenticateJWT, requireRole(['driver']), verifyBookingAccess, async (req, res) => {
     try {
         const { bookingId, endOdometer, latitude, longitude, clientDistance } = req.body;
 
@@ -2928,7 +3419,7 @@ app.post('/api/bookings/finish-trip', async (req, res) => {
 });
 
 // GPS tracking & deviation calculations in real-time
-app.post('/api/bookings/update-gps-location', async (req, res) => {
+app.post('/api/bookings/update-gps-location', authenticateJWT, requireRole(['driver']), verifyBookingAccess, async (req, res) => {
     try {
         const { bookingId, latitude, longitude, accuracy, speed, clientDistance } = req.body;
         if (!bookingId || latitude === undefined || longitude === undefined) {
@@ -3112,7 +3603,7 @@ app.post('/api/bookings/update-gps-location', async (req, res) => {
 });
 
 // Bulk upload GPS logs collected offline
-app.post('/api/bookings/upload-gps-logs-bulk', async (req, res) => {
+app.post('/api/bookings/upload-gps-logs-bulk', authenticateJWT, requireRole(['driver']), verifyBookingAccess, async (req, res) => {
     try {
         const { bookingId, logs } = req.body;
         if (!bookingId || !Array.isArray(logs) || logs.length === 0) {
@@ -3141,7 +3632,7 @@ app.post('/api/bookings/upload-gps-logs-bulk', async (req, res) => {
     }
 });
 
-app.get('/api/bookings/driver-location/:bookingId', async (req, res) => {
+app.get('/api/bookings/driver-location/:bookingId', authenticateJWT, requireRole(['driver', 'user', 'admin']), verifyBookingAccess, async (req, res) => {
     try {
         const { bookingId } = req.params;
         const [rows] = await db.query('SELECT latitude, longitude, accuracy, speed, created_at FROM taxi_ride_gps_logs WHERE booking_id = ? ORDER BY id DESC LIMIT 1', [bookingId]);
@@ -3276,6 +3767,16 @@ app.get('/api/test/daily-report', async (req, res) => {
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
+});
+
+// --- CENTRALIZED ERROR HANDLING MIDDLEWARE ---
+app.use((err, req, res, next) => {
+    console.error('❌ Centralized Error Handler:', err);
+    const isProduction = process.env.NODE_ENV === 'production';
+    res.status(err.status || 500).json({
+        error: isProduction ? 'Internal Server Error' : err.message,
+        ...(isProduction ? {} : { stack: err.stack })
+    });
 });
 
 startServer();

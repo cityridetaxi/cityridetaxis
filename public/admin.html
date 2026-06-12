@@ -1402,6 +1402,56 @@
     </div>
 
     <script>
+        // Global Fetch Interceptor with Silent Token Refresh (Dual-Token Architecture)
+        (function() {
+            const originalFetch = window.fetch;
+            let isRefreshing = false;
+            let refreshPromise = null;
+
+            async function attemptTokenRefresh() {
+                if (isRefreshing) return refreshPromise;
+                isRefreshing = true;
+                refreshPromise = originalFetch('/api/auth/refresh', { method: 'POST', credentials: 'include' })
+                    .then(r => { isRefreshing = false; return r.ok; })
+                    .catch(() => { isRefreshing = false; return false; });
+                return refreshPromise;
+            }
+
+            function getLoginRedirect(url) {
+                if (typeof url === 'string' && url.includes('/api/')) {
+                    if (url.includes('/api/admin/')) return 'admin-login.html';
+                    if (url.includes('/api/vendor/')) return 'vendor-login.html';
+                    if (url.includes('/api/driver/') || url.includes('/api/bookings/')) {
+                        return window.location.pathname.includes('driver') ? 'driver-login.html' : 'auth.html';
+                    }
+                    return 'auth.html';
+                }
+                return null;
+            }
+
+            window.fetch = async function (...args) {
+                const response = await originalFetch(...args);
+                const url = args[0];
+                
+                if (typeof url === 'string' && (url.includes('/api/auth/refresh') || url.includes('/api/auth/logout'))) {
+                    return response;
+                }
+
+                if (response.status === 401) {
+                    const refreshed = await attemptTokenRefresh();
+                    if (refreshed) {
+                        return originalFetch(...args);
+                    }
+                    const redirect = getLoginRedirect(url);
+                    if (redirect) window.location.href = redirect;
+                } else if (response.status === 403) {
+                    const redirect = getLoginRedirect(url);
+                    if (redirect) window.location.href = redirect;
+                }
+                return response;
+            };
+        })();
+
         // Check if admin is logged in (Role Isolation)
         const user = JSON.parse(localStorage.getItem('cityride_master'));
         if (!user) {
@@ -1921,6 +1971,7 @@
         }
 
         function logoutAdmin() {
+            fetch('/api/auth/logout', { method: 'POST' }).catch(() => {});
             localStorage.removeItem('cityride_master');
             window.location.href = '/admin-login';
         }

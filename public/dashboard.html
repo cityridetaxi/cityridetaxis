@@ -588,6 +588,60 @@
     </main>
 
     <script>
+        // Global Fetch Interceptor with Silent Token Refresh (Dual-Token Architecture)
+        (function() {
+            const originalFetch = window.fetch;
+            let isRefreshing = false;
+            let refreshPromise = null;
+
+            async function attemptTokenRefresh() {
+                if (isRefreshing) return refreshPromise;
+                isRefreshing = true;
+                refreshPromise = originalFetch('/api/auth/refresh', { method: 'POST', credentials: 'include' })
+                    .then(r => { isRefreshing = false; return r.ok; })
+                    .catch(() => { isRefreshing = false; return false; });
+                return refreshPromise;
+            }
+
+            function getLoginRedirect(url) {
+                if (typeof url === 'string' && url.includes('/api/')) {
+                    if (url.includes('/api/admin/')) return 'admin-login.html';
+                    if (url.includes('/api/vendor/')) return 'vendor-login.html';
+                    if (url.includes('/api/driver/') || url.includes('/api/bookings/')) {
+                        return window.location.pathname.includes('driver') ? 'driver-login.html' : 'auth.html';
+                    }
+                    return 'auth.html';
+                }
+                return null;
+            }
+
+            window.fetch = async function (...args) {
+                const response = await originalFetch(...args);
+                const url = args[0];
+                
+                // Skip interceptor for auth endpoints to avoid loops
+                if (typeof url === 'string' && (url.includes('/api/auth/refresh') || url.includes('/api/auth/logout'))) {
+                    return response;
+                }
+
+                if (response.status === 401) {
+                    // Attempt silent token refresh
+                    const refreshed = await attemptTokenRefresh();
+                    if (refreshed) {
+                        // Retry original request with new tokens
+                        return originalFetch(...args);
+                    }
+                    // Refresh failed - redirect to login
+                    const redirect = getLoginRedirect(url);
+                    if (redirect) window.location.href = redirect;
+                } else if (response.status === 403) {
+                    const redirect = getLoginRedirect(url);
+                    if (redirect) window.location.href = redirect;
+                }
+                return response;
+            };
+        })();
+
         let isMapInitialized = false;
         let trackerMap = null;
         let driverMarker = null;
@@ -1036,6 +1090,24 @@
                                     <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
                                 </button>
                                 ${canCancel ? `<button class="btn-cancel-ride" onclick="cancelRide(${ride.id}, ${user.id})">Cancel</button>` : ''}
+                                ${(() => {
+                                    if (['completed', 'finished'].includes(ride.status) && ride.driver_id) {
+                                        if (ride.rating !== null && ride.rating !== undefined) {
+                                            return `
+                                                <span style="color:#FFD700; font-weight:800; font-size:0.85rem; padding: 0.3rem 0.6rem; background: rgba(255,215,0,0.1); border-radius: 6px; display: inline-flex; align-items: center; gap: 3px;" title="${ride.rating_comment ? ride.rating_comment.replace(/"/g, '&quot;') : 'No feedback comment'}">
+                                                    ★ ${ride.rating}
+                                                </span>
+                                            `;
+                                        } else {
+                                            return `
+                                                <button class="btn" style="background:#B71C1C; color:white; border:none; padding:0.4rem 0.8rem; border-radius:8px; font-size:0.75rem; font-weight:700; cursor:pointer;" onclick="rateDriver(${ride.id}, '${(ride.driver_name || 'Driver').replace(/'/g, "\\'")}')">
+                                                    Rate Driver
+                                                </button>
+                                            `;
+                                        }
+                                    }
+                                    return '';
+                                })()}
                                 <button class="btn-rebook-ride" onclick="rebookRide(${ride.id})">Repeat</button>
                             </div>
                         </td>
@@ -1048,8 +1120,82 @@
         }
 
         function logoutUser() {
+            fetch('/api/auth/logout', { method: 'POST' }).catch(() => {});
             localStorage.removeItem('cityride_member');
             window.location.href = 'auth.html';
+        }
+
+        async function rateDriver(bookingId, driverName) {
+            let selectedRating = 5;
+            const { value: formValues } = await Swal.fire({
+                title: `Rate ${driverName || 'your Driver'}`,
+                html: `
+                    <div style="margin-bottom: 1.5rem; display: flex; justify-content: center; gap: 10px; font-size: 2.2rem; user-select: none;">
+                        <span class="star-rating" data-value="1" style="cursor: pointer; color: #FFD700; transition: transform 0.1s;">★</span>
+                        <span class="star-rating" data-value="2" style="cursor: pointer; color: #FFD700; transition: transform 0.1s;">★</span>
+                        <span class="star-rating" data-value="3" style="cursor: pointer; color: #FFD700; transition: transform 0.1s;">★</span>
+                        <span class="star-rating" data-value="4" style="cursor: pointer; color: #FFD700; transition: transform 0.1s;">★</span>
+                        <span class="star-rating" data-value="5" style="cursor: pointer; color: #FFD700; transition: transform 0.1s;">★</span>
+                    </div>
+                    <textarea id="rating-comment" class="swal2-textarea" placeholder="Add your feedback (optional)..." style="width: 100%; box-sizing: border-box; border-radius: 8px; margin: 0; padding: 10px; font-size: 0.9rem; min-height: 80px;"></textarea>
+                `,
+                focusConfirm: false,
+                showCancelButton: true,
+                confirmButtonText: 'Submit Rating',
+                confirmButtonColor: '#B71C1C',
+                didOpen: () => {
+                    const stars = Swal.getPopup().querySelectorAll('.star-rating');
+                    stars.forEach(star => {
+                        star.addEventListener('click', (e) => {
+                            const val = parseInt(star.getAttribute('data-value'));
+                            selectedRating = val;
+                            stars.forEach(s => {
+                                const sVal = parseInt(s.getAttribute('data-value'));
+                                if (sVal <= val) {
+                                    s.style.color = '#FFD700';
+                                } else {
+                                    s.style.color = '#ccc';
+                                }
+                            });
+                        });
+                    });
+                },
+                preConfirm: () => {
+                    return {
+                        rating: selectedRating,
+                        comment: document.getElementById('rating-comment').value
+                    }
+                }
+            });
+
+            if (formValues) {
+                try {
+                    const res = await fetch(`${API_BASE_URL}/api/bookings/rate-driver`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            bookingId: bookingId,
+                            rating: formValues.rating,
+                            comment: formValues.comment
+                        })
+                    });
+                    const result = await res.json();
+                    if (res.ok) {
+                        Swal.fire({
+                            title: 'Success!',
+                            text: result.message || 'Rating submitted successfully.',
+                            icon: 'success',
+                            confirmButtonColor: '#B71C1C'
+                        });
+                        const user = JSON.parse(localStorage.getItem('cityride_member'));
+                        loadDashboardData(user);
+                    } else {
+                        Swal.fire('Error', result.error || 'Failed to submit rating.', 'error');
+                    }
+                } catch (err) {
+                    Swal.fire('Error', 'Network error occurred.', 'error');
+                }
+            }
         }
 
         //  Cancel Ride 

@@ -1585,7 +1585,7 @@
                     </div>
                     <div class="performance-rings">
                         <div class="perf-item">
-                            <div class="perf-circle rating">4.8★</div>
+                            <div class="perf-circle rating" id="driver-perf-rating">4.8★</div>
                             <span class="perf-label">Rating</span>
                         </div>
                         <div class="perf-item">
@@ -1794,6 +1794,56 @@
 
     <!-- Live Script -->
     <script>
+        // Global Fetch Interceptor with Silent Token Refresh (Dual-Token Architecture)
+        (function() {
+            const originalFetch = window.fetch;
+            let isRefreshing = false;
+            let refreshPromise = null;
+
+            async function attemptTokenRefresh() {
+                if (isRefreshing) return refreshPromise;
+                isRefreshing = true;
+                refreshPromise = originalFetch('/api/auth/refresh', { method: 'POST', credentials: 'include' })
+                    .then(r => { isRefreshing = false; return r.ok; })
+                    .catch(() => { isRefreshing = false; return false; });
+                return refreshPromise;
+            }
+
+            function getLoginRedirect(url) {
+                if (typeof url === 'string' && url.includes('/api/')) {
+                    if (url.includes('/api/admin/')) return 'admin-login.html';
+                    if (url.includes('/api/vendor/')) return 'vendor-login.html';
+                    if (url.includes('/api/driver/') || url.includes('/api/bookings/')) {
+                        return window.location.pathname.includes('driver') ? 'driver-login.html' : 'auth.html';
+                    }
+                    return 'auth.html';
+                }
+                return null;
+            }
+
+            window.fetch = async function (...args) {
+                const response = await originalFetch(...args);
+                const url = args[0];
+                
+                if (typeof url === 'string' && (url.includes('/api/auth/refresh') || url.includes('/api/auth/logout'))) {
+                    return response;
+                }
+
+                if (response.status === 401) {
+                    const refreshed = await attemptTokenRefresh();
+                    if (refreshed) {
+                        return originalFetch(...args);
+                    }
+                    const redirect = getLoginRedirect(url);
+                    if (redirect) window.location.href = redirect;
+                } else if (response.status === 403) {
+                    const redirect = getLoginRedirect(url);
+                    if (redirect) window.location.href = redirect;
+                }
+                return response;
+            };
+        })();
+
         // State management variables
         let isOnline = true;
         let driverData = null;
@@ -3704,6 +3754,11 @@
                     document.getElementById('earn-week').textContent = `₹${Math.round(stats.week.week_earnings).toLocaleString('en-IN')}`;
                     document.getElementById('earn-totals').textContent = `₹${Math.round(stats.totals.total_earnings).toLocaleString('en-IN')}`;
 
+                    if (stats.rating) {
+                        const rEl = document.getElementById('driver-perf-rating');
+                        if (rEl) rEl.textContent = `${stats.rating.average}★`;
+                    }
+
                     // Update incentives
                     const count = stats.week.week_rides;
                     document.getElementById('incentive-progress-txt').textContent = `${count}/10 Rides`;
@@ -4142,6 +4197,7 @@
 
         // Logout
         function logoutUser() {
+            fetch('/api/auth/logout', { method: 'POST' }).catch(() => {});
             localStorage.removeItem('cityride_pilot');
             window.location.href = 'driver-login.html';
         }
