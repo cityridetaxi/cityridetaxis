@@ -344,6 +344,7 @@
             font-weight: 600;
             transition: var(--transition);
             width: 100%;
+            color-scheme: dark;
         }
         .input-group input:focus, .input-group select:focus {
             border-color: var(--primary-red);
@@ -1072,20 +1073,9 @@
 
     <!-- Core Business Logic Script -->
     <script>
-        // Global Fetch Interceptor with Silent Token Refresh (Dual-Token Architecture)
+        // Global Fetch Interceptor for Auth Expiration Redirects
         (function() {
             const originalFetch = window.fetch;
-            let isRefreshing = false;
-            let refreshPromise = null;
-
-            async function attemptTokenRefresh() {
-                if (isRefreshing) return refreshPromise;
-                isRefreshing = true;
-                refreshPromise = originalFetch('/api/auth/refresh', { method: 'POST', credentials: 'include' })
-                    .then(r => { isRefreshing = false; return r.ok; })
-                    .catch(() => { isRefreshing = false; return false; });
-                return refreshPromise;
-            }
 
             function getLoginRedirect(url) {
                 if (typeof url === 'string' && url.includes('/api/')) {
@@ -1103,18 +1093,11 @@
                 const response = await originalFetch(...args);
                 const url = args[0];
                 
-                if (typeof url === 'string' && (url.includes('/api/auth/refresh') || url.includes('/api/auth/logout'))) {
+                if (typeof url === 'string' && url.includes('/api/auth/logout')) {
                     return response;
                 }
 
                 if (response.status === 401) {
-                    const refreshed = await attemptTokenRefresh();
-                    if (refreshed) {
-                        return originalFetch(...args);
-                    }
-                    const redirect = getLoginRedirect(url);
-                    if (redirect) window.location.href = redirect;
-                } else if (response.status === 403) {
                     const redirect = getLoginRedirect(url);
                     if (redirect) window.location.href = redirect;
                 }
@@ -1215,14 +1198,31 @@
 
         const pricing = JSON.parse(JSON.stringify(systemPricing));
 
-        // Check Auth
-        const vendorData = JSON.parse(localStorage.getItem('cityride_vendor'));
-        if (!vendorData) window.location.href = '/vendor-login';
-
-        // Setup User welcome headers and profiles
-        document.getElementById('vendor-welcome').textContent = `Welcome back, ${vendorData.business_name} (${vendorData.name})`;
-        document.getElementById('sb-business-name').textContent = vendorData.business_name;
-        document.getElementById('sb-avatar').textContent = (vendorData.business_name || 'V').charAt(0).toUpperCase();
+        // Check Auth - try localStorage first, then server cookie
+        let vendorData = JSON.parse(localStorage.getItem('cityride_vendor'));
+        if (!vendorData) {
+            (async () => {
+                try {
+                    const sessionRes = await fetch('/api/auth/session?role=vendor');
+                    if (sessionRes.ok) {
+                        const sd = await sessionRes.json();
+                        if (sd.valid && sd.role === 'vendor') {
+                            vendorData = sd.user;
+                            localStorage.setItem('cityride_vendor', JSON.stringify(vendorData));
+                            // Re-init UI after restore
+                            document.getElementById('vendor-welcome').textContent = `Welcome back, ${vendorData.business_name} (${vendorData.name})`;
+                            document.getElementById('sb-business-name').textContent = vendorData.business_name;
+                            document.getElementById('sb-avatar').textContent = (vendorData.business_name || 'V').charAt(0).toUpperCase();
+                        } else { window.location.href = '/vendor-login'; }
+                    } else { window.location.href = '/vendor-login'; }
+                } catch (e) { window.location.href = '/vendor-login'; }
+            })();
+        } else {
+            // Setup User welcome headers and profiles
+            document.getElementById('vendor-welcome').textContent = `Welcome back, ${vendorData.business_name} (${vendorData.name})`;
+            document.getElementById('sb-business-name').textContent = vendorData.business_name;
+            document.getElementById('sb-avatar').textContent = (vendorData.business_name || 'V').charAt(0).toUpperCase();
+        }
 
         // UI Controls
         function openRateChart() { document.getElementById('rate-modal').style.display = 'flex'; }
@@ -1478,8 +1478,10 @@
                 const peakMult = currentCategory === 'local' ? getPeakSurcharge(document.getElementById('pickup-time').value) : 0;
 
                 if (tType === 'local') {
-                    const distanceFare = currentDistance * config.perKm;
-                    const baseFareLimit = Math.max(300, config.base || 0);
+                    const minKm = typeof config.minKm === 'number' ? config.minKm : 0;
+                    const billableDist = Math.max(currentDistance, minKm);
+                    const distanceFare = billableDist * config.perKm;
+                    const baseFareLimit = config.base || 0;
                     const baseKmFare = Math.max(baseFareLimit, distanceFare);
                     const peakCharge = baseKmFare * peakMult;
                     if (peakMult > 0) peakLabel = ` [Peak +25%]`;
@@ -1499,7 +1501,7 @@
                         driverAllowance = billableKm > 250 ? 1000 : 800;
                     }
                     const distanceFare = billableKm * config.perKm;
-                    const baseFareLimit = Math.max(300, config.base || 0);
+                    const baseFareLimit = config.base || 0;
                     const baseKmFare = Math.max(baseFareLimit, distanceFare);
                     baseFare = baseKmFare + (vType === 'bike' ? 0 : driverAllowance);
                 } else if (tType === 'round') {
@@ -1516,7 +1518,7 @@
                         driverAllowance = 800;
                     }
                     const distanceFare = billableKm * config.perKm;
-                    const baseFareLimit = Math.max(300, config.base || 0);
+                    const baseFareLimit = config.base || 0;
                     const baseKmFare = Math.max(baseFareLimit, distanceFare);
                     baseFare = baseKmFare + (vType === 'bike' ? 0 : driverAllowance * tripDays);
                 } else if (tType === 'rental') {
@@ -1613,10 +1615,7 @@
                 if (input.value.length < 3) return box.innerHTML = '';
                 timeout = setTimeout(async () => {
                     try {
-                        const res = await fetch(`https://photon.komoot.io/api/?q=${input.value}&limit=5`, {
-                            method: 'GET',
-                            headers: { 'Accept': 'application/json' }
-                        });
+                        const res = await fetch(`${API_BASE_URL}/api/proxy/geocode?q=${encodeURIComponent(input.value)}&limit=5&lon=80.2707&lat=13.0827`);
                         if (!res.ok) throw new Error('Photon failure');
                         const data = await res.json();
                         box.innerHTML = '';
@@ -1784,7 +1783,7 @@
             
             try {
                 input.value = "Locating address...";
-                const res = await fetch(`https://photon.komoot.io/reverse?lon=${lng}&lat=${lat}`);
+                const res = await fetch(`${API_BASE_URL}/api/proxy/reverse?lon=${lng}&lat=${lat}`);
                 if (res.ok) {
                     const data = await res.json();
                     if (data.features && data.features[0]) {

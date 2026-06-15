@@ -1,0 +1,1513 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CityRide // SYSTEM MONITOR</title>
+    <link rel="icon" type="image/png" href="logo.png">
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Orbitron:wght@400;700;900&display=swap');
+
+        :root {
+            --green: #00ff41;
+            --green-dim: #00cc33;
+            --green-dark: #003311;
+            --green-glow: rgba(0, 255, 65, 0.3);
+            --green-faint: rgba(0, 255, 65, 0.06);
+            --red: #ff0040;
+            --yellow: #ffcc00;
+            --cyan: #00e5ff;
+            --white: #e0ffe0;
+            --bg: #000000;
+            --panel-bg: rgba(0, 10, 0, 0.9);
+            --border: rgba(0, 255, 65, 0.2);
+            --border-bright: rgba(0, 255, 65, 0.6);
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            background: var(--bg);
+            color: var(--green);
+            font-family: 'Share Tech Mono', monospace;
+            overflow: hidden;
+            height: 100vh;
+            width: 100vw;
+            cursor: crosshair;
+        }
+
+        /* ===== MATRIX RAIN CANVAS ===== */
+        #matrix-canvas {
+            position: fixed;
+            top: 0; left: 0;
+            width: 100%; height: 100%;
+            z-index: 0;
+            opacity: 0.15;
+        }
+
+        /* ===== SCANLINE EFFECT ===== */
+        body::before {
+            content: '';
+            position: fixed;
+            inset: 0;
+            background: repeating-linear-gradient(
+                0deg,
+                transparent,
+                transparent 2px,
+                rgba(0, 0, 0, 0.08) 2px,
+                rgba(0, 0, 0, 0.08) 4px
+            );
+            pointer-events: none;
+            z-index: 999;
+            animation: scanlineShift 8s linear infinite;
+        }
+
+        /* Moving scanline flicker */
+        body::after {
+            content: '';
+            position: fixed;
+            left: 0; right: 0;
+            height: 3px;
+            background: linear-gradient(transparent, rgba(0, 255, 65, 0.08), transparent);
+            z-index: 1000;
+            animation: scanMove 4s linear infinite;
+            pointer-events: none;
+        }
+
+        @keyframes scanMove { 0% { top: -4px; } 100% { top: 100vh; } }
+        @keyframes scanlineShift { 0%, 100% { opacity: 1; } 50% { opacity: 0.85; } }
+
+        /* ===== MAIN LAYOUT ===== */
+        #app {
+            position: relative;
+            z-index: 10;
+            height: 100vh;
+            display: grid;
+            grid-template-rows: auto 1fr;
+            grid-template-columns: 1fr;
+            gap: 0;
+        }
+
+        /* ===== HEADER ===== */
+        #header {
+            padding: 10px 20px;
+            border-bottom: 1px solid var(--border-bright);
+            display: flex;
+            align-items: center;
+            gap: 20px;
+            background: rgba(0, 5, 0, 0.95);
+            box-shadow: 0 0 30px rgba(0, 255, 65, 0.15);
+            position: relative;
+            overflow: hidden;
+        }
+
+        #header::before {
+            content: '';
+            position: absolute;
+            bottom: 0; left: 0; right: 0;
+            height: 1px;
+            background: linear-gradient(90deg, transparent, var(--green), transparent);
+            animation: headerGlow 3s ease-in-out infinite;
+        }
+
+        @keyframes headerGlow {
+            0%, 100% { opacity: 0.4; } 50% { opacity: 1; }
+        }
+
+        .logo-section {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .logo-icon {
+            width: 36px;
+            height: 36px;
+            border: 2px solid var(--green);
+            border-radius: 6px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 0 12px var(--green-glow), inset 0 0 8px rgba(0,255,65,0.1);
+            animation: iconPulse 2s ease-in-out infinite;
+        }
+
+        @keyframes iconPulse {
+            0%, 100% { box-shadow: 0 0 12px var(--green-glow), inset 0 0 8px rgba(0,255,65,0.1); }
+            50% { box-shadow: 0 0 25px rgba(0,255,65,0.5), inset 0 0 15px rgba(0,255,65,0.2); }
+        }
+
+        .logo-icon svg { width: 22px; height: 22px; fill: var(--green); }
+
+        .logo-text {
+            font-family: 'Orbitron', monospace;
+            font-size: 1.1rem;
+            font-weight: 900;
+            letter-spacing: 3px;
+            color: var(--green);
+            text-shadow: 0 0 10px var(--green);
+        }
+
+        .logo-text span { color: var(--green-dim); opacity: 0.7; }
+
+        .header-title {
+            font-family: 'Orbitron', monospace;
+            font-size: 0.65rem;
+            letter-spacing: 4px;
+            color: var(--green-dim);
+            text-transform: uppercase;
+            border-left: 1px solid var(--border);
+            padding-left: 20px;
+        }
+
+        .header-right {
+            margin-left: auto;
+            display: flex;
+            align-items: center;
+            gap: 20px;
+        }
+
+        .status-pill {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            padding: 4px 12px;
+            border: 1px solid var(--green-dim);
+            border-radius: 20px;
+            font-size: 0.65rem;
+            letter-spacing: 2px;
+        }
+
+        .status-dot {
+            width: 7px; height: 7px;
+            border-radius: 50%;
+            background: var(--green);
+            box-shadow: 0 0 8px var(--green);
+            animation: blink 1.2s ease-in-out infinite;
+        }
+
+        @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.2; } }
+
+        .status-dot.red { background: var(--red); box-shadow: 0 0 8px var(--red); }
+
+        #clock {
+            font-size: 0.75rem;
+            letter-spacing: 2px;
+            color: var(--green-dim);
+        }
+
+        #threat-level {
+            font-family: 'Orbitron', monospace;
+            font-size: 0.6rem;
+            letter-spacing: 2px;
+            padding: 3px 10px;
+            border: 1px solid var(--green);
+            color: var(--green);
+            text-shadow: 0 0 6px var(--green);
+        }
+
+        /* ===== BODY GRID ===== */
+        #body-grid {
+            display: grid;
+            grid-template-columns: 260px 1fr 300px;
+            grid-template-rows: 1fr;
+            height: 100%;
+            overflow: hidden;
+        }
+
+        /* ===== PANEL BASE ===== */
+        .panel {
+            background: var(--panel-bg);
+            border-right: 1px solid var(--border);
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        .panel-header {
+            padding: 8px 14px;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            background: rgba(0, 255, 65, 0.04);
+            flex-shrink: 0;
+        }
+
+        .panel-title {
+            font-family: 'Orbitron', monospace;
+            font-size: 0.6rem;
+            letter-spacing: 3px;
+            color: var(--green);
+            text-transform: uppercase;
+        }
+
+        .panel-icon {
+            font-size: 0.75rem;
+        }
+
+        /* ===== LEFT PANEL - STATS ===== */
+        #left-panel {
+            border-right: 1px solid var(--border-bright);
+        }
+
+        .stats-container {
+            padding: 12px;
+            overflow-y: auto;
+            flex: 1;
+        }
+
+        .stat-card {
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            padding: 10px;
+            margin-bottom: 8px;
+            background: var(--green-faint);
+            position: relative;
+            overflow: hidden;
+            transition: border-color 0.3s;
+        }
+
+        .stat-card:hover {
+            border-color: var(--green-dim);
+        }
+
+        .stat-card::before {
+            content: '';
+            position: absolute;
+            left: 0; top: 0; bottom: 0;
+            width: 2px;
+            background: var(--green);
+            box-shadow: 0 0 6px var(--green);
+        }
+
+        .stat-label {
+            font-size: 0.55rem;
+            letter-spacing: 2px;
+            color: var(--green-dim);
+            text-transform: uppercase;
+            margin-bottom: 5px;
+        }
+
+        .stat-value {
+            font-family: 'Orbitron', monospace;
+            font-size: 1.5rem;
+            font-weight: 700;
+            color: var(--green);
+            text-shadow: 0 0 10px var(--green);
+            line-height: 1;
+        }
+
+        .stat-value.red { color: var(--red); text-shadow: 0 0 10px var(--red); }
+        .stat-value.yellow { color: var(--yellow); text-shadow: 0 0 10px var(--yellow); }
+        .stat-value.cyan { color: var(--cyan); text-shadow: 0 0 10px var(--cyan); }
+
+        .stat-sub {
+            font-size: 0.55rem;
+            color: var(--green-dim);
+            opacity: 0.7;
+            margin-top: 3px;
+        }
+
+        /* DB Table breakdown */
+        .db-breakdown {
+            margin-top: 10px;
+        }
+
+        .db-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 5px 0;
+            border-bottom: 1px solid rgba(0,255,65,0.05);
+            font-size: 0.6rem;
+        }
+
+        .db-row:last-child { border-bottom: none; }
+
+        .db-table-name {
+            color: var(--green-dim);
+            letter-spacing: 1px;
+        }
+
+        .db-table-count {
+            font-family: 'Orbitron', monospace;
+            color: var(--green);
+            font-size: 0.7rem;
+            text-shadow: 0 0 5px rgba(0,255,65,0.5);
+        }
+
+        .progress-bar {
+            height: 2px;
+            background: rgba(0,255,65,0.1);
+            border-radius: 1px;
+            margin-top: 3px;
+            overflow: hidden;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, var(--green-dark), var(--green));
+            box-shadow: 0 0 6px var(--green);
+            transition: width 1s ease;
+        }
+
+        /* System stats mini-graph */
+        .mini-bars {
+            display: flex;
+            align-items: flex-end;
+            gap: 3px;
+            height: 30px;
+            margin-top: 6px;
+        }
+
+        .mini-bar {
+            flex: 1;
+            background: var(--green);
+            border-radius: 1px 1px 0 0;
+            opacity: 0.7;
+            transition: height 0.5s ease;
+            box-shadow: 0 0 4px rgba(0,255,65,0.3);
+        }
+
+        /* ===== CENTER PANEL - LIVE LOG ===== */
+        #center-panel {
+            border-right: 1px solid var(--border);
+            display: flex;
+            flex-direction: column;
+        }
+
+        #log-container {
+            flex: 1;
+            overflow-y: auto;
+            overflow-x: hidden;
+            padding: 8px 0;
+            scroll-behavior: smooth;
+        }
+
+        #log-container::-webkit-scrollbar { width: 4px; }
+        #log-container::-webkit-scrollbar-track { background: transparent; }
+        #log-container::-webkit-scrollbar-thumb { background: var(--green-dark); border-radius: 2px; }
+
+        .log-entry {
+            display: flex;
+            align-items: flex-start;
+            gap: 8px;
+            padding: 5px 14px;
+            font-size: 0.6rem;
+            letter-spacing: 0.5px;
+            line-height: 1.4;
+            border-left: 2px solid transparent;
+            animation: fadeInLog 0.3s ease;
+            cursor: default;
+            transition: background 0.15s;
+        }
+
+        .log-entry:hover {
+            background: rgba(0,255,65,0.04);
+        }
+
+        @keyframes fadeInLog {
+            from { opacity: 0; transform: translateX(-10px); }
+            to { opacity: 1; transform: translateX(0); }
+        }
+
+        .log-entry.type-HTTP { border-left-color: rgba(0,229,255,0.4); }
+        .log-entry.type-DB { border-left-color: rgba(0,255,65,0.4); }
+        .log-entry.type-ERROR { border-left-color: rgba(255,0,64,0.6); background: rgba(255,0,64,0.03); }
+        .log-entry.type-AUTH { border-left-color: rgba(255,170,0,0.5); }
+        .log-entry.type-CONSOLE { border-left-color: rgba(255,255,255,0.35); }
+
+        .log-ts {
+            color: rgba(0,255,65,0.35);
+            white-space: nowrap;
+            font-size: 0.55rem;
+            flex-shrink: 0;
+        }
+
+        .log-badge {
+            font-family: 'Orbitron', monospace;
+            font-size: 0.5rem;
+            padding: 1px 5px;
+            border-radius: 2px;
+            flex-shrink: 0;
+            letter-spacing: 1px;
+        }
+
+        .badge-HTTP { background: rgba(0,229,255,0.1); color: var(--cyan); border: 1px solid rgba(0,229,255,0.3); }
+        .badge-GET { background: rgba(0,255,65,0.08); color: var(--green); border: 1px solid rgba(0,255,65,0.2); }
+        .badge-POST { background: rgba(255,204,0,0.08); color: var(--yellow); border: 1px solid rgba(255,204,0,0.25); }
+        .badge-PUT { background: rgba(0,150,255,0.08); color: #00aaff; border: 1px solid rgba(0,150,255,0.25); }
+        .badge-DELETE { background: rgba(255,0,64,0.08); color: var(--red); border: 1px solid rgba(255,0,64,0.3); }
+        .badge-DB { background: rgba(0,255,65,0.08); color: var(--green); border: 1px solid rgba(0,255,65,0.2); }
+        .badge-SELECT { background: rgba(0,255,65,0.06); color: #66ff88; border: 1px solid rgba(0,255,65,0.15); }
+        .badge-INSERT { background: rgba(0,200,255,0.08); color: #00ccff; border: 1px solid rgba(0,200,255,0.2); }
+        .badge-UPDATE { background: rgba(255,170,0,0.08); color: #ffaa00; border: 1px solid rgba(255,170,0,0.25); }
+        .badge-DEL { background: rgba(255,0,64,0.1); color: #ff4466; border: 1px solid rgba(255,0,64,0.3); }
+        .badge-ERR { background: rgba(255,0,64,0.12); color: var(--red); border: 1px solid rgba(255,0,64,0.4); }
+        .badge-AUTH { background: rgba(255,170,0,0.1); color: var(--yellow); border: 1px solid rgba(255,170,0,0.3); }
+        .badge-SUCCESS { background: rgba(0,255,65,0.08); color: var(--green); border: 1px solid rgba(0,255,65,0.2); }
+        .badge-FAIL { background: rgba(255,0,64,0.1); color: var(--red); border: 1px solid rgba(255,0,64,0.3); }
+        .badge-OTP { background: rgba(0,229,255,0.1); color: var(--cyan); border: 1px solid rgba(0,229,255,0.3); }
+        .badge-CONSOLE { background: rgba(255,255,255,0.06); color: #c0c0c0; border: 1px solid rgba(255,255,255,0.2); }
+        .badge-LOG { background: rgba(255,255,255,0.04); color: #e0e0e0; border: 1px solid rgba(255,255,255,0.15); }
+        .badge-WARN { background: rgba(255,170,0,0.05); color: #ffaa00; border: 1px solid rgba(255,170,0,0.2); }
+        .badge-ERROR { background: rgba(255,0,64,0.08); color: var(--red); border: 1px solid rgba(255,0,64,0.25); }
+        .badge-INFO { background: rgba(0,150,255,0.05); color: #00aaff; border: 1px solid rgba(0,150,255,0.15); }
+        .badge-DEBUG { background: rgba(150,150,150,0.04); color: #888888; border: 1px solid rgba(150,150,150,0.15); }
+
+        .log-body { flex: 1; min-width: 0; }
+        .log-main { color: var(--white); word-break: break-all; }
+        .log-meta { color: rgba(0,255,65,0.4); font-size: 0.5rem; margin-top: 1px; }
+        .log-status-ok { color: var(--green); }
+        .log-status-err { color: var(--red); }
+        .log-status-warn { color: var(--yellow); }
+
+        /* Auto-scroll control */
+        #scroll-control {
+            padding: 6px 14px;
+            border-top: 1px solid var(--border);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            background: rgba(0,5,0,0.9);
+            flex-shrink: 0;
+        }
+
+        .scroll-btn {
+            font-family: 'Share Tech Mono', monospace;
+            font-size: 0.55rem;
+            letter-spacing: 1px;
+            padding: 3px 10px;
+            background: none;
+            border: 1px solid var(--border);
+            color: var(--green-dim);
+            cursor: pointer;
+            border-radius: 2px;
+            transition: all 0.2s;
+        }
+
+        .scroll-btn:hover, .scroll-btn.active {
+            background: rgba(0,255,65,0.1);
+            border-color: var(--green);
+            color: var(--green);
+        }
+
+        .filter-group { display: flex; gap: 6px; }
+
+        /* ===== RIGHT PANEL - DB ACTIVITY ===== */
+        #right-panel {
+            display: flex;
+            flex-direction: column;
+        }
+
+        #db-feed {
+            flex: 1;
+            overflow-y: auto;
+            padding: 8px 0;
+        }
+
+        #db-feed::-webkit-scrollbar { width: 3px; }
+        #db-feed::-webkit-scrollbar-thumb { background: var(--green-dark); }
+
+        .db-event {
+            padding: 8px 12px;
+            border-bottom: 1px solid rgba(0,255,65,0.05);
+            animation: fadeInLog 0.3s ease;
+        }
+
+        .db-event-header {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            margin-bottom: 4px;
+        }
+
+        .db-op-badge {
+            font-family: 'Orbitron', monospace;
+            font-size: 0.5rem;
+            padding: 2px 6px;
+            border-radius: 2px;
+            letter-spacing: 1px;
+            font-weight: 700;
+        }
+
+        .op-SELECT { background: rgba(0,255,65,0.08); color: #66ff88; border: 1px solid rgba(0,255,65,0.2); }
+        .op-INSERT { background: rgba(0,200,255,0.1); color: #00ccff; border: 1px solid rgba(0,200,255,0.3); }
+        .op-UPDATE { background: rgba(255,170,0,0.1); color: #ffaa00; border: 1px solid rgba(255,170,0,0.3); }
+        .op-DELETE { background: rgba(255,0,64,0.1); color: #ff4466; border: 1px solid rgba(255,0,64,0.3); }
+        .op-CREATE { background: rgba(150,0,255,0.1); color: #cc88ff; border: 1px solid rgba(150,0,255,0.3); }
+        .op-ERROR { background: rgba(255,0,64,0.15); color: var(--red); border: 1px solid rgba(255,0,64,0.5); }
+        .op-QUERY { background: rgba(0,255,65,0.06); color: var(--green-dim); border: 1px solid rgba(0,255,65,0.1); }
+
+        .db-table-tag {
+            font-size: 0.55rem;
+            color: var(--green-dim);
+            letter-spacing: 1px;
+        }
+
+        .db-duration {
+            margin-left: auto;
+            font-size: 0.5rem;
+            color: rgba(0,255,65,0.4);
+        }
+
+        .db-sql {
+            font-size: 0.52rem;
+            color: rgba(0,255,65,0.5);
+            word-break: break-all;
+            line-height: 1.4;
+            font-style: italic;
+        }
+
+        .db-rows-tag {
+            font-size: 0.5rem;
+            color: rgba(0,255,65,0.4);
+            margin-top: 2px;
+        }
+
+        /* ===== ALERT TICKER ===== */
+        #ticker {
+            position: fixed;
+            bottom: 0; left: 0; right: 0;
+            z-index: 200;
+            background: rgba(0,5,0,0.97);
+            border-top: 1px solid var(--border-bright);
+            padding: 5px 0;
+            overflow: hidden;
+            height: 26px;
+        }
+
+        #ticker-inner {
+            display: flex;
+            gap: 60px;
+            white-space: nowrap;
+            animation: tickerScroll 30s linear infinite;
+        }
+
+        @keyframes tickerScroll {
+            0% { transform: translateX(0); }
+            100% { transform: translateX(-50%); }
+        }
+
+        .ticker-item {
+            font-size: 0.55rem;
+            letter-spacing: 2px;
+            color: var(--green-dim);
+            flex-shrink: 0;
+        }
+
+        .ticker-item span { color: var(--green); }
+
+        /* ===== GLITCH ANIMATION ===== */
+        @keyframes glitch {
+            0% { text-shadow: 0 0 10px var(--green); }
+            2% { text-shadow: -2px 0 var(--red), 2px 0 var(--cyan); transform: translateX(-2px); }
+            4% { text-shadow: 0 0 10px var(--green); transform: translateX(0); }
+            96% { text-shadow: 0 0 10px var(--green); }
+            98% { text-shadow: 2px 0 var(--red), -2px 0 var(--cyan); transform: translateX(2px); }
+            100% { text-shadow: 0 0 10px var(--green); transform: translateX(0); }
+        }
+
+        .glitch { animation: glitch 5s ease-in-out infinite; }
+
+        /* ===== CONNECTING STATE ===== */
+        #connection-status {
+            position: fixed;
+            top: 50%; left: 50%;
+            transform: translate(-50%, -50%);
+            z-index: 500;
+            background: rgba(0,5,0,0.97);
+            border: 1px solid var(--green);
+            padding: 30px 50px;
+            text-align: center;
+            box-shadow: 0 0 40px rgba(0,255,65,0.2);
+            display: none;
+        }
+
+        #connection-status.visible { display: block; }
+
+        .conn-title {
+            font-family: 'Orbitron', monospace;
+            font-size: 0.8rem;
+            letter-spacing: 4px;
+            margin-bottom: 15px;
+        }
+
+        .conn-dots span {
+            display: inline-block;
+            width: 8px; height: 8px;
+            background: var(--green);
+            border-radius: 50%;
+            margin: 0 4px;
+            animation: connPulse 1.4s ease-in-out infinite;
+        }
+
+        .conn-dots span:nth-child(2) { animation-delay: 0.2s; }
+        .conn-dots span:nth-child(3) { animation-delay: 0.4s; }
+
+        @keyframes connPulse {
+            0%, 80%, 100% { transform: scale(0.6); opacity: 0.4; }
+            40% { transform: scale(1.2); opacity: 1; }
+        }
+
+        /* ===== CLEAR BUTTON ===== */
+        .hk-btn {
+            font-family: 'Share Tech Mono', monospace;
+            font-size: 0.55rem;
+            letter-spacing: 1px;
+            padding: 3px 10px;
+            background: none;
+            border: 1px solid rgba(255,0,64,0.3);
+            color: rgba(255,0,64,0.6);
+            cursor: pointer;
+            border-radius: 2px;
+            transition: all 0.2s;
+        }
+        .hk-btn:hover {
+            background: rgba(255,0,64,0.08);
+            color: var(--red);
+            border-color: var(--red);
+        }
+
+        /* Count badges */
+        .count-chip {
+            font-family: 'Orbitron', monospace;
+            font-size: 0.5rem;
+            padding: 1px 6px;
+            border-radius: 10px;
+            background: rgba(0,255,65,0.1);
+            color: var(--green);
+            border: 1px solid rgba(0,255,65,0.2);
+        }
+
+        /* Connection info */
+        #clients-badge {
+            font-family: 'Orbitron', monospace;
+            font-size: 0.55rem;
+            letter-spacing: 2px;
+        }
+
+        /* scrollbar utility */
+        .scroll-auto { overflow-y: auto; }
+
+        /* Speed meter */
+        #speed-meter {
+            font-family: 'Orbitron', monospace;
+            font-size: 0.7rem;
+            color: var(--cyan);
+            text-shadow: 0 0 8px var(--cyan);
+            letter-spacing: 2px;
+        }
+    </style>
+</head>
+<body>
+    <!-- Matrix Rain Canvas -->
+    <canvas id="matrix-canvas"></canvas>
+
+    <!-- Connection Status Overlay -->
+    <div id="connection-status" class="visible">
+        <div class="conn-title">ESTABLISHING SECURE CHANNEL</div>
+        <div class="conn-dots">
+            <span></span><span></span><span></span>
+        </div>
+        <div style="margin-top:12px; font-size:0.55rem; letter-spacing:2px; color: var(--green-dim);">CONNECTING TO SYSTEM CORE...</div>
+    </div>
+
+    <div id="app">
+        <!-- ===== HEADER ===== -->
+        <div id="header">
+            <div class="logo-section">
+                <div class="logo-icon">
+                    <svg viewBox="0 0 24 24"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>
+                </div>
+                <div>
+                    <div class="logo-text glitch">CITY<span>RIDE</span></div>
+                    <div style="font-size:0.45rem; letter-spacing:3px; color: var(--green-dim); opacity:0.6; margin-top:1px;">SYSTEM CORE</div>
+                </div>
+            </div>
+
+            <div class="header-title">// LIVE SYSTEM MONITOR v2.0</div>
+
+            <div class="header-right">
+                <div id="speed-meter">0 ev/s</div>
+
+                <div class="status-pill">
+                    <div class="status-dot" id="sse-dot"></div>
+                    <span id="sse-status" style="letter-spacing:2px; font-size:0.6rem;">OFFLINE</span>
+                </div>
+
+                <div class="status-pill">
+                    <div class="status-dot"></div>
+                    <span id="clients-badge">0 CLIENTS</span>
+                </div>
+
+                <div id="threat-level">NOMINAL</div>
+
+                <a href="/dbmanager" style="font-family:'Share Tech Mono',monospace;font-size:0.55rem;letter-spacing:2px;color:var(--green-dim);text-decoration:none;padding:3px 9px;border:1px solid var(--border);border-radius:2px;transition:all 0.2s;" onmouseover="this.style.color='#00ff41';this.style.borderColor='#00ff41';this.style.background='rgba(0,255,65,0.06)'" onmouseout="this.style.color='';this.style.borderColor='';this.style.background=''">◈ DB MANAGER</a>
+
+                <div id="clock">00:00:00</div>
+            </div>
+        </div>
+
+        <!-- ===== BODY GRID ===== -->
+        <div id="body-grid">
+
+            <!-- ===== LEFT PANEL - STATS ===== -->
+            <div class="panel" id="left-panel">
+                <div class="panel-header">
+                    <span class="panel-icon">⬡</span>
+                    <span class="panel-title">SYSTEM STATS</span>
+                </div>
+                <div class="stats-container">
+                    <div style="margin-bottom:12px; display:grid; grid-template-columns:1fr 1fr; gap:6px;">
+                        <div class="stat-card" style="padding:7px; border-color: rgba(0,255,65,0.3);">
+                            <div class="stat-label">CPU CORE</div>
+                            <div class="stat-value" id="sys-cpu" style="font-size:1.1rem; color:var(--green);">0.0%</div>
+                        </div>
+                        <div class="stat-card" style="padding:7px; border-color: rgba(0,229,255,0.3);">
+                            <div class="stat-label">RAM USED</div>
+                            <div class="stat-value" id="sys-mem" style="font-size:1.1rem; color:var(--cyan);">0 MB</div>
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-label">TOTAL BOOKINGS</div>
+                        <div class="stat-value cyan" id="stat-bookings">—</div>
+                        <div class="stat-sub">ALL TIME</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-label">BOOKINGS 24H</div>
+                        <div class="stat-value" id="stat-bookings24h">—</div>
+                        <div class="stat-sub">LAST 24 HOURS</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-label">ACTIVE DRIVERS</div>
+                        <div class="stat-value yellow" id="stat-drivers">—</div>
+                        <div class="stat-sub">ON DUTY</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-label">TOTAL PASSENGERS</div>
+                        <div class="stat-value" id="stat-passengers">—</div>
+                        <div class="stat-sub">REGISTERED</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-label">LOG BUFFER</div>
+                        <div class="stat-value" style="font-size:1rem;" id="stat-buffer">—</div>
+                        <div class="stat-sub">ENTRIES IN MEMORY</div>
+                    </div>
+
+                    <div style="padding: 8px 0 4px; font-family: 'Orbitron', monospace; font-size:0.55rem; letter-spacing:3px; color: var(--green-dim); border-top: 1px solid var(--border); margin-top: 4px;">DATABASE TABLES</div>
+
+                    <div class="db-breakdown" id="db-breakdown">
+                        <div class="db-row" style="color:var(--green-dim); font-size:0.55rem; letter-spacing:1px;">Loading...</div>
+                    </div>
+
+                    <div style="padding: 10px 0 6px; font-family: 'Orbitron', monospace; font-size:0.55rem; letter-spacing:3px; color: var(--green-dim); border-top: 1px solid var(--border); margin-top: 8px;">QUERY RATE</div>
+                    <div class="mini-bars" id="mini-bars">
+                        <!-- JS fills these -->
+                    </div>
+
+                    <!-- Op counters -->
+                    <div style="margin-top:12px; display:grid; grid-template-columns:1fr 1fr; gap:6px;">
+                        <div class="stat-card" style="padding:7px;">
+                            <div class="stat-label">SELECT</div>
+                            <div class="stat-value" id="cnt-select" style="font-size:1rem;">0</div>
+                        </div>
+                        <div class="stat-card" style="padding:7px;">
+                            <div class="stat-label">INSERT</div>
+                            <div class="stat-value cyan" id="cnt-insert" style="font-size:1rem;">0</div>
+                        </div>
+                        <div class="stat-card" style="padding:7px;">
+                            <div class="stat-label">UPDATE</div>
+                            <div class="stat-value yellow" id="cnt-update" style="font-size:1rem;">0</div>
+                        </div>
+                        <div class="stat-card" style="padding:7px;">
+                            <div class="stat-label">DELETE</div>
+                            <div class="stat-value red" id="cnt-delete" style="font-size:1rem;">0</div>
+                        </div>
+                    </div>
+
+                    <div style="padding: 10px 0 6px; font-family: 'Orbitron', monospace; font-size:0.55rem; letter-spacing:3px; color: var(--yellow); border-top: 1px solid var(--border); margin-top: 12px;">SECURITY STATUS</div>
+                    <div style="margin-top:4px; display:grid; grid-template-columns:1fr 1fr; gap:6px;">
+                        <div class="stat-card" style="padding:7px; border-color: rgba(0,255,65,0.2);">
+                            <div class="stat-label" style="color: var(--green);">LOGINS OK</div>
+                            <div class="stat-value" id="auth-logins-ok" style="font-size:1rem; color: var(--green);">0</div>
+                        </div>
+                        <div class="stat-card" style="padding:7px; border-color: rgba(255,0,64,0.2);">
+                            <div class="stat-label" style="color: var(--red);">LOGINS FAIL</div>
+                            <div class="stat-value" id="auth-logins-fail" style="font-size:1rem; color: var(--red);">0</div>
+                        </div>
+                        <div class="stat-card" style="padding:7px; border-color: rgba(0,229,255,0.2);">
+                            <div class="stat-label" style="color: var(--cyan);">REGISTERS</div>
+                            <div class="stat-value" id="auth-registers" style="font-size:1rem; color: var(--cyan);">0</div>
+                        </div>
+                        <div class="stat-card" style="padding:7px; border-color: rgba(255,170,0,0.2);">
+                            <div class="stat-label" style="color: var(--yellow);">OTPS SENT</div>
+                            <div class="stat-value" id="auth-otps" style="font-size:1rem; color: var(--yellow);">0</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ===== CENTER PANEL - LIVE LOG ===== -->
+            <div id="center-panel" class="panel" style="border-right:1px solid var(--border);">
+                <div class="panel-header">
+                    <span class="panel-icon">▶</span>
+                    <span class="panel-title">LIVE ACTIVITY STREAM</span>
+                    <span class="count-chip" id="log-count">0</span>
+                    <div style="margin-left:auto; display:flex; gap:8px;">
+                        <button class="scroll-btn active" id="btn-autoscroll" onclick="toggleAutoScroll()">AUTO-SCROLL</button>
+                        <button class="hk-btn" onclick="clearLogs()">CLEAR</button>
+                    </div>
+                </div>
+
+                <div style="padding: 4px 14px; border-bottom:1px solid var(--border); display:flex; gap:6px; background:rgba(0,5,0,0.5); flex-shrink:0;">
+                    <button class="scroll-btn active" onclick="setFilter('ALL', this)">ALL</button>
+                    <button class="scroll-btn" onclick="setFilter('HTTP', this)">HTTP</button>
+                    <button class="scroll-btn" onclick="setFilter('DB', this)">DATABASE</button>
+                    <button class="scroll-btn" onclick="setFilter('AUTH', this)">AUTH</button>
+                    <button class="scroll-btn" onclick="setFilter('CONSOLE', this)">CONSOLE</button>
+                    <button class="scroll-btn" onclick="setFilter('ERROR', this)">ERRORS</button>
+                </div>
+
+                <div id="log-container"></div>
+
+                <div id="scroll-control">
+                    <div style="font-size:0.5rem; letter-spacing:2px; color:var(--green-dim);">
+                        <span id="event-counter">0</span> EVENTS CAPTURED
+                    </div>
+                    <div style="font-size:0.5rem; letter-spacing:2px; color:var(--green-dim);">
+                        UPTIME: <span id="uptime-display">00:00:00</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ===== RIGHT PANEL - DB & AUTH ACTIVITY ===== -->
+            <div class="panel" id="right-panel" style="border-right:none;">
+                <div style="flex: 1; display: flex; flex-direction: column; border-bottom: 1px solid var(--border); overflow: hidden;">
+                    <div class="panel-header">
+                        <span class="panel-icon">◈</span>
+                        <span class="panel-title">DATABASE OPS</span>
+                        <span class="count-chip" id="db-count">0</span>
+                    </div>
+                    <div id="db-feed" style="flex: 1; overflow-y: auto;"></div>
+                </div>
+                <div style="flex: 1; display: flex; flex-direction: column; overflow: hidden;">
+                    <div class="panel-header" style="background: rgba(255, 170, 0, 0.04);">
+                        <span class="panel-icon">🔐</span>
+                        <span class="panel-title" style="color: var(--yellow);">SECURITY & AUTH</span>
+                        <span class="count-chip" id="auth-count" style="background: rgba(255,170,0,0.1); color: var(--yellow); border-color: rgba(255,170,0,0.2);">0</span>
+                    </div>
+                    <div id="auth-feed" style="flex: 1; overflow-y: auto; padding: 8px 0;"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ===== TICKER ===== -->
+    <div id="ticker">
+        <div id="ticker-inner">
+            <span class="ticker-item">⬡ CITYRIDETAXI SYSTEM MONITOR &nbsp;•&nbsp; <span>ALL SYSTEMS OPERATIONAL</span></span>
+            <span class="ticker-item">⬡ DB: <span>MYSQL 8.0</span> CONNECTED &nbsp;•&nbsp; NODE.JS SERVER <span>ACTIVE</span></span>
+            <span class="ticker-item">⬡ SECURITY: <span>JWT AUTH</span> ENABLED &nbsp;•&nbsp; RATE LIMITING <span>ON</span></span>
+            <span class="ticker-item">⬡ MONITORING: <span>REAL-TIME SSE STREAM</span> ACTIVE &nbsp;•&nbsp; MAX LOG: <span>500 ENTRIES</span></span>
+            <span class="ticker-item">⬡ CITYRIDETAXI SYSTEM MONITOR &nbsp;•&nbsp; <span>ALL SYSTEMS OPERATIONAL</span></span>
+            <span class="ticker-item">⬡ DB: <span>MYSQL 8.0</span> CONNECTED &nbsp;•&nbsp; NODE.JS SERVER <span>ACTIVE</span></span>
+            <span class="ticker-item">⬡ SECURITY: <span>JWT AUTH</span> ENABLED &nbsp;•&nbsp; RATE LIMITING <span>ON</span></span>
+            <span class="ticker-item">⬡ MONITORING: <span>REAL-TIME SSE STREAM</span> ACTIVE &nbsp;•&nbsp; MAX LOG: <span>500 ENTRIES</span></span>
+        </div>
+    </div>
+
+    <script>
+    // ===== MATRIX RAIN =====
+    (function() {
+        const canvas = document.getElementById('matrix-canvas');
+        const ctx = canvas.getContext('2d');
+
+        function resize() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+        }
+        resize();
+        window.addEventListener('resize', resize);
+
+        const chars = '01アイウエオカキクケコサシスセソタチツテトナニヌネノハヒフヘホマミムメモヤユヨラリルレロワヲン';
+        const fontSize = 13;
+        let columns = Math.floor(canvas.width / fontSize);
+        let drops = Array(columns).fill(1);
+
+        function draw() {
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.045)';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            for (let i = 0; i < drops.length; i++) {
+                const char = chars[Math.floor(Math.random() * chars.length)];
+                const brightness = Math.random();
+                if (brightness > 0.95) {
+                    ctx.fillStyle = '#ffffff';
+                    ctx.shadowBlur = 8;
+                    ctx.shadowColor = '#00ff41';
+                } else if (brightness > 0.7) {
+                    ctx.fillStyle = '#00ff41';
+                    ctx.shadowBlur = 4;
+                    ctx.shadowColor = '#00ff41';
+                } else {
+                    ctx.fillStyle = '#003311';
+                    ctx.shadowBlur = 0;
+                }
+                ctx.font = `${fontSize}px 'Share Tech Mono', monospace`;
+                ctx.fillText(char, i * fontSize, drops[i] * fontSize);
+
+                if (drops[i] * fontSize > canvas.height && Math.random() > 0.975) drops[i] = 0;
+                drops[i]++;
+            }
+        }
+
+        setInterval(draw, 50);
+        window.addEventListener('resize', () => {
+            columns = Math.floor(canvas.width / fontSize);
+            drops = Array(columns).fill(1);
+        });
+    })();
+
+    // ===== CLOCK =====
+    function updateClock() {
+        const now = new Date();
+        document.getElementById('clock').textContent =
+            now.toTimeString().slice(0,8) + '.' + String(now.getMilliseconds()).padStart(3,'0');
+    }
+    setInterval(updateClock, 100);
+
+    // ===== UPTIME =====
+    const startTs = Date.now();
+    function updateUptime() {
+        const s = Math.floor((Date.now() - startTs) / 1000);
+        const h = String(Math.floor(s/3600)).padStart(2,'0');
+        const m = String(Math.floor((s%3600)/60)).padStart(2,'0');
+        const sec = String(s%60).padStart(2,'0');
+        document.getElementById('uptime-display').textContent = `${h}:${m}:${sec}`;
+    }
+    setInterval(updateUptime, 1000);
+
+    // ===== STATE =====
+    let autoScroll = true;
+    let activeFilter = 'ALL';
+    let totalEvents = 0;
+    let dbEvents = 0;
+    let opCounts = { SELECT: 0, INSERT: 0, UPDATE: 0, DELETE: 0, OTHER: 0 };
+    let errorCount = 0;
+    const rateHistory = Array(20).fill(0);
+    let rateThisSec = 0;
+
+    // ===== MINI BARS =====
+    function buildMiniBars() {
+        const container = document.getElementById('mini-bars');
+        container.innerHTML = '';
+        const max = Math.max(...rateHistory, 1);
+        rateHistory.forEach(v => {
+            const bar = document.createElement('div');
+            bar.className = 'mini-bar';
+            bar.style.height = `${Math.max(2, (v / max) * 100)}%`;
+            container.appendChild(bar);
+        });
+    }
+
+    setInterval(() => {
+        rateHistory.push(rateThisSec);
+        rateHistory.shift();
+        document.getElementById('speed-meter').textContent = `${rateThisSec} ev/s`;
+        buildMiniBars();
+        rateThisSec = 0;
+    }, 1000);
+
+    // ===== FORMAT LOG ENTRY =====
+    function formatTime(ts) {
+        const d = new Date(ts);
+        return d.toTimeString().slice(0,8) + '.' + String(d.getMilliseconds()).padStart(3,'0');
+    }
+
+    function statusClass(s) {
+        if (s >= 500) return 'log-status-err';
+        if (s >= 400) return 'log-status-warn';
+        return 'log-status-ok';
+    }
+
+    function methodBadge(m) {
+        return `badge-${m}`;
+    }
+
+    function renderLogEntry(entry) {
+        const div = document.createElement('div');
+        const isErr = entry.status === 'ERROR' || entry.status === 'FAIL' || (typeof entry.status === 'number' && entry.status >= 400) || entry.level === 'ERROR';
+        let baseType = entry.type || 'HTTP';
+        if (baseType === 'DB_MANAGER') baseType = 'DB';
+        
+        div.className = `log-entry type-${baseType}`;
+        if (isErr) {
+            div.classList.add('type-ERROR');
+            div.classList.add('is-error');
+        }
+
+        if (entry.type === 'HTTP') {
+            const sClass = statusClass(entry.status);
+            const hasPayload = entry.reqBody || entry.reqQuery || entry.resBody;
+            div.innerHTML = `
+                <span class="log-ts">${formatTime(entry.ts)}</span>
+                <span class="log-badge badge-HTTP">${entry.type}</span>
+                <span class="log-badge ${methodBadge(entry.method)}">${entry.method}</span>
+                <div class="log-body">
+                    <div class="log-main" style="display:flex; justify-content:space-between; align-items:center; width:100%;">
+                        <span>${entry.url}</span>
+                        ${hasPayload ? `<span class="toggle-detail-btn" style="color:var(--green-dim); font-size:0.5rem; cursor:pointer; border:1px solid rgba(0,255,65,0.25); padding:0px 4px; border-radius:2px; font-family:'Orbitron', monospace; letter-spacing:1px; margin-left:8px; user-select:none;">EXPAND</span>` : ''}
+                    </div>
+                    <div class="log-meta">
+                        <span class="${sClass}">${entry.status}</span>
+                        &nbsp;•&nbsp; ${entry.duration}ms
+                        &nbsp;•&nbsp; ${entry.ip}
+                    </div>
+                    ${hasPayload ? `
+                    <div class="http-detail-pane" style="display:none; margin-top:6px; padding:6px; background:rgba(0,10,0,0.85); border:1px solid rgba(0,255,65,0.15); border-radius:3px; font-family:'Share Tech Mono', monospace; font-size:0.52rem; color:rgba(0,255,65,0.85); white-space:pre-wrap; word-break:break-all;">
+                        ${entry.reqQuery ? `<div><span style="color:var(--cyan);">[QUERY]:</span> ${JSON.stringify(entry.reqQuery, null, 2)}</div>` : ''}
+                        ${entry.reqBody ? `<div style="margin-top:4px;"><span style="color:var(--yellow);">[REQ BODY]:</span> ${JSON.stringify(entry.reqBody, null, 2)}</div>` : ''}
+                        ${entry.resBody ? `<div style="margin-top:4px;"><span style="color:var(--green);">[RES BODY]:</span> ${JSON.stringify(entry.resBody, null, 2)}</div>` : ''}
+                    </div>` : ''}
+                </div>`;
+                
+            if (hasPayload) {
+                const btn = div.querySelector('.toggle-detail-btn');
+                const pane = div.querySelector('.http-detail-pane');
+                btn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    const isHidden = pane.style.display === 'none';
+                    pane.style.display = isHidden ? 'block' : 'none';
+                    btn.textContent = isHidden ? 'COLLAPSE' : 'EXPAND';
+                    btn.style.borderColor = isHidden ? 'var(--green)' : 'rgba(0,255,65,0.25)';
+                    btn.style.color = isHidden ? 'var(--green)' : 'var(--green-dim)';
+                });
+            }
+        } else if (entry.type === 'DB') {
+            const opClass = entry.status === 'ERROR' ? 'badge-ERR' : `badge-${entry.op}`;
+            div.innerHTML = `
+                <span class="log-ts">${formatTime(entry.ts)}</span>
+                <span class="log-badge badge-DB">DB</span>
+                <span class="log-badge ${opClass}">${entry.op}</span>
+                <div class="log-body">
+                    <div class="log-main" style="color:${entry.status==='ERROR'?'var(--red)':'var(--green-dim)'}">
+                        ${entry.table ? `<span style="color:var(--green)">[${entry.table}]</span> ` : ''}${entry.sql || ''}
+                    </div>
+                    <div class="log-meta">
+                        ${entry.status === 'ERROR'
+                            ? `<span class="log-status-err">ERROR: ${entry.error || ''}</span>`
+                            : `<span class="log-status-ok">OK</span> • ${entry.rows ?? 0} rows • ${entry.duration}ms`}
+                    </div>
+                </div>`;
+        } else if (entry.type === 'DB_MANAGER') {
+            const opColorMap = { INSERT: 'var(--cyan)', UPDATE: 'var(--yellow)', DELETE: 'var(--red)', VIEW_PASSWORD: '#ff8800', UPDATE_PASSWORD: '#ff8800', LIST_TABLES: 'var(--green-dim)' };
+            const opColor = opColorMap[entry.op] || 'var(--green)';
+            const isErrEntry = entry.status === 'ERROR';
+            div.innerHTML = `
+                <span class="log-ts">${formatTime(entry.ts)}</span>
+                <span class="log-badge badge-DB" style="background:rgba(255,136,0,0.1);color:#ff8800;border-color:rgba(255,136,0,0.3);">DB-MGR</span>
+                <span class="log-badge" style="color:${opColor};border:1px solid ${opColor};background:transparent;opacity:0.8;">${entry.op || 'OP'}</span>
+                <div class="log-body">
+                    <div class="log-main" style="color:${isErrEntry ? 'var(--red)' : opColor}">
+                        ${entry.table ? `<span style="color:var(--green)">[${entry.table}]</span> ` : ''}${entry.affectedId ? `ROW #${entry.affectedId}` : ''}
+                        ${isErrEntry && entry.error ? ` — ${entry.error}` : ''}
+                    </div>
+                    <div class="log-meta">
+                        <span class="${isErrEntry ? 'log-status-err' : 'log-status-ok'}">${entry.status}</span>
+                    </div>
+                </div>`;
+        } else if (entry.type === 'AUTH') {
+            const statusCls = (entry.status === 'ERROR' || entry.status === 'FAIL') ? 'log-status-err' : 'log-status-ok';
+            const authClass = (entry.status === 'ERROR' || entry.status === 'FAIL') ? 'badge-FAIL' : 'badge-SUCCESS';
+            div.innerHTML = `
+                <span class="log-ts">${formatTime(entry.ts)}</span>
+                <span class="log-badge badge-AUTH">AUTH</span>
+                <span class="log-badge ${authClass}">${entry.event}</span>
+                <div class="log-body">
+                    <div class="log-main" style="color:${(entry.status==='ERROR'||entry.status==='FAIL')?'var(--red)':'var(--yellow)'}">
+                        [${(entry.role || '').toUpperCase()}] ${entry.identifier || 'unknown'} - ${entry.message || ''}
+                    </div>
+                    <div class="log-meta">
+                        <span class="${statusCls}">${entry.status}</span>
+                        ${entry.reason ? `&nbsp;•&nbsp; Reason: ${entry.reason}` : ''}
+                        &nbsp;•&nbsp; IP: ${entry.ip}
+                    </div>
+                </div>`;
+        } else if (entry.type === 'CONSOLE') {
+            const levelClass = `badge-${entry.level || 'LOG'}`;
+            const isErrEntry = entry.level === 'ERROR';
+            const logColor = isErrEntry ? 'var(--red)' : (entry.level === 'WARN' ? '#ffaa00' : 'rgba(255,255,255,0.9)');
+            div.innerHTML = `
+                <span class="log-ts">${formatTime(entry.ts)}</span>
+                <span class="log-badge badge-CONSOLE">CONSOLE</span>
+                <span class="log-badge ${levelClass}">${entry.level || 'LOG'}</span>
+                <div class="log-body">
+                    <div class="log-main" style="color:${logColor}; font-family:'Share Tech Mono', monospace; white-space:pre-wrap; font-size:0.55rem; line-height:1.3; letter-spacing:0px;">${entry.text || ''}</div>
+                </div>`;
+        } else {
+            // Generic fallback for unknown types
+            div.innerHTML = `
+                <span class="log-ts">${formatTime(entry.ts)}</span>
+                <span class="log-badge badge-DB">${entry.type}</span>
+                <div class="log-body">
+                    <div class="log-main" style="color:var(--green-dim);">${JSON.stringify(entry).substring(0, 120)}</div>
+                </div>`;
+        }
+
+        return div;
+    }
+
+    function renderAuthEvent(entry) {
+        const isError = entry.status === 'ERROR' || entry.status === 'FAIL';
+        const badgeClass = isError ? 'op-ERROR' : 'op-INSERT';
+        const statusColor = isError ? 'var(--red)' : 'var(--green)';
+        const div = document.createElement('div');
+        div.className = 'db-event'; // Reuse DB event styling
+        div.innerHTML = `
+            <div class="db-event-header">
+                <span class="db-op-badge ${badgeClass}" style="${!isError ? 'background: rgba(255,170,0,0.1); color: var(--yellow); border-color: rgba(255,170,0,0.3);' : ''}">
+                    ${entry.event}
+                </span>
+                <span class="db-table-tag" style="color: var(--white); font-weight: bold;">${(entry.role || '').toUpperCase()}</span>
+                <span class="db-duration" style="color: ${statusColor}; font-weight: bold;">${entry.status}</span>
+            </div>
+            <div class="db-sql" style="color: rgba(255,255,255,0.75); font-style: normal; font-size: 0.55rem; margin-top: 4px; line-height: 1.3;">
+                ID: <span style="color: var(--cyan);">${entry.identifier || '—'}</span>
+                ${entry.message ? `<br><span style="color: var(--green-dim);">${entry.message}</span>` : ''}
+                ${entry.reason ? `<br><span style="color: var(--red);">Reason: ${entry.reason}</span>` : ''}
+            </div>
+            <div class="db-rows-tag" style="display: flex; justify-content: space-between; margin-top: 4px; opacity: 0.8;">
+                <span>IP: ${entry.ip || '—'}</span>
+                <span>${formatTime(entry.ts)}</span>
+            </div>`;
+        return div;
+    }
+
+    function renderDbEvent(entry) {
+        const opClass = entry.status === 'ERROR' ? 'op-ERROR' : `op-${entry.op}`;
+        const div = document.createElement('div');
+        div.className = 'db-event';
+        div.innerHTML = `
+            <div class="db-event-header">
+                <span class="db-op-badge ${opClass}">${entry.op}</span>
+                <span class="db-table-tag">${entry.table || '—'}</span>
+                <span class="db-duration">${entry.duration}ms</span>
+            </div>
+            <div class="db-sql">${(entry.sql || '').substring(0, 100)}</div>
+            <div class="db-rows-tag">
+                ${entry.status === 'ERROR'
+                    ? `<span style="color:var(--red)">⚠ ${entry.error || 'ERROR'}</span>`
+                    : `${entry.rows ?? 0} rows affected`}
+            </div>`;
+        return div;
+    }
+
+    // ===== ADD LOG =====
+    const logContainer = document.getElementById('log-container');
+    const dbFeed = document.getElementById('db-feed');
+    const MAX_DOM_LOGS = 1000;
+
+    let authEventsCount = 0;
+
+    function addEntry(entry, fromCache = false) {
+        totalEvents++;
+        rateThisSec++;
+        document.getElementById('event-counter').textContent = totalEvents;
+        document.getElementById('log-count').textContent = totalEvents;
+
+        // Check filter
+        const isErrStatus = entry.status === 'ERROR' || entry.status === 'FAIL' || (typeof entry.status === 'number' && entry.status >= 400) || entry.level === 'ERROR';
+        const show = activeFilter === 'ALL'
+            || (activeFilter === 'HTTP' && entry.type === 'HTTP')
+            || (activeFilter === 'DB' && (entry.type === 'DB' || entry.type === 'DB_MANAGER'))
+            || (activeFilter === 'AUTH' && entry.type === 'AUTH')
+            || (activeFilter === 'CONSOLE' && entry.type === 'CONSOLE')
+            || (activeFilter === 'ERROR' && isErrStatus);
+
+        const el = renderLogEntry(entry);
+        el.style.display = show ? 'flex' : 'none';
+        logContainer.prepend(el);
+
+        // Auto-scroll to top when a new visible log is added and autoScroll is active
+        if (show && autoScroll) {
+            logContainer.scrollTop = 0;
+        }
+
+        // Trim DOM to MAX_DOM_LOGS
+        while (logContainer.children.length > MAX_DOM_LOGS) {
+            logContainer.removeChild(logContainer.lastChild);
+        }
+
+        // DB panel
+        if (entry.type === 'DB') {
+            dbEvents++;
+            document.getElementById('db-count').textContent = dbEvents;
+
+            // Update op counters
+            if (entry.op in opCounts) opCounts[entry.op]++;
+            else opCounts.OTHER++;
+
+            document.getElementById('cnt-select').textContent = opCounts.SELECT;
+            document.getElementById('cnt-insert').textContent = opCounts.INSERT;
+            document.getElementById('cnt-update').textContent = opCounts.UPDATE;
+            document.getElementById('cnt-delete').textContent = opCounts.DELETE;
+
+            // DB feed
+            const dbEl = renderDbEvent(entry);
+            dbFeed.prepend(dbEl);
+            while (dbFeed.children.length > 80) dbFeed.removeChild(dbFeed.lastChild);
+
+            // Error count
+            if (entry.status === 'ERROR') {
+                errorCount++;
+                updateThreatLevel();
+            }
+        }
+
+        // Auth panel
+        if (entry.type === 'AUTH') {
+            authEventsCount++;
+            document.getElementById('auth-count').textContent = authEventsCount;
+
+            const authFeed = document.getElementById('auth-feed');
+            const authEl = renderAuthEvent(entry);
+            authFeed.prepend(authEl);
+            while (authFeed.children.length > 80) authFeed.removeChild(authFeed.lastChild);
+
+            // Error/Fail count
+            if (entry.status === 'ERROR' || entry.status === 'FAIL') {
+                errorCount++;
+                updateThreatLevel();
+            }
+        }
+
+        if (entry.status >= 500) {
+            errorCount++;
+            updateThreatLevel();
+        }
+
+        // Persist to localStorage cache
+        if (!fromCache) {
+            cachePush(entry);
+        }
+    }
+
+    // ===== LOG CACHE (localStorage) =====
+    const CACHE_KEY = 'cityride_monitor_logs';
+    const CACHE_MAX = 500;
+
+    function cacheLoad() {
+        try { return JSON.parse(localStorage.getItem(CACHE_KEY) || '[]'); }
+        catch(e) { return []; }
+    }
+    function cacheSave(entries) {
+        try { localStorage.setItem(CACHE_KEY, JSON.stringify(entries)); } catch(e) {}
+    }
+    function cacheClear() {
+        try { localStorage.removeItem(CACHE_KEY); } catch(e) {}
+    }
+    function cachePush(entry) {
+        const arr = cacheLoad();
+        arr.unshift(entry);
+        if (arr.length > CACHE_MAX) arr.length = CACHE_MAX;
+        cacheSave(arr);
+    }
+
+    // Track seen timestamps to avoid duplicates
+    const seenTs = new Set();
+
+    function updateThreatLevel() {
+        const el = document.getElementById('threat-level');
+        if (errorCount === 0) { el.textContent = 'NOMINAL'; el.style.color = 'var(--green)'; el.style.borderColor = 'var(--green)'; }
+        else if (errorCount < 3) { el.textContent = 'LOW'; el.style.color = 'var(--yellow)'; el.style.borderColor = 'var(--yellow)'; }
+        else if (errorCount < 10) { el.textContent = 'ELEVATED'; el.style.color = 'orange'; el.style.borderColor = 'orange'; }
+        else { el.textContent = 'CRITICAL'; el.style.color = 'var(--red)'; el.style.borderColor = 'var(--red)'; }
+    }
+
+    // ===== CONTROLS =====
+    function toggleAutoScroll() {
+        autoScroll = !autoScroll;
+        const btn = document.getElementById('btn-autoscroll');
+        btn.classList.toggle('active', autoScroll);
+    }
+
+    function clearLogs() {
+        logContainer.innerHTML = '';
+        dbFeed.innerHTML = '';
+        const authFeed = document.getElementById('auth-feed');
+        if (authFeed) authFeed.innerHTML = '';
+        totalEvents = 0; dbEvents = 0; authEventsCount = 0; errorCount = 0;
+        opCounts = { SELECT: 0, INSERT: 0, UPDATE: 0, DELETE: 0, OTHER: 0 };
+        document.getElementById('cnt-select').textContent = '0';
+        document.getElementById('cnt-insert').textContent = '0';
+        document.getElementById('cnt-update').textContent = '0';
+        document.getElementById('cnt-delete').textContent = '0';
+        document.getElementById('event-counter').textContent = '0';
+        document.getElementById('log-count').textContent = '0';
+        document.getElementById('db-count').textContent = '0';
+        const authCountEl = document.getElementById('auth-count');
+        if (authCountEl) authCountEl.textContent = '0';
+        // Wipe localStorage cache
+        cacheClear();
+        seenTs.clear();
+    }
+
+    function setFilter(f, btn) {
+        activeFilter = f;
+        document.querySelectorAll('.filter-group .scroll-btn, #center-panel .scroll-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        
+        // Toggle display of current log elements dynamically in the DOM
+        const entries = logContainer.querySelectorAll('.log-entry');
+        entries.forEach(el => {
+            let show = false;
+            if (f === 'ALL') {
+                show = true;
+            } else if (f === 'HTTP') {
+                show = el.classList.contains('type-HTTP');
+            } else if (f === 'DB') {
+                show = el.classList.contains('type-DB') || el.classList.contains('type-DB_MANAGER');
+            } else if (f === 'AUTH') {
+                show = el.classList.contains('type-AUTH');
+            } else if (f === 'CONSOLE') {
+                show = el.classList.contains('type-CONSOLE');
+            } else if (f === 'ERROR') {
+                show = el.classList.contains('type-ERROR') || el.classList.contains('is-error');
+            }
+            el.style.display = show ? 'flex' : 'none';
+        });
+    }
+
+    // ===== FETCH STATS =====
+    async function fetchStats() {
+        try {
+            const res = await fetch('/api/monitor/stats');
+            if (!res.ok) return;
+            const d = await res.json();
+
+            // Top stats
+            document.getElementById('stat-bookings').textContent = (d.tables['taxi_bookings'] ?? 0).toLocaleString();
+            document.getElementById('stat-bookings24h').textContent = (d.bookings24h ?? 0).toLocaleString();
+            document.getElementById('stat-drivers').textContent = (d.activeDrivers ?? 0).toLocaleString();
+            const passengers = (d.tables['taxi_passengers'] ?? 0) + (d.tables['passengers'] ?? 0);
+            document.getElementById('stat-passengers').textContent = passengers.toLocaleString();
+            document.getElementById('stat-buffer').textContent = d.logBufferSize ?? 0;
+            document.getElementById('clients-badge').textContent = `${d.connectedClients ?? 1} CLIENTS`;
+
+            // Security stats
+            if (d.authStats) {
+                document.getElementById('auth-logins-ok').textContent = (d.authStats.loginSuccess ?? 0).toLocaleString();
+                document.getElementById('auth-logins-fail').textContent = (d.authStats.loginFail ?? 0).toLocaleString();
+                document.getElementById('auth-registers').textContent = (d.authStats.registrations ?? 0).toLocaleString();
+                document.getElementById('auth-otps').textContent = (d.authStats.otpDispatched ?? 0).toLocaleString();
+            }
+
+            // DB table breakdown
+            const breakdown = document.getElementById('db-breakdown');
+            breakdown.innerHTML = '';
+            const tables = d.tables || {};
+            const max = Math.max(...Object.values(tables), 1);
+            Object.entries(tables).forEach(([name, count]) => {
+                const shortName = name.replace('taxi_', '');
+                const pct = Math.round((count / max) * 100);
+                breakdown.innerHTML += `
+                    <div class="db-row">
+                        <span class="db-table-name">${shortName}</span>
+                        <span class="db-table-count">${count.toLocaleString()}</span>
+                    </div>
+                    <div class="progress-bar">
+                        <div class="progress-fill" style="width:${pct}%"></div>
+                    </div>`;
+            });
+        } catch(e) {}
+    }
+
+
+    // ===== SSE CONNECTION =====
+    function connectSSE() {
+        const dot = document.getElementById('sse-dot');
+        const statusEl = document.getElementById('sse-status');
+        const connOverlay = document.getElementById('connection-status');
+
+        dot.classList.add('red');
+        statusEl.textContent = 'CONNECTING';
+
+        let es;
+        try {
+            es = new EventSource('/api/monitor/stream');
+        } catch(e) {
+            setTimeout(connectSSE, 3000);
+            return;
+        }
+
+        es.onopen = () => {
+            dot.classList.remove('red');
+            statusEl.textContent = 'LIVE';
+            connOverlay.classList.remove('visible');
+            fetchStats();
+        };
+
+        es.onmessage = (e) => {
+            try {
+                const entry = JSON.parse(e.data);
+                
+                if (entry.type === 'SYS_METRICS') {
+                    document.getElementById('sys-cpu').textContent = entry.cpu + '%';
+                    document.getElementById('sys-mem').textContent = entry.memUsed + ' MB';
+                    // Optional: color CPU red if > 80%
+                    document.getElementById('sys-cpu').style.color = parseFloat(entry.cpu) > 80 ? 'var(--red)' : 'var(--green)';
+                    return; // don't add to log stream
+                }
+
+                // Add event to feed (removed deduplication by timestamp since events can happen in the exact same millisecond)
+                addEntry(entry);
+            } catch(err) {}
+        };
+
+        es.onerror = () => {
+            dot.classList.add('red');
+            statusEl.textContent = 'RECONNECTING';
+            connOverlay.classList.add('visible');
+            es.close();
+            setTimeout(connectSSE, 3000);
+        };
+    }
+
+    // ===== INIT =====
+    window.addEventListener('DOMContentLoaded', () => {
+        buildMiniBars();
+
+        // Restore log history from server history, fallback to localStorage cache on failure
+        fetch('/api/monitor/history?limit=150')
+            .then(res => res.json())
+            .then(history => {
+                if (history && history.length > 0) {
+                    logContainer.innerHTML = '';
+                    totalEvents = 0;
+                    // reverse to push oldest first so newest ends up at the top (prepend)
+                    history.reverse().forEach(entry => {
+                        addEntry(entry);
+                    });
+                } else {
+                    throw new Error('Empty server history');
+                }
+            })
+            .catch(() => {
+                const cached = cacheLoad();
+                if (cached.length > 0) {
+                    [...cached].reverse().forEach(entry => {
+                        addEntry(entry, true);
+                    });
+                }
+            })
+            .finally(() => {
+                connectSSE();
+            });
+        // Poll stats every 10 seconds
+        setInterval(fetchStats, 10000);
+    });
+    </script>
+</body>
+</html>

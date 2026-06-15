@@ -1,0 +1,1418 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CityRide // DATABASE MANAGER</title>
+    <link rel="icon" type="image/png" href="logo.png">
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Orbitron:wght@400;700;900&display=swap');
+
+        :root {
+            --green: #00ff41;
+            --green-dim: #00cc33;
+            --green-dark: #003311;
+            --green-glow: rgba(0, 255, 65, 0.3);
+            --green-faint: rgba(0, 255, 65, 0.05);
+            --red: #ff0040;
+            --yellow: #ffcc00;
+            --cyan: #00e5ff;
+            --orange: #ff8800;
+            --white: #e0ffe0;
+            --bg: #000000;
+            --panel-bg: rgba(0, 8, 0, 0.95);
+            --border: rgba(0, 255, 65, 0.15);
+            --border-bright: rgba(0, 255, 65, 0.5);
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            background: var(--bg);
+            color: var(--green);
+            font-family: 'Share Tech Mono', monospace;
+            overflow: hidden;
+            height: 100vh;
+            width: 100vw;
+            cursor: crosshair;
+        }
+
+        /* Matrix Canvas */
+        #matrix-canvas {
+            position: fixed; top: 0; left: 0;
+            width: 100%; height: 100%;
+            z-index: 0; opacity: 0.08;
+        }
+
+        /* Scanline */
+        body::before {
+            content: '';
+            position: fixed; inset: 0;
+            background: repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0,0,0,0.06) 2px, rgba(0,0,0,0.06) 4px);
+            pointer-events: none; z-index: 9999;
+        }
+        body::after {
+            content: '';
+            position: fixed; left: 0; right: 0; height: 2px;
+            background: linear-gradient(transparent, rgba(0,255,65,0.06), transparent);
+            z-index: 9999; animation: scanMove 5s linear infinite; pointer-events: none;
+        }
+        @keyframes scanMove { 0% { top: -4px; } 100% { top: 100vh; } }
+
+        /* Layout */
+        #app {
+            position: relative; z-index: 10;
+            height: 100vh;
+            display: grid;
+            grid-template-rows: 52px 1fr 22px;
+        }
+
+        /* Header */
+        #header {
+            padding: 0 20px;
+            border-bottom: 1px solid var(--border-bright);
+            display: flex; align-items: center; gap: 16px;
+            background: rgba(0, 4, 0, 0.97);
+            box-shadow: 0 0 25px rgba(0, 255, 65, 0.12);
+            position: relative; overflow: hidden;
+        }
+        #header::after {
+            content: '';
+            position: absolute; bottom: 0; left: 0; right: 0; height: 1px;
+            background: linear-gradient(90deg, transparent, var(--green), transparent);
+            animation: headerGlow 3s ease-in-out infinite;
+        }
+        @keyframes headerGlow { 0%,100% { opacity:0.3; } 50% { opacity:1; } }
+
+        .logo-text {
+            font-family: 'Orbitron', monospace;
+            font-size: 1rem; font-weight: 900;
+            letter-spacing: 3px; color: var(--green);
+            text-shadow: 0 0 10px var(--green);
+        }
+        .logo-text span { color: var(--green-dim); opacity: 0.7; }
+
+        .header-subtitle {
+            font-size: 0.6rem; letter-spacing: 4px;
+            color: var(--green-dim);
+            border-left: 1px solid var(--border);
+            padding-left: 16px;
+        }
+
+        .header-right { margin-left: auto; display: flex; align-items: center; gap: 14px; }
+
+        .nav-link {
+            font-family: 'Share Tech Mono', monospace;
+            font-size: 0.58rem; letter-spacing: 2px;
+            color: var(--green-dim);
+            text-decoration: none;
+            padding: 4px 10px;
+            border: 1px solid var(--border);
+            border-radius: 2px;
+            transition: all 0.2s;
+        }
+        .nav-link:hover {
+            color: var(--green); border-color: var(--green);
+            background: rgba(0,255,65,0.06);
+            text-shadow: 0 0 6px var(--green);
+        }
+
+        #clock {
+            font-size: 0.7rem; letter-spacing: 2px; color: var(--green-dim);
+        }
+
+        /* Body */
+        #body {
+            display: grid;
+            grid-template-columns: 240px 1fr;
+            overflow: hidden;
+        }
+
+        /* Left Sidebar - Table List */
+        #sidebar {
+            border-right: 1px solid var(--border-bright);
+            background: rgba(0,4,0,0.98);
+            display: flex; flex-direction: column;
+            overflow: hidden;
+        }
+
+        .sidebar-header {
+            padding: 10px 14px;
+            border-bottom: 1px solid var(--border);
+            background: rgba(0,255,65,0.03);
+        }
+        .sidebar-title {
+            font-family: 'Orbitron', monospace;
+            font-size: 0.58rem; letter-spacing: 3px;
+            color: var(--green); text-transform: uppercase;
+        }
+        .sidebar-sub { font-size: 0.5rem; color: var(--green-dim); margin-top: 2px; opacity: 0.6; }
+
+        #table-list { flex: 1; overflow-y: auto; padding: 6px 0; }
+        #table-list::-webkit-scrollbar { width: 3px; }
+        #table-list::-webkit-scrollbar-thumb { background: var(--green-dark); }
+
+        .table-item {
+            padding: 8px 14px;
+            cursor: pointer;
+            transition: background 0.15s, border-left-color 0.15s;
+            border-left: 2px solid transparent;
+            display: flex; align-items: center; justify-content: space-between;
+        }
+        .table-item:hover { background: rgba(0,255,65,0.04); border-left-color: var(--green-dim); }
+        .table-item.active {
+            background: rgba(0,255,65,0.08);
+            border-left-color: var(--green);
+        }
+        .table-item-name {
+            font-size: 0.62rem; color: var(--white);
+            letter-spacing: 0.5px; word-break: break-all;
+        }
+        .table-item.active .table-item-name { color: var(--green); text-shadow: 0 0 6px var(--green); }
+        .table-row-count {
+            font-family: 'Orbitron', monospace;
+            font-size: 0.5rem; color: var(--green-dim);
+            background: rgba(0,255,65,0.06);
+            border: 1px solid rgba(0,255,65,0.12);
+            border-radius: 10px; padding: 1px 6px;
+            flex-shrink: 0;
+        }
+        .table-item.active .table-row-count {
+            color: var(--green); border-color: rgba(0,255,65,0.3);
+        }
+        .table-item.error .table-item-name { color: var(--red); }
+
+        /* Main Panel */
+        #main-panel {
+            display: flex; flex-direction: column;
+            overflow: hidden; background: rgba(0,2,0,0.95);
+        }
+
+        /* Toolbar */
+        #toolbar {
+            padding: 8px 14px;
+            border-bottom: 1px solid var(--border);
+            display: flex; align-items: center; gap: 10px;
+            background: rgba(0,4,0,0.98); flex-shrink: 0;
+        }
+
+        #current-table-name {
+            font-family: 'Orbitron', monospace;
+            font-size: 0.75rem; font-weight: 700;
+            color: var(--green); text-shadow: 0 0 8px var(--green);
+            letter-spacing: 2px;
+        }
+
+        .tool-btn {
+            font-family: 'Share Tech Mono', monospace;
+            font-size: 0.55rem; letter-spacing: 1px;
+            padding: 4px 12px;
+            background: none;
+            cursor: pointer; border-radius: 2px;
+            transition: all 0.2s;
+        }
+        .tool-btn.green {
+            border: 1px solid rgba(0,255,65,0.4);
+            color: var(--green-dim);
+        }
+        .tool-btn.green:hover {
+            background: rgba(0,255,65,0.1);
+            color: var(--green); border-color: var(--green);
+        }
+        .tool-btn.cyan {
+            border: 1px solid rgba(0,229,255,0.3);
+            color: rgba(0,229,255,0.7);
+        }
+        .tool-btn.cyan:hover {
+            background: rgba(0,229,255,0.08);
+            color: var(--cyan); border-color: var(--cyan);
+        }
+        .tool-btn.red {
+            border: 1px solid rgba(255,0,64,0.3);
+            color: rgba(255,0,64,0.6);
+        }
+        .tool-btn.red:hover {
+            background: rgba(255,0,64,0.08);
+            color: var(--red); border-color: var(--red);
+        }
+
+        #search-input {
+            font-family: 'Share Tech Mono', monospace;
+            font-size: 0.6rem; letter-spacing: 1px;
+            background: rgba(0,255,65,0.04);
+            border: 1px solid var(--border);
+            color: var(--green); padding: 4px 10px;
+            border-radius: 2px; width: 200px;
+            outline: none; transition: border-color 0.2s;
+        }
+        #search-input::placeholder { color: rgba(0,255,65,0.2); }
+        #search-input:focus { border-color: var(--green-dim); }
+
+        .separator { margin-left: auto; }
+
+        /* Table Meta Row */
+        #table-meta {
+            padding: 4px 14px;
+            border-bottom: 1px solid var(--border);
+            display: flex; align-items: center; gap: 12px;
+            background: rgba(0,255,65,0.02); flex-shrink: 0;
+        }
+        .meta-chip {
+            font-size: 0.5rem; letter-spacing: 1.5px;
+            color: var(--green-dim); opacity: 0.7;
+        }
+        .meta-chip span { color: var(--green); opacity: 1; }
+
+        /* Data Grid */
+        #grid-wrapper {
+            flex: 1; overflow: auto; position: relative;
+        }
+        #grid-wrapper::-webkit-scrollbar { width: 5px; height: 5px; }
+        #grid-wrapper::-webkit-scrollbar-track { background: transparent; }
+        #grid-wrapper::-webkit-scrollbar-thumb { background: var(--green-dark); border-radius: 2px; }
+
+        #data-table {
+            width: 100%; border-collapse: collapse;
+            font-size: 0.58rem; letter-spacing: 0.3px;
+        }
+
+        #data-table thead th {
+            position: sticky; top: 0; z-index: 10;
+            padding: 7px 10px;
+            background: rgba(0,10,0,0.99);
+            border-bottom: 1px solid var(--border-bright);
+            border-right: 1px solid var(--border);
+            color: var(--green); font-size: 0.52rem;
+            letter-spacing: 2px; text-transform: uppercase;
+            font-family: 'Orbitron', monospace;
+            white-space: nowrap; cursor: pointer;
+            user-select: none;
+            transition: background 0.15s;
+        }
+        #data-table thead th:hover { background: rgba(0,255,65,0.06); }
+        #data-table thead th.sorted { color: var(--cyan); }
+        #data-table thead th .sort-arrow { opacity: 0.5; margin-left: 4px; }
+        #data-table thead th.sorted .sort-arrow { opacity: 1; }
+
+        #data-table thead th:last-child { border-right: none; }
+
+        #data-table tbody tr {
+            border-bottom: 1px solid rgba(0,255,65,0.04);
+            transition: background 0.1s;
+            animation: rowFade 0.2s ease;
+        }
+        @keyframes rowFade { from { opacity: 0; transform: translateX(-5px); } to { opacity: 1; transform: translateX(0); } }
+
+        #data-table tbody tr:hover { background: rgba(0,255,65,0.04); }
+        #data-table tbody tr.editing { background: rgba(0,229,255,0.04); }
+        #data-table tbody tr.deleting { background: rgba(255,0,64,0.04); }
+
+        #data-table tbody td {
+            padding: 6px 10px;
+            border-right: 1px solid rgba(0,255,65,0.04);
+            color: var(--white); max-width: 200px;
+            white-space: nowrap; overflow: hidden;
+            text-overflow: ellipsis; cursor: default;
+        }
+        #data-table tbody td:last-child { border-right: none; }
+        #data-table tbody td.null-val { color: rgba(0,255,65,0.2); font-style: italic; }
+        #data-table tbody td.protected-val { color: rgba(255,0,64,0.4); font-size: 0.5rem; letter-spacing: 1px; }
+        #data-table tbody td.truncated { color: rgba(0,229,255,0.5); font-size: 0.5rem; }
+        #data-table tbody td.id-col {
+            font-family: 'Orbitron', monospace;
+            color: var(--green-dim); font-size: 0.52rem;
+        }
+        #data-table tbody td.num-col { color: var(--cyan); }
+
+        .cell-edit-input {
+            font-family: 'Share Tech Mono', monospace;
+            font-size: 0.58rem; background: rgba(0,229,255,0.08);
+            border: 1px solid rgba(0,229,255,0.4);
+            color: var(--cyan); padding: 2px 6px;
+            width: 100%; outline: none; border-radius: 2px;
+        }
+
+        /* Actions Column */
+        .row-actions {
+            display: flex; gap: 5px; flex-shrink: 0;
+            opacity: 0; transition: opacity 0.15s;
+        }
+        #data-table tbody tr:hover .row-actions { opacity: 1; }
+        #data-table tbody tr.editing .row-actions { opacity: 1; }
+
+        .action-btn {
+            font-family: 'Share Tech Mono', monospace;
+            font-size: 0.45rem; letter-spacing: 1px;
+            padding: 2px 7px; background: none;
+            cursor: pointer; border-radius: 2px;
+            transition: all 0.15s;
+        }
+        .action-btn.edit-btn {
+            border: 1px solid rgba(0,229,255,0.3);
+            color: rgba(0,229,255,0.6);
+        }
+        .action-btn.edit-btn:hover, .action-btn.save-btn {
+            background: rgba(0,229,255,0.1);
+            color: var(--cyan); border-color: var(--cyan);
+        }
+        .action-btn.del-btn {
+            border: 1px solid rgba(255,0,64,0.3);
+            color: rgba(255,0,64,0.5);
+        }
+        .action-btn.del-btn:hover {
+            background: rgba(255,0,64,0.1);
+            color: var(--red); border-color: var(--red);
+        }
+        .action-btn.cancel-btn {
+            border: 1px solid rgba(255,204,0,0.3);
+            color: rgba(255,204,0,0.5);
+        }
+        .action-btn.cancel-btn:hover {
+            background: rgba(255,204,0,0.08);
+            color: var(--yellow); border-color: var(--yellow);
+        }
+        .action-btn.key-btn {
+            border: 1px solid rgba(255,136,0,0.35);
+            color: rgba(255,136,0,0.65);
+        }
+        .action-btn.key-btn:hover {
+            background: rgba(255,136,0,0.1);
+            color: #ff8800; border-color: #ff8800;
+        }
+
+        /* Password Modal */
+        .pw-modal {
+            background: rgba(0,6,0,0.99);
+            border: 1px solid rgba(255,136,0,0.5);
+            box-shadow: 0 0 50px rgba(255,136,0,0.12);
+            width: min(560px, 95vw);
+            border-radius: 2px;
+            display: flex; flex-direction: column;
+        }
+        .pw-modal-header {
+            padding: 12px 18px;
+            border-bottom: 1px solid rgba(255,136,0,0.2);
+            display: flex; align-items: center; gap: 10px;
+            background: rgba(255,136,0,0.04);
+        }
+        .pw-modal-title {
+            font-family: 'Orbitron', monospace;
+            font-size: 0.65rem; letter-spacing: 3px;
+            color: #ff8800;
+        }
+        .pw-hash-box {
+            background: rgba(0,0,0,0.6);
+            border: 1px solid rgba(255,136,0,0.15);
+            border-radius: 2px;
+            padding: 10px 12px;
+            font-size: 0.5rem;
+            color: rgba(255,136,0,0.5);
+            letter-spacing: 1px;
+            word-break: break-all;
+            line-height: 1.6;
+            max-height: 80px;
+            overflow-y: auto;
+            font-family: 'Share Tech Mono', monospace;
+            margin-bottom: 14px;
+        }
+        .pw-hash-box .hash-val { color: rgba(255,204,0,0.7); }
+        .pw-section-label {
+            font-size: 0.5rem; letter-spacing: 2px;
+            color: rgba(255,136,0,0.5); text-transform: uppercase;
+            margin-bottom: 6px;
+        }
+        .pw-new-input {
+            font-family: 'Share Tech Mono', monospace;
+            font-size: 0.65rem; letter-spacing: 1px;
+            background: rgba(255,136,0,0.04);
+            border: 1px solid rgba(255,136,0,0.3);
+            color: #ffcc00; padding: 8px 12px;
+            border-radius: 2px; outline: none; width: 100%;
+            transition: border-color 0.2s;
+        }
+        .pw-new-input:focus { border-color: #ff8800; }
+        .pw-strength {
+            margin-top: 6px; font-size: 0.48rem;
+            letter-spacing: 1.5px; height: 14px;
+        }
+        .pw-strength.weak { color: var(--red); }
+        .pw-strength.medium { color: var(--yellow); }
+        .pw-strength.strong { color: var(--green); }
+
+        /* Pagination */
+        #pagination {
+            padding: 7px 14px;
+            border-top: 1px solid var(--border);
+            display: flex; align-items: center; gap: 10px;
+            background: rgba(0,4,0,0.98); flex-shrink: 0;
+        }
+        .page-btn {
+            font-family: 'Share Tech Mono', monospace;
+            font-size: 0.55rem; letter-spacing: 1px;
+            padding: 3px 10px;
+            background: none;
+            border: 1px solid var(--border);
+            color: var(--green-dim); cursor: pointer;
+            border-radius: 2px; transition: all 0.2s;
+        }
+        .page-btn:hover:not(:disabled) {
+            background: rgba(0,255,65,0.08);
+            color: var(--green); border-color: var(--green);
+        }
+        .page-btn:disabled { opacity: 0.3; cursor: not-allowed; }
+        .page-btn.active {
+            background: rgba(0,255,65,0.1);
+            color: var(--green); border-color: var(--green-dim);
+        }
+        #page-info {
+            font-size: 0.5rem; color: var(--green-dim); letter-spacing: 2px;
+        }
+
+        /* Empty / Loading States */
+        .state-message {
+            padding: 60px 20px; text-align: center;
+            color: rgba(0,255,65,0.25); font-size: 0.65rem;
+            letter-spacing: 3px;
+        }
+        .state-message .icon { font-size: 2rem; margin-bottom: 12px; display: block; }
+
+        /* Loading Spinner */
+        .spinner {
+            display: inline-block;
+            width: 12px; height: 12px;
+            border: 2px solid rgba(0,255,65,0.2);
+            border-top-color: var(--green);
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        /* Toast Notifications */
+        #toast-container {
+            position: fixed; top: 60px; right: 20px;
+            z-index: 9999; display: flex; flex-direction: column; gap: 6px;
+        }
+        .toast {
+            font-family: 'Share Tech Mono', monospace;
+            font-size: 0.58rem; letter-spacing: 1px;
+            padding: 8px 14px;
+            border-radius: 2px; border-left: 3px solid var(--green);
+            background: rgba(0, 10, 0, 0.97);
+            box-shadow: 0 0 20px rgba(0,255,65,0.15);
+            animation: toastIn 0.3s ease; color: var(--green);
+            max-width: 280px;
+        }
+        .toast.error { border-left-color: var(--red); color: var(--red); }
+        .toast.warning { border-left-color: var(--yellow); color: var(--yellow); }
+        @keyframes toastIn { from { opacity: 0; transform: translateX(20px); } to { opacity: 1; transform: translateX(0); } }
+        @keyframes toastOut { from { opacity: 1; } to { opacity: 0; } }
+
+        /* Modal */
+        .modal-overlay {
+            position: fixed; inset: 0;
+            background: rgba(0,0,0,0.85);
+            z-index: 8000; display: flex;
+            align-items: center; justify-content: center;
+            animation: fadeIn 0.2s ease;
+        }
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+
+        .modal {
+            background: rgba(0,8,0,0.99);
+            border: 1px solid var(--border-bright);
+            box-shadow: 0 0 50px rgba(0,255,65,0.15);
+            width: min(700px, 95vw);
+            max-height: 85vh;
+            display: flex; flex-direction: column;
+            border-radius: 2px;
+        }
+        .modal-header {
+            padding: 12px 18px;
+            border-bottom: 1px solid var(--border);
+            display: flex; align-items: center; gap: 10px;
+            background: rgba(0,255,65,0.03);
+        }
+        .modal-title {
+            font-family: 'Orbitron', monospace;
+            font-size: 0.65rem; letter-spacing: 3px; color: var(--green);
+        }
+        .modal-close {
+            margin-left: auto;
+            font-family: 'Share Tech Mono', monospace;
+            font-size: 0.55rem; background: none;
+            border: 1px solid rgba(255,0,64,0.3);
+            color: rgba(255,0,64,0.5); padding: 2px 8px;
+            cursor: pointer; border-radius: 2px;
+            transition: all 0.2s;
+        }
+        .modal-close:hover { color: var(--red); border-color: var(--red); background: rgba(255,0,64,0.08); }
+
+        .modal-body {
+            padding: 16px 18px;
+            overflow-y: auto; flex: 1;
+        }
+        .modal-body::-webkit-scrollbar { width: 4px; }
+        .modal-body::-webkit-scrollbar-thumb { background: var(--green-dark); }
+
+        .form-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+        }
+        .form-field {
+            display: flex; flex-direction: column; gap: 4px;
+        }
+        .form-field.full { grid-column: 1 / -1; }
+        .field-label {
+            font-size: 0.5rem; letter-spacing: 2px;
+            color: var(--green-dim); text-transform: uppercase;
+        }
+        .field-label .pk-tag {
+            font-size: 0.45rem; color: var(--yellow);
+            border: 1px solid rgba(255,204,0,0.3);
+            padding: 0 4px; border-radius: 2px; margin-left: 4px;
+        }
+        .field-label .prot-tag {
+            font-size: 0.45rem; color: var(--red);
+            border: 1px solid rgba(255,0,64,0.3);
+            padding: 0 4px; border-radius: 2px; margin-left: 4px;
+        }
+        .form-input {
+            font-family: 'Share Tech Mono', monospace;
+            font-size: 0.6rem; letter-spacing: 0.5px;
+            background: rgba(0,255,65,0.04);
+            border: 1px solid var(--border);
+            color: var(--white); padding: 6px 10px;
+            border-radius: 2px; outline: none;
+            transition: border-color 0.2s;
+        }
+        .form-input:focus { border-color: var(--green-dim); }
+        .form-input:disabled {
+            opacity: 0.3; cursor: not-allowed;
+            background: rgba(255,204,0,0.03);
+        }
+        .form-input.protected-input {
+            color: rgba(255,0,64,0.4);
+            border-color: rgba(255,0,64,0.15);
+            font-size: 0.5rem; letter-spacing: 2px;
+        }
+
+        .modal-footer {
+            padding: 10px 18px;
+            border-top: 1px solid var(--border);
+            display: flex; align-items: center; gap: 8px;
+            justify-content: flex-end; flex-shrink: 0;
+        }
+
+        /* Confirm Delete Modal */
+        .confirm-modal {
+            background: rgba(0,4,0,0.99);
+            border: 1px solid rgba(255,0,64,0.4);
+            box-shadow: 0 0 50px rgba(255,0,64,0.1);
+            padding: 30px; text-align: center;
+            max-width: 400px; width: 90%;
+            border-radius: 2px;
+        }
+        .confirm-title {
+            font-family: 'Orbitron', monospace;
+            font-size: 0.8rem; letter-spacing: 3px;
+            color: var(--red); margin-bottom: 12px;
+        }
+        .confirm-body { font-size: 0.6rem; color: var(--green-dim); margin-bottom: 20px; line-height: 1.6; }
+        .confirm-id { color: var(--red); font-family: 'Orbitron', monospace; }
+
+        /* Footer Ticker */
+        #ticker {
+            background: rgba(0,4,0,0.97);
+            border-top: 1px solid var(--border-bright);
+            overflow: hidden; display: flex; align-items: center;
+        }
+        #ticker-label {
+            padding: 0 12px; font-size: 0.5rem; letter-spacing: 2px;
+            color: var(--green); background: rgba(0,255,65,0.08);
+            border-right: 1px solid var(--border); white-space: nowrap;
+            height: 100%; display: flex; align-items: center;
+        }
+        #ticker-inner {
+            display: flex; gap: 50px;
+            white-space: nowrap;
+            animation: tickerScroll 25s linear infinite;
+            padding-left: 20px;
+        }
+        @keyframes tickerScroll { 0% { transform: translateX(0); } 100% { transform: translateX(-50%); } }
+        .ticker-item { font-size: 0.5rem; letter-spacing: 1.5px; color: var(--green-dim); flex-shrink: 0; }
+        .ticker-item span { color: var(--green); }
+
+        /* Welcome Screen */
+        #welcome {
+            flex: 1; display: flex; flex-direction: column;
+            align-items: center; justify-content: center;
+            gap: 16px; padding: 40px;
+        }
+        .welcome-icon { font-size: 3rem; opacity: 0.4; }
+        .welcome-title {
+            font-family: 'Orbitron', monospace;
+            font-size: 1rem; letter-spacing: 4px; color: var(--green-dim);
+        }
+        .welcome-sub { font-size: 0.6rem; letter-spacing: 2px; color: rgba(0,255,65,0.25); text-align: center; }
+
+        /* Schema Panel */
+        #schema-panel {
+            padding: 12px 14px;
+            border-bottom: 1px solid var(--border);
+            background: rgba(0,10,0,0.5);
+            flex-shrink: 0; display: none;
+        }
+        .schema-title {
+            font-size: 0.5rem; letter-spacing: 3px; color: var(--green-dim);
+            margin-bottom: 8px; text-transform: uppercase;
+        }
+        .schema-cols { display: flex; flex-wrap: wrap; gap: 6px; }
+        .schema-col {
+            font-size: 0.48rem; padding: 2px 8px;
+            border-radius: 10px; letter-spacing: 1px;
+            border: 1px solid var(--border);
+            color: var(--green-dim);
+        }
+        .schema-col.pk { border-color: rgba(255,204,0,0.3); color: var(--yellow); }
+        .schema-col.protected { border-color: rgba(255,0,64,0.3); color: rgba(255,0,64,0.6); }
+        .schema-col .col-type { opacity: 0.5; margin-left: 4px; }
+    </style>
+</head>
+<body>
+    <canvas id="matrix-canvas"></canvas>
+    <div id="toast-container"></div>
+
+    <div id="app">
+        <!-- Header -->
+        <div id="header">
+            <div style="display:flex; align-items:center; gap:10px;">
+                <div style="width:30px;height:30px;border:2px solid var(--green);border-radius:4px;display:flex;align-items:center;justify-content:center;box-shadow:0 0 10px var(--green-glow);">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#00ff41" stroke-width="2">
+                        <ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/>
+                    </svg>
+                </div>
+                <div>
+                    <div class="logo-text">CITY<span>RIDE</span></div>
+                    <div style="font-size:0.42rem;letter-spacing:3px;color:var(--green-dim);opacity:0.5;margin-top:1px;">DATABASE CORE</div>
+                </div>
+            </div>
+            <div class="header-subtitle">// DATABASE MANAGER v1.0</div>
+            <div class="header-right">
+                <a href="/monitor" class="nav-link">⬡ MONITOR</a>
+                <a href="/admin" class="nav-link">◈ ADMIN</a>
+                <div id="clock">00:00:00</div>
+            </div>
+        </div>
+
+        <!-- Body -->
+        <div id="body">
+            <!-- Sidebar -->
+            <div id="sidebar">
+                <div class="sidebar-header">
+                    <div class="sidebar-title">⬡ TABLE BROWSER</div>
+                    <div class="sidebar-sub" id="sidebar-sub">Loading tables...</div>
+                </div>
+                <div id="table-list">
+                    <div class="state-message" style="padding:30px 14px; font-size:0.55rem;">
+                        <div class="spinner" style="margin:0 auto 10px;"></div>
+                        SCANNING SCHEMA...
+                    </div>
+                </div>
+            </div>
+
+            <!-- Main -->
+            <div id="main-panel">
+                <!-- Welcome -->
+                <div id="welcome">
+                    <div class="welcome-icon">◈</div>
+                    <div class="welcome-title">SELECT A TABLE</div>
+                    <div class="welcome-sub">Choose a table from the sidebar to browse,<br>edit, insert, and delete records.</div>
+                </div>
+
+                <!-- Toolbar (hidden initially) -->
+                <div id="toolbar" style="display:none;">
+                    <span id="current-table-name">—</span>
+                    <button class="tool-btn green" id="btn-refresh" onclick="refreshTable()">⟳ REFRESH</button>
+                    <button class="tool-btn cyan" id="btn-insert" onclick="openInsertModal()">+ INSERT ROW</button>
+                    <input type="text" id="search-input" placeholder="SEARCH RECORDS..." oninput="debounceSearch()" />
+                    <div class="separator"></div>
+                    <button class="tool-btn green" id="btn-schema" onclick="toggleSchema()">SCHEMA</button>
+                </div>
+
+                <!-- Schema -->
+                <div id="schema-panel"></div>
+
+                <!-- Meta -->
+                <div id="table-meta" style="display:none;">
+                    <span class="meta-chip">ROWS: <span id="meta-total">—</span></span>
+                    <span class="meta-chip">PAGE: <span id="meta-page">—</span>/<span id="meta-pages">—</span></span>
+                    <span class="meta-chip">COLS: <span id="meta-cols">—</span></span>
+                </div>
+
+                <!-- Grid -->
+                <div id="grid-wrapper" style="display:none;">
+                    <div id="grid-placeholder" class="state-message">
+                        <span class="icon">◈</span>
+                        SELECT A TABLE
+                    </div>
+                    <table id="data-table" style="display:none;">
+                        <thead id="data-thead"></thead>
+                        <tbody id="data-tbody"></tbody>
+                    </table>
+                </div>
+
+                <!-- Pagination -->
+                <div id="pagination" style="display:none;">
+                    <button class="page-btn" id="btn-prev" onclick="changePage(-1)">◀ PREV</button>
+                    <div id="page-numbers"></div>
+                    <button class="page-btn" id="btn-next" onclick="changePage(1)">NEXT ▶</button>
+                    <span id="page-info" style="margin-left:auto;"></span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Ticker -->
+        <div id="ticker">
+            <div id="ticker-label">⬡ DB-MGR</div>
+            <div id="ticker-inner">
+                <span class="ticker-item">⬡ DATABASE MANAGER • <span>ALL SYSTEMS READY</span></span>
+                <span class="ticker-item">◈ CRUD OPERATIONS: <span>ENABLED</span> • PROTECTED COLS: <span>MASKED</span></span>
+                <span class="ticker-item">⬡ ALL OPERATIONS LOGGED TO SYSTEM MONITOR</span>
+                <span class="ticker-item">◈ TOTAL TABLES: <span id="ticker-table-count">—</span> • QUERY ENGINE: <span>ACTIVE</span></span>
+                <span class="ticker-item">⬡ DATABASE MANAGER • <span>ALL SYSTEMS READY</span></span>
+                <span class="ticker-item">◈ CRUD OPERATIONS: <span>ENABLED</span> • PROTECTED COLS: <span>MASKED</span></span>
+                <span class="ticker-item">⬡ ALL OPERATIONS LOGGED TO SYSTEM MONITOR</span>
+                <span class="ticker-item">◈ TOTAL TABLES: <span id="ticker-table-count2">—</span> • QUERY ENGINE: <span>ACTIVE</span></span>
+            </div>
+        </div>
+    </div>
+
+    <script>
+    // ===== MATRIX RAIN =====
+    (function() {
+        const canvas = document.getElementById('matrix-canvas');
+        const ctx = canvas.getContext('2d');
+        function resize() { canvas.width = window.innerWidth; canvas.height = window.innerHeight; }
+        resize();
+        window.addEventListener('resize', resize);
+        const chars = '01アイウエオカキクケコサシスセソ┌┐└┘│─├┤┬┴┼';
+        const fontSize = 12;
+        let columns = Math.floor(canvas.width / fontSize);
+        let drops = Array(columns).fill(1);
+        function draw() {
+            ctx.fillStyle = 'rgba(0,0,0,0.05)';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            for (let i = 0; i < drops.length; i++) {
+                const b = Math.random();
+                ctx.fillStyle = b > 0.97 ? '#fff' : b > 0.7 ? '#00ff41' : '#003311';
+                ctx.font = `${fontSize}px 'Share Tech Mono', monospace`;
+                ctx.fillText(chars[Math.floor(Math.random() * chars.length)], i * fontSize, drops[i] * fontSize);
+                if (drops[i] * fontSize > canvas.height && Math.random() > 0.975) drops[i] = 0;
+                drops[i]++;
+            }
+        }
+        setInterval(draw, 55);
+        window.addEventListener('resize', () => { columns = Math.floor(canvas.width / fontSize); drops = Array(columns).fill(1); });
+    })();
+
+    // ===== CLOCK =====
+    setInterval(() => {
+        const now = new Date();
+        document.getElementById('clock').textContent = now.toTimeString().slice(0,8);
+    }, 1000);
+
+    // ===== STATE =====
+    let currentTable = null;
+    let currentPage = 1;
+    let totalPages = 1;
+    let totalRows = 0;
+    let currentSchema = [];
+    let sortCol = 'id';
+    let sortDir = 'asc';
+    let searchVal = '';
+    let searchTimer = null;
+    let schemaVisible = false;
+
+    // ===== TOAST =====
+    function toast(msg, type = 'ok') {
+        const el = document.createElement('div');
+        el.className = `toast${type === 'error' ? ' error' : type === 'warn' ? ' warning' : ''}`;
+        el.textContent = msg;
+        document.getElementById('toast-container').appendChild(el);
+        setTimeout(() => {
+            el.style.animation = 'toastOut 0.3s ease forwards';
+            setTimeout(() => el.remove(), 300);
+        }, 3000);
+    }
+
+    // ===== LOAD TABLES =====
+    async function loadTables() {
+        try {
+            const res = await fetch('/api/dbmanager/tables');
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error || 'Failed');
+            renderTableList(data.tables);
+            const count = data.tables.length;
+            document.getElementById('sidebar-sub').textContent = `${count} TABLES ACCESSIBLE`;
+            document.getElementById('ticker-table-count').textContent = count;
+            document.getElementById('ticker-table-count2').textContent = count;
+        } catch (e) {
+            document.getElementById('sidebar-sub').textContent = 'CONNECTION ERROR';
+            toast('Failed to load tables: ' + e.message, 'error');
+        }
+    }
+
+    function renderTableList(tables) {
+        const list = document.getElementById('table-list');
+        list.innerHTML = '';
+        tables.forEach(t => {
+            const item = document.createElement('div');
+            item.className = `table-item${t.error ? ' error' : ''}`;
+            item.id = `tbl-${t.name}`;
+            item.onclick = () => selectTable(t.name);
+            item.innerHTML = `
+                <span class="table-item-name">${t.name}</span>
+                <span class="table-row-count">${t.rows}</span>
+            `;
+            list.appendChild(item);
+        });
+    }
+
+    // ===== SELECT TABLE =====
+    async function selectTable(name) {
+        currentTable = name;
+        currentPage = 1;
+        sortCol = 'id';
+        sortDir = 'asc';
+        searchVal = '';
+        document.getElementById('search-input').value = '';
+
+        // Update sidebar active
+        document.querySelectorAll('.table-item').forEach(el => el.classList.remove('active'));
+        const activeItem = document.getElementById(`tbl-${name}`);
+        if (activeItem) activeItem.classList.add('active');
+
+        // Show UI
+        document.getElementById('welcome').style.display = 'none';
+        document.getElementById('toolbar').style.display = 'flex';
+        document.getElementById('table-meta').style.display = 'flex';
+        document.getElementById('grid-wrapper').style.display = 'block';
+        document.getElementById('pagination').style.display = 'flex';
+        document.getElementById('current-table-name').textContent = name.toUpperCase();
+
+        // Reset schema
+        schemaVisible = false;
+        document.getElementById('schema-panel').style.display = 'none';
+
+        // Load schema + data
+        await loadSchema(name);
+        await loadRows();
+    }
+
+    async function loadSchema(table) {
+        try {
+            const res = await fetch(`/api/dbmanager/schema/${table}`);
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error);
+            currentSchema = data.columns;
+            document.getElementById('meta-cols').textContent = currentSchema.length;
+
+            // Render schema panel
+            const panel = document.getElementById('schema-panel');
+            panel.innerHTML = `<div class="schema-title">◈ SCHEMA — ${table}</div><div class="schema-cols">${
+                currentSchema.map(c => `<span class="schema-col${c.key === 'PRI' ? ' pk' : c.protected ? ' protected' : ''}">
+                    ${c.field}<span class="col-type">${c.type.split('(')[0]}</span>
+                    ${c.key === 'PRI' ? ' 🔑' : c.protected ? ' 🔒' : ''}
+                </span>`).join('')
+            }</div>`;
+        } catch(e) {
+            toast('Schema load failed: ' + e.message, 'error');
+        }
+    }
+
+    function toggleSchema() {
+        schemaVisible = !schemaVisible;
+        const panel = document.getElementById('schema-panel');
+        panel.style.display = schemaVisible ? 'block' : 'none';
+        document.getElementById('btn-schema').textContent = schemaVisible ? 'HIDE SCHEMA' : 'SCHEMA';
+    }
+
+    // ===== LOAD ROWS =====
+    async function loadRows() {
+        if (!currentTable) return;
+        showGridLoading();
+        const params = new URLSearchParams({
+            page: currentPage, limit: 50,
+            sort: sortCol, dir: sortDir,
+        });
+        if (searchVal) params.set('search', searchVal);
+
+        try {
+            const res = await fetch(`/api/dbmanager/rows/${currentTable}?${params}`);
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error);
+            totalRows = data.total;
+            totalPages = data.pages;
+            renderGrid(data.rows);
+            renderPagination();
+            document.getElementById('meta-total').textContent = data.total.toLocaleString();
+            document.getElementById('meta-page').textContent = currentPage;
+            document.getElementById('meta-pages').textContent = data.pages;
+        } catch(e) {
+            showGridError(e.message);
+            toast('Failed to load rows: ' + e.message, 'error');
+        }
+    }
+
+    function showGridLoading() {
+        const placeholder = document.getElementById('grid-placeholder');
+        const table = document.getElementById('data-table');
+        placeholder.style.display = 'block';
+        placeholder.innerHTML = '<div class="spinner" style="margin:0 auto 10px;display:block;width:20px;height:20px;border-width:3px;"></div><div style="font-size:0.55rem;letter-spacing:3px;color:rgba(0,255,65,0.3);">LOADING RECORDS...</div>';
+        table.style.display = 'none';
+    }
+
+    function showGridError(msg) {
+        const placeholder = document.getElementById('grid-placeholder');
+        placeholder.style.display = 'block';
+        placeholder.innerHTML = `<span class="icon" style="color:var(--red)">⚠</span><span style="color:var(--red);font-size:0.55rem;">${msg}</span>`;
+        document.getElementById('data-table').style.display = 'none';
+    }
+
+    function renderGrid(rows) {
+        const placeholder = document.getElementById('grid-placeholder');
+        const table = document.getElementById('data-table');
+        const thead = document.getElementById('data-thead');
+        const tbody = document.getElementById('data-tbody');
+
+        if (!rows || rows.length === 0) {
+            placeholder.style.display = 'block';
+            placeholder.innerHTML = '<span class="icon">◈</span><span style="font-size:0.6rem;letter-spacing:3px;">NO RECORDS FOUND</span>';
+            table.style.display = 'none';
+            return;
+        }
+
+        placeholder.style.display = 'none';
+        table.style.display = 'table';
+
+        // Header
+        const cols = Object.keys(rows[0]);
+        const sortArrow = sortDir === 'asc' ? '↑' : '↓';
+        thead.innerHTML = `<tr>
+            ${cols.map(c => `<th onclick="sortBy('${c}')" class="${sortCol === c ? 'sorted' : ''}">
+                ${c.toUpperCase()} <span class="sort-arrow">${sortCol === c ? sortArrow : '⇅'}</span>
+            </th>`).join('')}
+            <th style="width:130px;">ACTIONS</th>
+        </tr>`;
+
+        // Body
+        tbody.innerHTML = '';
+        rows.forEach(row => {
+            const tr = document.createElement('tr');
+            tr.dataset.id = row.id;
+            tr.dataset.raw = JSON.stringify(row);
+            tr.innerHTML = cols.map(c => {
+                const val = row[c];
+                if (val === null || val === undefined) return `<td class="null-val" data-col="${c}">NULL</td>`;
+                if (val === '***PROTECTED***') return `<td class="protected-val" data-col="${c}">🔒 PROTECTED</td>`;
+                if (typeof val === 'string' && val.endsWith('[TRUNCATED]')) return `<td class="truncated" title="${val}" data-col="${c}">[DATA]</td>`;
+                const isNum = (c === 'id' || typeof val === 'number');
+                const cls = c === 'id' ? 'id-col' : (typeof val === 'number' ? 'num-col' : '');
+                return `<td class="${cls}" data-col="${c}" title="${String(val).substring(0,200)}">${String(val).substring(0, 60)}${String(val).length > 60 ? '…' : ''}</td>`;
+            }).join('');
+            // Check if this table supports password management
+            const pwTables = ['taxi_passengers','passengers','taxi_drivers','taxi_admins','taxi_vendors','taxi_driver_applications'];
+            const hasPassword = pwTables.includes(currentTable);
+            tr.innerHTML += `<td style="white-space:nowrap;"><div class="row-actions">
+                <button class="action-btn edit-btn" onclick="startEdit(this, '${row.id}')">✎ EDIT</button>
+                ${hasPassword ? `<button class="action-btn key-btn" onclick="openPasswordModal('${row.id}')" title="View/Edit Password">🔑 KEY</button>` : ''}
+                <button class="action-btn del-btn" onclick="confirmDelete('${row.id}')">✕ DEL</button>
+            </div></td>`;
+            tbody.appendChild(tr);
+        });
+    }
+
+    // ===== SORTING =====
+    function sortBy(col) {
+        if (sortCol === col) {
+            sortDir = sortDir === 'asc' ? 'desc' : 'asc';
+        } else {
+            sortCol = col;
+            sortDir = 'asc';
+        }
+        currentPage = 1;
+        loadRows();
+    }
+
+    // ===== SEARCH =====
+    function debounceSearch() {
+        clearTimeout(searchTimer);
+        searchTimer = setTimeout(() => {
+            searchVal = document.getElementById('search-input').value.trim();
+            currentPage = 1;
+            loadRows();
+        }, 500);
+    }
+
+    // ===== REFRESH =====
+    function refreshTable() {
+        loadTables();
+        loadRows();
+        toast('⟳ TABLE REFRESHED', 'ok');
+    }
+
+    // ===== PAGINATION =====
+    function changePage(delta) {
+        const newPage = currentPage + delta;
+        if (newPage < 1 || newPage > totalPages) return;
+        currentPage = newPage;
+        loadRows();
+    }
+
+    function renderPagination() {
+        document.getElementById('btn-prev').disabled = currentPage <= 1;
+        document.getElementById('btn-next').disabled = currentPage >= totalPages;
+        document.getElementById('page-info').textContent =
+            `${((currentPage-1)*50)+1}–${Math.min(currentPage*50, totalRows)} OF ${totalRows.toLocaleString()} RECORDS`;
+
+        const nums = document.getElementById('page-numbers');
+        nums.innerHTML = '';
+        const start = Math.max(1, currentPage - 2);
+        const end = Math.min(totalPages, currentPage + 2);
+        for (let p = start; p <= end; p++) {
+            const btn = document.createElement('button');
+            btn.className = `page-btn${p === currentPage ? ' active' : ''}`;
+            btn.textContent = p;
+            btn.onclick = ((pp) => () => { currentPage = pp; loadRows(); })(p);
+            nums.appendChild(btn);
+        }
+    }
+
+    // ===== INLINE EDIT =====
+    function startEdit(btn, rowId) {
+        const tr = btn.closest('tr');
+        if (tr.classList.contains('editing')) return;
+        tr.classList.add('editing');
+        const raw = JSON.parse(tr.dataset.raw || '{}');
+
+        // Replace each cell with input
+        tr.querySelectorAll('td[data-col]').forEach(td => {
+            const col = td.dataset.col;
+            const schema = currentSchema.find(c => c.field === col);
+            if (schema && schema.protected) return; // skip protected
+            if (col === 'id') return; // skip PK
+            const val = raw[col] !== null && raw[col] !== undefined ? raw[col] : '';
+            td.innerHTML = `<input class="cell-edit-input" value="${String(val).replace(/"/g,'&quot;')}" data-col="${col}" />`;
+        });
+
+        // Update action buttons
+        const actionsDiv = tr.querySelector('.row-actions');
+        actionsDiv.innerHTML = `
+            <button class="action-btn action-btn save-btn" onclick="saveEdit(this, '${rowId}')">✓ SAVE</button>
+            <button class="action-btn cancel-btn" onclick="cancelEdit(this)">✕ CANCEL</button>
+        `;
+        actionsDiv.style.opacity = '1';
+    }
+
+    async function saveEdit(btn, rowId) {
+        const tr = btn.closest('tr');
+        const inputs = tr.querySelectorAll('.cell-edit-input');
+        const data = {};
+        inputs.forEach(input => { data[input.dataset.col] = input.value; });
+
+        if (Object.keys(data).length === 0) {
+            cancelEdit(btn);
+            return;
+        }
+
+        try {
+            const res = await fetch(`/api/dbmanager/update/${currentTable}/${rowId}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(data)
+            });
+            const result = await res.json();
+            if (!res.ok) throw new Error(result.error);
+            toast(`✓ ROW #${rowId} UPDATED`, 'ok');
+            loadRows();
+        } catch(e) {
+            toast('UPDATE FAILED: ' + e.message, 'error');
+        }
+    }
+
+    function cancelEdit(btn) {
+        loadRows(); // Just reload to reset
+    }
+
+    // ===== DELETE =====
+    function confirmDelete(rowId) {
+        const overlay = document.createElement('div');
+        overlay.className = 'modal-overlay';
+        overlay.innerHTML = `
+            <div class="confirm-modal">
+                <div class="confirm-title">⚠ CONFIRM DELETE</div>
+                <div class="confirm-body">
+                    You are about to permanently delete<br>
+                    Row <span class="confirm-id">#${rowId}</span> from<br>
+                    <span class="confirm-id">${currentTable.toUpperCase()}</span><br><br>
+                    This action <strong style="color:var(--red)">CANNOT BE UNDONE</strong>.
+                </div>
+                <div style="display:flex;gap:10px;justify-content:center;">
+                    <button class="tool-btn red" style="padding:6px 20px;" onclick="executeDelete('${rowId}', this)">✕ DELETE</button>
+                    <button class="tool-btn green" style="padding:6px 20px;" onclick="this.closest('.modal-overlay').remove()">CANCEL</button>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(overlay);
+        overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
+    }
+
+    async function executeDelete(rowId, btn) {
+        btn.textContent = '...';
+        btn.disabled = true;
+        try {
+            const res = await fetch(`/api/dbmanager/delete/${currentTable}/${rowId}`, { method: 'DELETE' });
+            const result = await res.json();
+            if (!res.ok) throw new Error(result.error);
+            btn.closest('.modal-overlay').remove();
+            toast(`✓ ROW #${rowId} DELETED`, 'ok');
+            loadRows();
+            loadTables(); // Refresh counts
+        } catch(e) {
+            toast('DELETE FAILED: ' + e.message, 'error');
+            btn.closest('.modal-overlay').remove();
+        }
+    }
+
+    // ===== INSERT MODAL =====
+    function openInsertModal() {
+        if (!currentTable || currentSchema.length === 0) {
+            toast('Select a table first.', 'warn');
+            return;
+        }
+
+        const editableCols = currentSchema.filter(c => c.extra !== 'auto_increment');
+
+        const overlay = document.createElement('div');
+        overlay.className = 'modal-overlay';
+        overlay.id = 'insert-modal';
+        overlay.innerHTML = `
+            <div class="modal">
+                <div class="modal-header">
+                    <span style="font-size:1rem;">+</span>
+                    <span class="modal-title">INSERT ROW — ${currentTable.toUpperCase()}</span>
+                    <button class="modal-close" onclick="document.getElementById('insert-modal').remove()">✕ CLOSE</button>
+                </div>
+                <div class="modal-body">
+                    <div class="form-grid">
+                        ${editableCols.map(c => `
+                            <div class="form-field${c.type.includes('text') || c.type.includes('TEXT') ? ' full' : ''}">
+                                <div class="field-label">
+                                    ${c.field}
+                                    ${c.key === 'PRI' ? '<span class="pk-tag">PK</span>' : ''}
+                                    ${c.protected ? '<span class="prot-tag">🔒 PROTECTED</span>' : ''}
+                                    <span style="opacity:0.4;margin-left:4px;">${c.type}</span>
+                                </div>
+                                ${c.protected
+                                    ? `<input class="form-input protected-input" disabled placeholder="AUTO-MANAGED" />`
+                                    : `<input class="form-input" data-col="${c.field}" placeholder="${c.nullable ? 'NULL' : 'Required'}" />`
+                                }
+                            </div>
+                        `).join('')}
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button class="tool-btn green" style="padding:6px 20px;" id="insert-submit-btn" onclick="submitInsert()">+ INSERT</button>
+                    <button class="tool-btn red" style="padding:6px 20px;" onclick="document.getElementById('insert-modal').remove()">CANCEL</button>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(overlay);
+        overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
+
+        // Focus first input
+        setTimeout(() => {
+            const first = overlay.querySelector('.form-input:not(:disabled)');
+            if (first) first.focus();
+        }, 100);
+    }
+
+    async function submitInsert() {
+        const modal = document.getElementById('insert-modal');
+        const inputs = modal.querySelectorAll('.form-input[data-col]');
+        const data = {};
+        inputs.forEach(inp => {
+            data[inp.dataset.col] = inp.value === '' ? null : inp.value;
+        });
+
+        const btn = document.getElementById('insert-submit-btn');
+        btn.textContent = '...';
+        btn.disabled = true;
+
+        try {
+            const res = await fetch(`/api/dbmanager/insert/${currentTable}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(data)
+            });
+            const result = await res.json();
+            if (!res.ok) throw new Error(result.error);
+            modal.remove();
+            toast(`✓ ROW INSERTED — ID #${result.insertId}`, 'ok');
+            loadRows();
+            loadTables();
+        } catch(e) {
+            toast('INSERT FAILED: ' + e.message, 'error');
+            btn.textContent = '+ INSERT';
+            btn.disabled = false;
+        }
+    }
+
+    // ===== PASSWORD MODAL =====
+    const PW_TABLES = ['taxi_passengers','passengers','taxi_drivers','taxi_admins','taxi_vendors','taxi_driver_applications'];
+
+    async function openPasswordModal(rowId) {
+        if (!currentTable || !PW_TABLES.includes(currentTable)) {
+            toast('Password management not available for this table.', 'warn');
+            return;
+        }
+
+        // Create overlay
+        const overlay = document.createElement('div');
+        overlay.className = 'modal-overlay';
+        overlay.id = 'pw-modal-overlay';
+        overlay.innerHTML = `
+            <div class="pw-modal">
+                <div class="pw-modal-header">
+                    <span style="font-size:1.1rem;">🔑</span>
+                    <span class="pw-modal-title">PASSWORD MANAGER — ROW #${rowId}</span>
+                    <button class="modal-close" style="border-color:rgba(255,136,0,0.3);color:rgba(255,136,0,0.5);" onclick="document.getElementById('pw-modal-overlay').remove()">✕ CLOSE</button>
+                </div>
+                <div class="modal-body" style="padding:18px;">
+                    <div class="pw-section-label">◈ TABLE: ${currentTable.toUpperCase()}</div>
+                    <div style="margin-bottom:14px;font-size:0.55rem;color:rgba(0,255,65,0.3);letter-spacing:1px;">Passwords are bcrypt-hashed. The hash below is stored in the database.</div>
+
+                    <div class="pw-section-label">STORED BCRYPT HASH</div>
+                    <div class="pw-hash-box" id="pw-hash-display">
+                        <div class="spinner" style="margin:4px auto;display:block;"></div>
+                    </div>
+
+                    <div style="border-top:1px solid rgba(255,136,0,0.1);padding-top:14px;margin-top:2px;">
+                        <div class="pw-section-label">SET NEW PASSWORD</div>
+                        <input type="password" id="pw-new-input" class="pw-new-input" placeholder="Enter new plaintext password..." oninput="checkPwStrength(this)" autocomplete="new-password" />
+                        <div class="pw-strength" id="pw-strength-hint"></div>
+
+                        <div style="margin-top:6px;">
+                            <input type="text" id="pw-confirm-input" class="pw-new-input" style="margin-top:8px;" placeholder="Confirm new password..." autocomplete="new-password" />
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer" style="border-top:1px solid rgba(255,136,0,0.2);">
+                    <button class="tool-btn" style="border-color:rgba(255,136,0,0.4);color:rgba(255,136,0,0.7);padding:6px 20px;" id="pw-save-btn" onclick="savePassword('${rowId}')">
+                        🔑 UPDATE PASSWORD
+                    </button>
+                    <button class="tool-btn red" style="padding:6px 16px;" onclick="document.getElementById('pw-modal-overlay').remove()">CANCEL</button>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(overlay);
+        overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
+
+        // Fetch and display the current hash
+        try {
+            const res = await fetch(`/api/dbmanager/password/${currentTable}/${rowId}`);
+            const data = await res.json();
+            const display = document.getElementById('pw-hash-display');
+            if (!res.ok) {
+                display.innerHTML = `<span style="color:var(--red)">${data.error}</span>`;
+            } else if (!data.passwordHash) {
+                display.innerHTML = `<span style="color:rgba(0,255,65,0.25);font-style:italic;">NULL — No password set</span>`;
+            } else {
+                display.innerHTML = `<span class="hash-val">${data.passwordHash}</span>`;
+            }
+        } catch(e) {
+            const display = document.getElementById('pw-hash-display');
+            if (display) display.innerHTML = `<span style="color:var(--red)">Failed to fetch: ${e.message}</span>`;
+        }
+
+        // Focus input
+        setTimeout(() => {
+            const inp = document.getElementById('pw-new-input');
+            if (inp) inp.focus();
+        }, 150);
+    }
+
+    function checkPwStrength(input) {
+        const val = input.value;
+        const hint = document.getElementById('pw-strength-hint');
+        if (!hint) return;
+        if (val.length === 0) { hint.textContent = ''; hint.className = 'pw-strength'; return; }
+        if (val.length < 6) { hint.textContent = '⚠ WEAK — Min 6 chars'; hint.className = 'pw-strength weak'; return; }
+        const hasUpper = /[A-Z]/.test(val);
+        const hasNum = /[0-9]/.test(val);
+        const hasSpecial = /[^A-Za-z0-9]/.test(val);
+        const score = (hasUpper ? 1 : 0) + (hasNum ? 1 : 0) + (hasSpecial ? 1 : 0) + (val.length >= 10 ? 1 : 0);
+        if (score <= 1) { hint.textContent = '⚠ WEAK'; hint.className = 'pw-strength weak'; }
+        else if (score <= 2) { hint.textContent = '◈ MEDIUM'; hint.className = 'pw-strength medium'; }
+        else { hint.textContent = '✓ STRONG'; hint.className = 'pw-strength strong'; }
+    }
+
+    async function savePassword(rowId) {
+        const newPw = (document.getElementById('pw-new-input') || {}).value || '';
+        const confirmPw = (document.getElementById('pw-confirm-input') || {}).value || '';
+
+        if (!newPw || newPw.trim().length < 4) {
+            toast('Password must be at least 4 characters.', 'error');
+            return;
+        }
+        if (newPw !== confirmPw) {
+            toast('Passwords do not match!', 'error');
+            document.getElementById('pw-confirm-input').style.borderColor = 'var(--red)';
+            return;
+        }
+
+        const btn = document.getElementById('pw-save-btn');
+        btn.textContent = '...';
+        btn.disabled = true;
+
+        try {
+            const res = await fetch(`/api/dbmanager/password/${currentTable}/${rowId}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ newPassword: newPw.trim() })
+            });
+            const result = await res.json();
+            if (!res.ok) throw new Error(result.error);
+
+            // Show new hash
+            const res2 = await fetch(`/api/dbmanager/password/${currentTable}/${rowId}`);
+            const data2 = await res2.json();
+            const display = document.getElementById('pw-hash-display');
+            if (display && data2.passwordHash) {
+                display.innerHTML = `<span class="hash-val">${data2.passwordHash}</span>`;
+            }
+
+            // Clear inputs
+            document.getElementById('pw-new-input').value = '';
+            document.getElementById('pw-confirm-input').value = '';
+            document.getElementById('pw-strength-hint').textContent = '';
+
+            toast(`✓ PASSWORD UPDATED — ROW #${rowId}`, 'ok');
+            btn.textContent = '✓ UPDATED';
+            setTimeout(() => {
+                btn.textContent = '🔑 UPDATE PASSWORD';
+                btn.disabled = false;
+            }, 2000);
+        } catch(e) {
+            toast('PASSWORD UPDATE FAILED: ' + e.message, 'error');
+            btn.textContent = '🔑 UPDATE PASSWORD';
+            btn.disabled = false;
+        }
+    }
+
+    // ===== INIT =====
+    loadTables();
+    </script>
+</body>
+</html>

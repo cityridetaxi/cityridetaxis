@@ -2,20 +2,9 @@
  * CityRideTaxi - Main Application Logic
  */
 
-// Global Fetch Interceptor with Silent Token Refresh (Dual-Token Architecture)
+// Global Fetch Interceptor for Auth Expiration Redirects
 (function() {
     const originalFetch = window.fetch;
-    let isRefreshing = false;
-    let refreshPromise = null;
-
-    async function attemptTokenRefresh() {
-        if (isRefreshing) return refreshPromise;
-        isRefreshing = true;
-        refreshPromise = originalFetch('/api/auth/refresh', { method: 'POST', credentials: 'include' })
-            .then(r => { isRefreshing = false; return r.ok; })
-            .catch(() => { isRefreshing = false; return false; });
-        return refreshPromise;
-    }
 
     function getLoginRedirect(url) {
         if (typeof url === 'string' && url.includes('/api/')) {
@@ -33,18 +22,11 @@
         const response = await originalFetch(...args);
         const url = args[0];
         
-        if (typeof url === 'string' && (url.includes('/api/auth/refresh') || url.includes('/api/auth/logout'))) {
+        if (typeof url === 'string' && url.includes('/api/auth/logout')) {
             return response;
         }
 
         if (response.status === 401) {
-            const refreshed = await attemptTokenRefresh();
-            if (refreshed) {
-                return originalFetch(...args);
-            }
-            const redirect = getLoginRedirect(url);
-            if (redirect) window.location.href = redirect;
-        } else if (response.status === 403) {
             const redirect = getLoginRedirect(url);
             if (redirect) window.location.href = redirect;
         }
@@ -453,8 +435,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
                 if (tType.id === 'local') {
                     const config = info.local;
-                    const distanceFare = distance * config.perKm;
-                    const baseFareLimit = Math.max(300, config.base || 0);
+                    const minKm = typeof config.minKm === 'number' ? config.minKm : 0;
+                    const billableDist = Math.max(distance, minKm);
+                    const distanceFare = billableDist * config.perKm;
+                    const baseFareLimit = config.base || 0;
                     const baseKmFare = Math.max(baseFareLimit, distanceFare);
                     const peakCharge = baseKmFare * peakMult;
                     totalFare = (baseKmFare + peakCharge) * 1.05;
@@ -462,12 +446,13 @@ document.addEventListener('DOMContentLoaded', () => {
                     displayDistance = `${distance} KM`;
                     detailLabel = `Incl. 5% GST.`;
                     if (peakMult > 0) detailLabel += ` [Peak Hour +25%]`;
+                    if (distance < minKm) detailLabel += ` [${minKm}KM Min Applied]`;
                 } else if (tType.id === 'oneway') {
                     const config = info.oneway;
                     const minKm = config.minKm || 130;
                     const billableDist = Math.max(distance, minKm);
                     const distanceFare = billableDist * config.perKm;
-                    const baseFareLimit = Math.max(300, config.base || 0);
+                    const baseFareLimit = config.base || 0;
                     const baseKmFare = Math.max(baseFareLimit, distanceFare);
                     const driverAllowance = billableDist > 250 ? 600 : 400;
                     totalFare = (baseKmFare + (vType === 'bike' ? 0 : driverAllowance)) * 1.05; // Incl 5% GST
@@ -480,7 +465,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     const actualTwoWayDist = distance * 2;
                     const billableDist = Math.max(actualTwoWayDist, minKmForTrip * tripDays);
                     const distanceFare = billableDist * config.perKm;
-                    const baseFareLimit = Math.max(300, config.base || 0);
+                    const baseFareLimit = config.base || 0;
                     const baseKmFare = Math.max(baseFareLimit, distanceFare);
                     const driverAllowance = billableDist > 250 ? 600 : 400;
                     totalFare = (baseKmFare + (vType === 'bike' ? 0 : driverAllowance * tripDays)) * 1.05; // Incl 5% GST
@@ -582,7 +567,7 @@ document.addEventListener('DOMContentLoaded', () => {
             }
 
             timeout = setTimeout(async () => {
-                const url = `${API_BASE_URL}/api/proxy/geocode?q=${encodeURIComponent(query)}&limit=5&lang=en&lon=77.2167&lat=28.6667`; 
+                const url = `${API_BASE_URL}/api/proxy/geocode?q=${encodeURIComponent(query)}&limit=5&lang=en&lon=80.2707&lat=13.0827`; 
                 try {
                     const res = await fetch(url);
                     if (!res.ok) throw new Error('API Response Error');
@@ -667,7 +652,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
             calculateFare();
         }, (err) => {
-            alert("Please allow location access to use Live Location.");
+            if (!silent) {
+                alert("Please allow location access to use Live Location.");
+            }
         });
     };
 

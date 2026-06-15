@@ -202,6 +202,7 @@
             background: #090a0f !important;
             color: #ffffff !important;
             border: 1px solid rgba(255, 255, 255, 0.06) !important;
+            color-scheme: dark !important;
         }
 
         .swal2-validation-message {
@@ -220,6 +221,7 @@
             border-radius: 10px !important;
             outline: none !important;
             transition: all 0.3s ease !important;
+            color-scheme: dark !important;
         }
 
         input:focus,
@@ -799,6 +801,7 @@
             <div class="nav-item" onclick="switchTab('users', this)">👥 Member Registry</div>
             <div class="nav-item" onclick="switchTab('vendors', this)">🤝 Network Partners</div>
             <div class="nav-item" onclick="switchTab('tariffs', this)">💰 Rate Tariffs</div>
+            <div class="nav-item" onclick="switchTab('system-settings', this)">⚙️ System Settings</div>
         </div>
         <div class="nav-item logout-item" onclick="logoutAdmin()">🚪 Sign Out</div>
     </aside>
@@ -1207,6 +1210,56 @@
             </div>
         </div>
 
+        <!-- System Settings Tab -->
+        <div id="system-settings" class="tab-section">
+            <div class="stage-header">
+                <div>
+                    <h1>System <span class="text-accent">Settings</span></h1>
+                    <p>Control platform-wide operational features and restrictions.</p>
+                </div>
+            </div>
+
+            <!-- Air Distance Restriction Card -->
+            <div style="display: flex; flex-direction: column; gap: 1.5rem; max-width: 700px;">
+                <div class="b-card" style="padding: 2rem; border-radius: 16px; display: flex; flex-direction: column; gap: 1.2rem;">
+                    <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 1rem;">
+                        <div>
+                            <h3 style="margin: 0; font-size: 1.1rem; font-weight: 700;">📡 Air Distance Restriction</h3>
+                            <p style="margin: 0.4rem 0 0; color: #aaa; font-size: 0.9rem;">When enabled, only drivers within the pickup radius are shown the ride popup.</p>
+                        </div>
+                        <label class="toggle-switch" id="adr-toggle-label" style="cursor: pointer; display: flex; align-items: center; gap: 0.7rem;">
+                            <span id="adr-toggle-status" style="font-size: 0.85rem; font-weight: 600; color: #888;">Loading...</span>
+                            <div style="position: relative; width: 52px; height: 28px;">
+                                <input type="checkbox" id="adr-toggle-input" style="opacity:0; width:0; height:0; position:absolute;" onchange="saveAirDistanceSetting(this.checked)">
+                                <span id="adr-toggle-slider" style="
+                                    position: absolute; cursor: pointer; inset: 0;
+                                    background: #444; border-radius: 34px;
+                                    transition: background 0.3s;
+                                "></span>
+                                <span id="adr-toggle-knob" style="
+                                    position: absolute; content: ''; height: 20px; width: 20px;
+                                    left: 4px; bottom: 4px; background: white; border-radius: 50%;
+                                    transition: transform 0.3s;
+                                "></span>
+                            </div>
+                        </label>
+                    </div>
+                    <div style="border-top: 1px solid #333; padding-top: 1rem;">
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.8rem;">
+                            <div style="background: #1a1a2e; border-radius: 10px; padding: 1rem; text-align: center;">
+                                <div style="font-size: 1.6rem; font-weight: 800; color: #e65100;">3 km</div>
+                                <div style="font-size: 0.8rem; color: #aaa; margin-top: 0.3rem;">Local Rides Radius</div>
+                            </div>
+                            <div style="background: #1a1a2e; border-radius: 10px; padding: 1rem; text-align: center;">
+                                <div style="font-size: 1.6rem; font-weight: 800; color: #e65100;">5 km</div>
+                                <div style="font-size: 0.8rem; color: #aaa; margin-top: 0.3rem;">Outstation &amp; Rental Radius</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
 
     </main>
 
@@ -1402,20 +1455,9 @@
     </div>
 
     <script>
-        // Global Fetch Interceptor with Silent Token Refresh (Dual-Token Architecture)
+        // Global Fetch Interceptor for Auth Expiration Redirects
         (function() {
             const originalFetch = window.fetch;
-            let isRefreshing = false;
-            let refreshPromise = null;
-
-            async function attemptTokenRefresh() {
-                if (isRefreshing) return refreshPromise;
-                isRefreshing = true;
-                refreshPromise = originalFetch('/api/auth/refresh', { method: 'POST', credentials: 'include' })
-                    .then(r => { isRefreshing = false; return r.ok; })
-                    .catch(() => { isRefreshing = false; return false; });
-                return refreshPromise;
-            }
 
             function getLoginRedirect(url) {
                 if (typeof url === 'string' && url.includes('/api/')) {
@@ -1433,18 +1475,11 @@
                 const response = await originalFetch(...args);
                 const url = args[0];
                 
-                if (typeof url === 'string' && (url.includes('/api/auth/refresh') || url.includes('/api/auth/logout'))) {
+                if (typeof url === 'string' && url.includes('/api/auth/logout')) {
                     return response;
                 }
 
                 if (response.status === 401) {
-                    const refreshed = await attemptTokenRefresh();
-                    if (refreshed) {
-                        return originalFetch(...args);
-                    }
-                    const redirect = getLoginRedirect(url);
-                    if (redirect) window.location.href = redirect;
-                } else if (response.status === 403) {
                     const redirect = getLoginRedirect(url);
                     if (redirect) window.location.href = redirect;
                 }
@@ -1453,10 +1488,22 @@
         })();
 
         // Check if admin is logged in (Role Isolation)
-        const user = JSON.parse(localStorage.getItem('cityride_master'));
-        if (!user) {
-            window.location.href = '/admin-login';
+        async function initAdminSession() {
+            let user = JSON.parse(localStorage.getItem('cityride_master'));
+            if (!user) {
+                try {
+                    const sessionRes = await fetch('/api/auth/session?role=admin');
+                    if (sessionRes.ok) {
+                        const sd = await sessionRes.json();
+                        if (sd.valid && sd.role === 'admin') {
+                            user = sd.user;
+                            localStorage.setItem('cityride_master', JSON.stringify(user));
+                        } else { window.location.href = '/admin-login'; return; }
+                    } else { window.location.href = '/admin-login'; return; }
+                } catch (e) { window.location.href = '/admin-login'; return; }
+            }
         }
+        initAdminSession();
 
         function switchTab(tabId, el) {
             const section = document.getElementById(tabId);
@@ -1575,6 +1622,8 @@
                         });
                     }
                     loadPeakRules();
+                } else if (tabId === 'system-settings') {
+                    loadSystemSettings();
                 } else if (tabId === 'bookings') {
                     const res = await fetch(`${API_BASE_URL}/api/admin/bookings`);
                     const bookings = await res.json();
@@ -2901,6 +2950,66 @@
                 }, 3200);
             }
         });
+    </script>
+
+    <script>
+        // System Settings - Air Distance Restriction
+        function applyToggleVisual(enabled) {
+            const slider = document.getElementById('adr-toggle-slider');
+            const knob = document.getElementById('adr-toggle-knob');
+            const status = document.getElementById('adr-toggle-status');
+            const input = document.getElementById('adr-toggle-input');
+            if (!slider) return;
+            if (enabled) {
+                slider.style.background = '#e65100';
+                knob.style.transform = 'translateX(24px)';
+                status.textContent = 'Enabled';
+                status.style.color = '#e65100';
+                input.checked = true;
+            } else {
+                slider.style.background = '#444';
+                knob.style.transform = 'translateX(0)';
+                status.textContent = 'Disabled';
+                status.style.color = '#888';
+                input.checked = false;
+            }
+        }
+
+        async function loadSystemSettings() {
+            try {
+                const token = localStorage.getItem('token');
+                const res = await fetch(`${API_BASE_URL}/api/admin/settings`, {
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+                if (!res.ok) throw new Error('Failed to load settings');
+                const settings = await res.json();
+                const enabled = settings['air_distance_restrict'] === '1';
+                applyToggleVisual(enabled);
+            } catch (err) {
+                console.error('loadSystemSettings error:', err);
+                const status = document.getElementById('adr-toggle-status');
+                if (status) { status.textContent = 'Error'; status.style.color = '#e53935'; }
+            }
+        }
+
+        async function saveAirDistanceSetting(checked) {
+            try {
+                const token = localStorage.getItem('token');
+                applyToggleVisual(checked); // Optimistic UI update
+                const res = await fetch(`${API_BASE_URL}/api/admin/settings`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                    body: JSON.stringify({ key: 'air_distance_restrict', value: checked ? '1' : '0' })
+                });
+                if (!res.ok) throw new Error('Failed to save setting');
+                showAlertBanner(checked ? '📡 Air Distance Restriction ENABLED' : '📡 Air Distance Restriction DISABLED', 'success');
+            } catch (err) {
+                console.error('saveAirDistanceSetting error:', err);
+                showAlertBanner('Failed to save setting.', 'error');
+                // Revert UI
+                loadSystemSettings();
+            }
+        }
     </script>
 </body>
 

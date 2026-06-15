@@ -2001,10 +2001,12 @@ h4 {
 .password-wrapper {
     position: relative;
     width: 100%;
+    min-width: 0;
     display: block;
 }
 .password-wrapper input {
-    padding-right: 48px !important;
+    width: 100%;
+    padding-right: 40px !important;
 }
 .password-toggle {
     position: absolute;

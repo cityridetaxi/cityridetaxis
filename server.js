@@ -3,8 +3,10 @@ const bodyParser = require('body-parser');
 const cors = require('cors');
 const mysql = require('mysql2/promise');
 const path = require('path');
+const os = require('os');
 const cron = require('node-cron');
 const axios = require('axios');
+const nodemailer = require('nodemailer');
 const PDFDocument = require('pdfkit');
 const bcrypt = require('bcryptjs');
 const rateLimit = require('express-rate-limit');
@@ -20,12 +22,24 @@ require('dotenv').config();
 
 const app = express();
 
+// Global memory cache for ongoing ride GPS tracking and Kalman state
+const activeRidesGpsState = new Map();
+
+
 // --- MIDDLEWARE HARDENING & OPTIMIZATIONS ---
 app.use(helmet({
     contentSecurityPolicy: false // Disable CSP to prevent blocking inline scripts and Leaflet/SweetAlert CDNs
 }));
 app.disable('x-powered-by');
-app.use(compression());
+app.use(compression({
+    filter: (req, res) => {
+        // Do not compress Server-Sent Events (SSE) stream or it will buffer/block live updates
+        if (req.originalUrl && req.originalUrl.includes('/api/monitor/stream')) {
+            return false;
+        }
+        return compression.filter(req, res);
+    }
+}));
 app.use(cookieParser());
 
 // Trust Proxy for Nginx (for accurate rate-limiting client IP capture)
@@ -50,19 +64,371 @@ app.use(cors({
     credentials: true
 }));
 
-// Browser caching for static assets
+// Browser caching for static assets (no-cache for HTML so changes deploy instantly)
 app.use(express.static(path.join(__dirname, 'public'), {
-    maxAge: '1d', // 1 day cache
+    maxAge: '1d', // 1 day cache for assets
     etag: true,
-    lastModified: true
+    lastModified: true,
+    setHeaders: (res, filePath) => {
+        if (filePath.endsWith('.html')) {
+            res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
+            res.setHeader('Pragma', 'no-cache');
+        }
+    }
 }));
+
+// --- LIVE MONITOR: SSE BROADCAST SYSTEM ---
+const fs = require('fs');
+const LOG_FILE = path.join(__dirname, 'server.log');
+
+const monitorClients = new Set();
+const activityLog = [];
+const MAX_LOG_SIZE = 500;
+
+// Load persistent log history from JSONL file on startup so logs survive restarts
+function loadLogHistory() {
+    try {
+        const backupFile = path.join(__dirname, 'server.log.bak');
+        let lines = [];
+        if (fs.existsSync(backupFile)) {
+            const backupContent = fs.readFileSync(backupFile, 'utf8');
+            lines = lines.concat(backupContent.split('\n'));
+        }
+        if (fs.existsSync(LOG_FILE)) {
+            const logContent = fs.readFileSync(LOG_FILE, 'utf8');
+            lines = lines.concat(logContent.split('\n'));
+        }
+
+        const loaded = [];
+        // Parse from end to get the most recent entries up to MAX_LOG_SIZE
+        for (let i = lines.length - 1; i >= 0; i--) {
+            const line = lines[i].trim();
+            if (!line) continue;
+            try {
+                const entry = JSON.parse(line);
+                loaded.push(entry);
+                if (loaded.length >= MAX_LOG_SIZE) break;
+            } catch (e) {
+                // skip corrupt lines
+            }
+        }
+        // Populate activityLog (newest first)
+        activityLog.push(...loaded);
+    } catch (err) {
+        process.stdout.write(`Failed to load persistent log history: ${err.message}\n`);
+    }
+}
+loadLogHistory();
+
+function appendToLogFile(entry) {
+    const logLine = JSON.stringify(entry) + '\n';
+    fs.appendFile(LOG_FILE, logLine, 'utf8', (err) => {
+        if (err) return;
+        // Check size and rotate asynchronously if > 10MB to avoid infinite disk growth
+        fs.stat(LOG_FILE, (err, stats) => {
+            if (err) return;
+            if (stats.size > 10 * 1024 * 1024) {
+                const backup = path.join(__dirname, 'server.log.bak');
+                fs.unlink(backup, () => {
+                    fs.rename(LOG_FILE, backup, () => { });
+                });
+            }
+        });
+    });
+}
+
+function broadcastLog(entry) {
+    activityLog.unshift(entry);
+    if (activityLog.length > MAX_LOG_SIZE) activityLog.pop();
+
+    // Save to persistent file log
+    appendToLogFile(entry);
+
+    const data = `data: ${JSON.stringify(entry)}\n\n`;
+    for (const client of monitorClients) {
+        try { client.write(data); } catch (e) { monitorClients.delete(client); }
+    }
+}
+
+// Hook console methods to broadcast all console output directly to the live monitor HTML page
+const util = require('util');
+const originalLog = console.log;
+const originalError = console.error;
+const originalWarn = console.warn;
+const originalInfo = console.info;
+const originalDebug = console.debug;
+
+let isConsoleBroadcasting = false;
+
+function handleConsoleBroadcast(args, level) {
+    if (isConsoleBroadcasting) return;
+    isConsoleBroadcasting = true;
+    try {
+        const message = util.format(...args);
+
+        // Skip HTTP request logs since they are already broadcasted via type 'HTTP' to prevent duplicate feed entries.
+        // However, keep the /api/monitor requests because they are skipped by the HTTP logger.
+        if (message.startsWith('[REQUEST]') && !message.includes('/api/monitor')) {
+            isConsoleBroadcasting = false;
+            return;
+        }
+
+        broadcastLog({
+            type: 'CONSOLE',
+            level: level,
+            text: message,
+            ts: Date.now()
+        });
+    } catch (err) {
+        // Fallback to original just in case
+    } finally {
+        isConsoleBroadcasting = false;
+    }
+}
+
+console.log = function (...args) {
+    originalLog.apply(console, args);
+    handleConsoleBroadcast(args, 'LOG');
+};
+
+console.error = function (...args) {
+    originalError.apply(console, args);
+    handleConsoleBroadcast(args, 'ERROR');
+};
+
+console.warn = function (...args) {
+    originalWarn.apply(console, args);
+    handleConsoleBroadcast(args, 'WARN');
+};
+
+console.info = function (...args) {
+    originalInfo.apply(console, args);
+    handleConsoleBroadcast(args, 'INFO');
+};
+
+console.debug = function (...args) {
+    originalDebug.apply(console, args);
+    handleConsoleBroadcast(args, 'DEBUG');
+};
+
+// Hardware Metrics Broadcast
+let lastCpuUsage = process.cpuUsage();
+let lastCpuTime = Date.now();
+setInterval(() => {
+    if (monitorClients.size === 0) return; // don't compute if no one is watching
+    const memUsage = process.memoryUsage();
+    const freeMem = os.freemem();
+    const totalMem = os.totalmem();
+
+    const cpuUsage = process.cpuUsage(lastCpuUsage);
+    lastCpuUsage = process.cpuUsage();
+    const now = Date.now();
+    const elapsedTime = now - lastCpuTime;
+    lastCpuTime = now;
+
+    const cpuPercent = (100 * (cpuUsage.user + cpuUsage.system) / 1000) / elapsedTime;
+
+    const sysMetrics = {
+        type: 'SYS_METRICS',
+        cpu: cpuPercent.toFixed(1),
+        memUsed: ((totalMem - freeMem) / 1024 / 1024).toFixed(0),
+        memTotal: (totalMem / 1024 / 1024).toFixed(0),
+        rss: (memUsage.rss / 1024 / 1024).toFixed(0),
+        uptime: process.uptime().toFixed(0),
+        ts: Date.now()
+    };
+
+    const data = `data: ${JSON.stringify(sysMetrics)}\n\n`;
+    for (const client of monitorClients) {
+        try { client.write(data); } catch (e) { monitorClients.delete(client); }
+    }
+}, 2000);
+
+// Security/Auth stats state
+const authStats = {
+    loginSuccess: 0,
+    loginFail: 0,
+    registrations: 0,
+    otpDispatched: 0
+};
+
+// Security Logging Helper
+function logAuthEvent({ event, role, identifier, status, ip, message, reason }) {
+    if (status === 'OK') {
+        if (event.includes('LOGIN')) authStats.loginSuccess++;
+        else if (event.includes('REGISTER') || event.includes('APPLY')) authStats.registrations++;
+        else if (event.includes('OTP') || event.includes('SEND')) authStats.otpDispatched++;
+    } else {
+        if (event.includes('LOGIN')) authStats.loginFail++;
+    }
+
+    let maskedIdentifier = identifier || 'unknown';
+    if (typeof maskedIdentifier === 'string') {
+        if (maskedIdentifier.includes('@')) {
+            const [local, domain] = maskedIdentifier.split('@');
+            if (local.length > 2) {
+                maskedIdentifier = `${local[0]}***${local[local.length - 1]}@${domain}`;
+            } else {
+                maskedIdentifier = `***@${domain}`;
+            }
+        } else if (maskedIdentifier.length >= 7) {
+            maskedIdentifier = `${maskedIdentifier.substring(0, 3)}***${maskedIdentifier.substring(maskedIdentifier.length - 3)}`;
+        } else {
+            maskedIdentifier = '***';
+        }
+    }
+
+    broadcastLog({
+        type: 'AUTH',
+        event,
+        role: role || 'unknown',
+        identifier: maskedIdentifier,
+        status: status || 'OK',
+        ip: ip || 'unknown',
+        message: message || '',
+        reason: reason || '',
+        ts: Date.now()
+    });
+}
+
+// Mask sensitive parameters in objects recursively
+function maskSensitiveData(obj) {
+    if (!obj) return obj;
+    if (typeof obj !== 'object') return obj;
+    try {
+        const cloned = JSON.parse(JSON.stringify(obj));
+        const sensitiveKeys = ['password', 'token', 'otp', 'secret', 'cvv', 'key', 'auth', 'pass', 'cookie'];
+
+        function recurse(current) {
+            if (!current || typeof current !== 'object') return;
+            for (const key in current) {
+                if (Object.prototype.hasOwnProperty.call(current, key)) {
+                    if (typeof current[key] === 'object' && current[key] !== null) {
+                        recurse(current[key]);
+                    } else if (typeof key === 'string') {
+                        const lowerKey = key.toLowerCase();
+                        if (sensitiveKeys.some(sk => lowerKey.includes(sk))) {
+                            current[key] = '***[SECURE]***';
+                        } else if (typeof current[key] === 'string' && current[key].length > 1000) {
+                            current[key] = current[key].substring(0, 100) + '... (truncated)';
+                        }
+                    }
+                }
+            }
+        }
+        recurse(cloned);
+        return cloned;
+    } catch (e) {
+        return { error: 'Failed to serialize payload details.' };
+    }
+}
+
+// DB Query Interceptor - wrap db.query to log all DB activity
+function wrapDB(pool) {
+    const originalQuery = pool.query.bind(pool);
+    pool.query = async function (sql, params) {
+        const start = Date.now();
+        let op = 'QUERY';
+        const sqlUpper = (sql || '').trim().toUpperCase();
+        if (sqlUpper.startsWith('SELECT')) op = 'SELECT';
+        else if (sqlUpper.startsWith('INSERT')) op = 'INSERT';
+        else if (sqlUpper.startsWith('UPDATE')) op = 'UPDATE';
+        else if (sqlUpper.startsWith('DELETE')) op = 'DELETE';
+        else if (sqlUpper.startsWith('CREATE')) op = 'CREATE';
+        else if (sqlUpper.startsWith('ALTER')) op = 'ALTER';
+        else if (sqlUpper.startsWith('DROP')) op = 'DROP';
+        try {
+            const result = await originalQuery(sql, params);
+            const duration = Date.now() - start;
+            const rows = Array.isArray(result[0]) ? result[0].length : (result[0] ? 1 : 0);
+            const table = (sql.match(/(?:FROM|INTO|UPDATE|TABLE)\s+([\w_]+)/i) || [])[1] || 'unknown';
+            broadcastLog({
+                type: 'DB',
+                op,
+                table,
+                sql: sql.replace(/\s+/g, ' ').trim().substring(0, 120),
+                duration,
+                rows,
+                status: 'OK',
+                ts: Date.now()
+            });
+            return result;
+        } catch (err) {
+            const duration = Date.now() - start;
+            broadcastLog({
+                type: 'DB',
+                op,
+                sql: sql.replace(/\s+/g, ' ').trim().substring(0, 120),
+                duration,
+                rows: 0,
+                status: 'ERROR',
+                error: err.message,
+                ts: Date.now()
+            });
+            throw err;
+        }
+    };
+    return pool;
+}
 
 // Request Logger Middleware
 app.use((req, res, next) => {
     const start = Date.now();
+
+    // Intercept send to capture response body
+    const originalSend = res.send;
+    let responseBody = null;
+    res.send = function (body) {
+        responseBody = body;
+        return originalSend.apply(res, arguments);
+    };
+
     res.on('finish', () => {
         const duration = Date.now() - start;
-        console.log(`[REQUEST] ${req.method} ${req.originalUrl} - Status: ${res.statusCode} - Duration: ${duration}ms - IP: ${req.ip}`);
+        const logLine = `[REQUEST] ${req.method} ${req.originalUrl} - Status: ${res.statusCode} - Duration: ${duration}ms - IP: ${req.ip}`;
+        console.log(logLine);
+        // Skip broadcasting monitor SSE itself to avoid feedback loop
+        if (!req.originalUrl.startsWith('/api/monitor')) {
+            let reqBody = null;
+            if (req.body && Object.keys(req.body).length > 0) {
+                reqBody = maskSensitiveData(req.body);
+            }
+            let reqQuery = null;
+            if (req.query && Object.keys(req.query).length > 0) {
+                reqQuery = maskSensitiveData(req.query);
+            }
+            let resBody = null;
+            if (responseBody) {
+                try {
+                    let parsed = responseBody;
+                    if (typeof responseBody === 'string') {
+                        try {
+                            parsed = JSON.parse(responseBody);
+                        } catch (e) {
+                            if (responseBody.length > 500) {
+                                parsed = responseBody.substring(0, 500) + '... (truncated)';
+                            }
+                        }
+                    }
+                    resBody = maskSensitiveData(parsed);
+                } catch (e) {
+                    resBody = '[unparseable response body]';
+                }
+            }
+
+            broadcastLog({
+                type: 'HTTP',
+                method: req.method,
+                url: req.originalUrl,
+                status: res.statusCode,
+                duration,
+                ip: req.ip || 'unknown',
+                reqBody,
+                reqQuery,
+                resBody,
+                ts: Date.now()
+            });
+        }
     });
     next();
 });
@@ -72,96 +438,118 @@ app.use('/uploads', (req, res) => {
     res.redirect('https://placehold.co/600x400?text=File+Not+Found+On+Server');
 });
 
-// --- JWT CONFIGURATION & HELPERS (Dual-Token Architecture) ---
+// --- JWT CONFIGURATION & HELPERS (Single-Token Architecture) ---
 const JWT_SECRET = process.env.JWT_SECRET || 'cityride_super_secure_jwt_key_2026';
-const REFRESH_SECRET = process.env.REFRESH_TOKEN_SECRET || 'cityride_refresh_rotation_key_2026';
-const ACCESS_TOKEN_EXPIRY = '15m'; // Short-lived access token
-const REFRESH_TOKEN_EXPIRY_DAYS = 30;
+const ACCESS_TOKEN_EXPIRY = '36500d'; // 100 years access token (practically infinite, persists until logout)
 
-// Generate device fingerprint from IP + User-Agent
-function generateFingerprint(req) {
-    const ip = req.ip || req.connection.remoteAddress || 'unknown';
-    const ua = req.headers['user-agent'] || 'unknown';
-    return crypto.createHash('sha256').update(`${ip}::${ua}`).digest('hex');
+// Cookie name per role so different panels can coexist in the same browser
+function getRoleCookieName(role) {
+    const map = { admin: 'cr_admin_tok', driver: 'cr_driver_tok', user: 'cr_user_tok', vendor: 'cr_vendor_tok' };
+    return map[role] || 'cr_user_tok';
 }
 
 async function setAuthCookie(res, req, user, role) {
-    const fingerprint = generateFingerprint(req);
-    
-    // 1. Short-lived Access Token (15 min, bound to fingerprint)
     const accessPayload = {
         id: user.id,
         role: role,
         name: user.name,
         email: user.email || null,
-        phone: user.phone || null,
-        fp: fingerprint
+        phone: user.phone || null
     };
     const accessToken = jwt.sign(accessPayload, JWT_SECRET, { expiresIn: ACCESS_TOKEN_EXPIRY });
+    const cookieName = getRoleCookieName(role);
+    res.cookie(cookieName, accessToken, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === 'production',
+        sameSite: 'Lax',
+        maxAge: 100 * 365 * 24 * 60 * 60 * 1000 // 100 years
+    });
+    // Keep legacy cookie in sync so old clients aren't broken immediately
     res.cookie('cityride_token', accessToken, {
         httpOnly: true,
         secure: process.env.NODE_ENV === 'production',
-        sameSite: 'Strict',
-        maxAge: 15 * 60 * 1000 // 15 minutes
+        sameSite: 'Lax',
+        maxAge: 100 * 365 * 24 * 60 * 60 * 1000 // 100 years
     });
-
-    // 2. Long-lived Refresh Token (30 days, stored in DB for rotation)
-    const refreshTokenId = crypto.randomBytes(32).toString('hex');
-    const refreshPayload = {
-        id: user.id,
-        role: role,
-        tid: refreshTokenId, // Unique token ID for rotation tracking
-        fp: fingerprint
-    };
-    const refreshToken = jwt.sign(refreshPayload, REFRESH_SECRET, { expiresIn: `${REFRESH_TOKEN_EXPIRY_DAYS}d` });
-    res.cookie('cityride_refresh', refreshToken, {
-        httpOnly: true,
-        secure: process.env.NODE_ENV === 'production',
-        sameSite: 'Strict',
-        path: '/api/auth/refresh', // Only sent to the refresh endpoint
-        maxAge: REFRESH_TOKEN_EXPIRY_DAYS * 24 * 60 * 60 * 1000
-    });
-
-    // 3. Store refresh token in DB (enables server-side revocation)
-    if (db) {
-        const expiresAt = new Date(Date.now() + REFRESH_TOKEN_EXPIRY_DAYS * 24 * 60 * 60 * 1000);
-        try {
-            await db.query(
-                'INSERT INTO taxi_refresh_tokens (token_id, user_id, role, fingerprint, expires_at) VALUES (?, ?, ?, ?, ?)',
-                [refreshTokenId, user.id, role, fingerprint, expiresAt]
-            );
-        } catch (e) {
-            console.error('[REFRESH] Failed to store refresh token:', e.message);
-        }
-    }
 }
 
 function authenticateJWT(req, res, next) {
-    const token = req.cookies.cityride_token || (req.headers.authorization && req.headers.authorization.split(' ')[1]);
-    if (!token) {
-        return res.status(401).json({ error: 'Access denied. No authentication token provided.' });
+    const allCookies = req.cookies || {};
+    const url = req.originalUrl || '';
+    const authHeader = req.headers.authorization && req.headers.authorization.split(' ')[1];
+
+    // Read all potential tokens
+    const tokens = {
+        admin: allCookies.cr_admin_tok,
+        driver: allCookies.cr_driver_tok,
+        vendor: allCookies.cr_vendor_tok,
+        user: allCookies.cr_user_tok,
+        legacy: allCookies.cityride_token || authHeader
+    };
+
+    // Determine target/preferred role based on the route
+    let preferredRole = null;
+    if (url.includes('/api/admin/')) {
+        preferredRole = 'admin';
+    } else if (url.includes('/api/driver/')) {
+        preferredRole = 'driver';
+    } else if (url.includes('/api/vendor/')) {
+        preferredRole = 'vendor';
+    } else if (url.includes('/api/user/')) {
+        preferredRole = 'user';
+    } else if (url.includes('/api/bookings/')) {
+        if (url.includes('/create') || url.includes('/rate-driver') || url.includes('/driver-location')) {
+            preferredRole = 'user';
+        } else if (url.includes('/accept') || url.includes('/reached-pickup') || url.includes('/start-journey') || url.includes('/finish-trip') || url.includes('/update-gps-location') || url.includes('/upload-gps-logs-bulk') || url.includes('/update-status')) {
+            preferredRole = 'driver';
+        }
     }
-    try {
-        const decoded = jwt.verify(token, JWT_SECRET);
-        
-        // Fingerprint verification: reject if device changed
-        if (decoded.fp) {
-            const currentFingerprint = generateFingerprint(req);
-            if (decoded.fp !== currentFingerprint) {
-                console.warn(`[SECURITY] Fingerprint mismatch for user ${decoded.id} (role: ${decoded.role}). Possible token theft.`);
-                return res.status(403).json({ error: 'Session integrity check failed. Please log in again.' });
+
+    // Try to find a valid token. If preferredRole is set, try that first.
+    let validDecoded = null;
+    let fallbackDecoded = null;
+
+    // Helper to verify a token
+    const verifyToken = (token) => {
+        if (!token) return null;
+        try {
+            return jwt.verify(token, JWT_SECRET);
+        } catch (e) {
+            return null;
+        }
+    };
+
+    // Try verifying the preferred token first
+    if (preferredRole && tokens[preferredRole]) {
+        validDecoded = verifyToken(tokens[preferredRole]);
+    }
+
+    // If preferred token was not found or invalid, try other tokens in order of relevance
+    if (!validDecoded) {
+        // Look through all tokens and find any valid one
+        const rolesOrder = ['admin', 'driver', 'user', 'vendor', 'legacy'];
+        for (const roleKey of rolesOrder) {
+            if (roleKey === preferredRole) continue; // already checked
+            const decoded = verifyToken(tokens[roleKey]);
+            if (decoded) {
+                fallbackDecoded = decoded;
+
+                // If the decoded role matches the preferredRole, set it as valid
+                if (preferredRole && decoded.role === preferredRole) {
+                    validDecoded = decoded;
+                    break;
+                }
             }
         }
-        
-        req.user = decoded;
-        next();
-    } catch (err) {
-        // If access token expired, tell client to refresh
-        if (err.name === 'TokenExpiredError') {
-            return res.status(401).json({ error: 'Access token expired.', code: 'TOKEN_EXPIRED' });
-        }
-        return res.status(403).json({ error: 'Invalid or expired authentication token.' });
     }
+
+    const finalDecoded = validDecoded || fallbackDecoded;
+    if (!finalDecoded) {
+        return res.status(401).json({ error: 'Access denied. No valid authentication token provided.' });
+    }
+
+    req.user = finalDecoded;
+    next();
 }
 
 function requireRole(roles) {
@@ -177,14 +565,15 @@ async function verifyBookingAccess(req, res, next) {
     const bookingId = req.params.bookingId || req.body.bookingId || req.query.bookingId;
     if (!bookingId) return res.status(400).json({ error: 'Booking ID is required.' });
     try {
-        const [bookings] = await db.query('SELECT user_id, driver_id FROM taxi_bookings WHERE id = ?', [bookingId]);
+        const [bookings] = await db.query('SELECT * FROM taxi_bookings WHERE id = ?', [bookingId]);
         if (bookings.length === 0) return res.status(404).json({ error: 'Booking not found.' });
-        
+
         const b = bookings[0];
+        req.booking = b;
         if (req.user.role === 'admin') return next();
         if (req.user.role === 'driver' && b.driver_id === req.user.id) return next();
         if (req.user.role === 'user' && b.user_id === req.user.id) return next();
-        
+
         return res.status(403).json({ error: 'Access Denied: You do not have permission to view or modify this booking.' });
     } catch (err) {
         return res.status(500).json({ error: 'Booking verification failed.' });
@@ -219,7 +608,7 @@ function cleanString(str) {
 
 // --- MULTER STORAGE CONFIGURATION (IN-MEMORY WITH FILE FILTERING) ---
 const storage = multer.memoryStorage();
-const upload = multer({ 
+const upload = multer({
     storage: storage,
     limits: {
         fileSize: 5 * 1024 * 1024 // 5MB size limit
@@ -244,7 +633,7 @@ const optimizeAndGetBase64 = async (fileArray) => {
             .resize({ width: 800, height: 800, fit: 'inside', withoutEnlargement: true })
             .jpeg({ quality: 60 })
             .toBuffer();
-        
+
         return `data:image/jpeg;base64,${optimizedBuffer.toString('base64')}`;
     } catch (err) {
         console.error(`Error optimizing file ${file.fieldname}:`, err.message);
@@ -259,16 +648,16 @@ const optimizeAndGetBase64 = async (fileArray) => {
 
 // --- RATE LIMITING ---
 const globalLimiter = rateLimit({
-    windowMs: 15 * 60 * 1000, 
-    max: 3000, 
+    windowMs: 15 * 60 * 1000,
+    max: 3000,
     message: { error: 'Security Limit: Too many requests from this IP.' },
-    standardHeaders: true, 
+    standardHeaders: true,
     legacyHeaders: false,
 });
 
 const apiLimiter = rateLimit({
-    windowMs: 15 * 60 * 1000, 
-    max: 2500, 
+    windowMs: 15 * 60 * 1000,
+    max: 2500,
     message: { error: 'API Rate limit exceeded. Please lower your request frequency.' },
     standardHeaders: true,
     legacyHeaders: false,
@@ -276,8 +665,8 @@ const apiLimiter = rateLimit({
 
 // Strict authentication rate limiter
 const authRateLimiter = rateLimit({
-    windowMs: 15 * 60 * 1000, 
-    max: 15, 
+    windowMs: 15 * 60 * 1000,
+    max: 15,
     message: { error: 'Security Limit: Too many attempts. Try again in 15 minutes.' },
     standardHeaders: true,
     legacyHeaders: false,
@@ -287,6 +676,7 @@ app.use(globalLimiter);
 app.use('/api/', apiLimiter);
 
 // Clean Navigation Routes
+app.get('/monitor', (req, res) => res.sendFile(path.join(__dirname, 'public', 'monitor.html')));
 app.get('/driver', (req, res) => res.sendFile(path.join(__dirname, 'public', 'driver.html')));
 app.get('/vendor', (req, res) => res.sendFile(path.join(__dirname, 'public', 'vendor.html')));
 app.get('/admin', (req, res) => res.sendFile(path.join(__dirname, 'public', 'admin.html')));
@@ -304,19 +694,53 @@ const registrationOtps = new Map(); // email -> otp
 // Global DB
 let db;
 
-// --- BREVO HTTP API ENGINE ---
-// This engine uses standard Port 443 (HTTP), bypassing all cloud port blocks
+// --- MAIL ENGINE (Supports Gmail & Brevo) ---
 async function sendBrevoMail(recipient, subject, htmlContent, attachments = []) {
+    // 1. If GMAIL_APP_PASSWORD is provided, use NodeMailer with Gmail (Most Reliable for @gmail.com senders)
+    if (process.env.GMAIL_APP_PASSWORD && process.env.BREVO_SENDER_EMAIL) {
+        try {
+            const transporter = nodemailer.createTransport({
+                service: 'gmail',
+                auth: {
+                    user: process.env.BREVO_SENDER_EMAIL,
+                    pass: process.env.GMAIL_APP_PASSWORD
+                }
+            });
+
+            const mailOptions = {
+                from: `"${process.env.BREVO_SENDER_NAME || 'CityRide'}" <${process.env.BREVO_SENDER_EMAIL}>`,
+                to: recipient,
+                subject: subject,
+                html: htmlContent
+            };
+
+            if (attachments && attachments.length > 0) {
+                mailOptions.attachments = attachments.map(att => ({
+                    filename: att.name,
+                    content: att.content
+                }));
+            }
+
+            const info = await transporter.sendMail(mailOptions);
+            console.log(`✅ [GMAIL SMTP] Mail successfully delivered to: ${recipient}. Message ID: ${info.messageId}`);
+            return info;
+        } catch (err) {
+            console.error(`❌ [GMAIL SMTP] Error to ${recipient}:`, err.message);
+            throw err;
+        }
+    }
+
+    // 2. Fallback to Brevo HTTP API
     if (!process.env.BREVO_API_KEY) {
-        console.error('❌ BREVO FAILURE: API Key missing in environment.');
+        console.error('❌ MAIL FAILURE: No Gmail App Password or Brevo API Key found.');
         return;
     }
 
     try {
         const payload = {
-            sender: { 
-                name: process.env.BREVO_SENDER_NAME || 'CityRide', 
-                email: process.env.BREVO_SENDER_EMAIL || 'sureshit2005@gmail.com' 
+            sender: {
+                name: process.env.BREVO_SENDER_NAME || 'CityRide',
+                email: process.env.BREVO_SENDER_EMAIL || 'sureshit2005@gmail.com'
             },
             to: [{ email: recipient }],
             subject: subject,
@@ -334,11 +758,11 @@ async function sendBrevoMail(recipient, subject, htmlContent, attachments = []) 
             }
         });
 
-        console.log(`✅ [BREVO] Mail successfully dispatched to: ${recipient}. Message ID: ${response.data.messageId || 'N/A'}`);
+        console.log(`✅ [BREVO API] Mail successfully dispatched to: ${recipient}. Message ID: ${response.data.messageId || 'N/A'}`);
         return response.data;
     } catch (err) {
         const errMsg = err.response ? JSON.stringify(err.response.data) : err.message;
-        console.error(`❌ [BREVO] API Error to ${recipient}:`, errMsg);
+        console.error(`❌ [BREVO API] Error to ${recipient}:`, errMsg);
         throw new Error(errMsg);
     }
 }
@@ -346,9 +770,9 @@ async function sendBrevoMail(recipient, subject, htmlContent, attachments = []) 
 async function initDB() {
     // Detect environment: use internal Railway variables only in actual cloud container
     const isRailway = !!(process.env.RAILWAY_PROJECT_ID || process.env.RAILWAY_ENVIRONMENT_NAME || process.env.RAILWAY_STATIC_URL);
-    
+
     let host, port, user, password, database;
-    
+
     // Default to the config from .env (which contains public credentials)
     const publicHost = process.env.DB_HOST || 'localhost';
     const publicPort = parseInt(process.env.DB_PORT) || 3306;
@@ -371,7 +795,7 @@ async function initDB() {
         database = publicDatabase;
         console.log('Detected Local/PC environment. Connecting to MySQL proxy at:', host, 'on port:', port);
     }
-    
+
     const dbConfig = {
         host: host,
         port: port,
@@ -406,7 +830,7 @@ async function initDB() {
                 dbConfig.user = publicUser;
                 dbConfig.password = publicPassword;
                 dbConfig.database = publicDatabase;
-                
+
                 tempConn = await mysql.createConnection({
                     host: dbConfig.host,
                     port: dbConfig.port,
@@ -414,8 +838,8 @@ async function initDB() {
                     password: dbConfig.password
                 });
             } else if (err.code === 'ER_ACCESS_DENIED_ERROR' || err.errno === 1045) {
-                const fallbackPassword = dbConfig.password === 'OsCrBsQQPvrhtgXtgSisFeudOJhodvLj' 
-                    ? 'tADfuzVOcchhMLhmgPFuyykiwuzwJAYv' 
+                const fallbackPassword = dbConfig.password === 'OsCrBsQQPvrhtgXtgSisFeudOJhodvLj'
+                    ? 'tADfuzVOcchhMLhmgPFuyykiwuzwJAYv'
                     : 'OsCrBsQQPvrhtgXtgSisFeudOJhodvLj';
                 console.log('Access denied. Attempting fallback password...');
                 tempConn = await mysql.createConnection({
@@ -430,7 +854,7 @@ async function initDB() {
                 throw err;
             }
         }
-        
+
         await tempConn.query(`CREATE DATABASE IF NOT EXISTS \`${dbConfig.database}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci`);
         await tempConn.end();
         console.log(`Database "${dbConfig.database}" ensured.`);
@@ -448,6 +872,9 @@ async function initDB() {
         });
 
         console.log('Database Pool initialized.');
+
+        // Wrap DB to intercept and broadcast all queries for live monitor
+        db = wrapDB(db);
 
         // 3. Create Tables
         // Passengers
@@ -518,15 +945,15 @@ async function initDB() {
         `);
 
         // Migration: Ensure columns exist
-        try { await db.query('ALTER TABLE taxi_drivers ADD COLUMN is_blocked TINYINT DEFAULT 0'); } catch (e) {}
-        try { await db.query('ALTER TABLE taxi_drivers ADD COLUMN approval_status VARCHAR(20) DEFAULT "approved"'); } catch (e) {}
-        try { await db.query('ALTER TABLE taxi_drivers ADD UNIQUE (phone)'); } catch (e) {}
-        try { await db.query('ALTER TABLE taxi_driver_applications ADD UNIQUE (phone)'); } catch (e) {}
-        
+        try { await db.query('ALTER TABLE taxi_drivers ADD COLUMN is_blocked TINYINT DEFAULT 0'); } catch (e) { }
+        try { await db.query('ALTER TABLE taxi_drivers ADD COLUMN approval_status VARCHAR(20) DEFAULT "approved"'); } catch (e) { }
+        try { await db.query('ALTER TABLE taxi_drivers ADD UNIQUE (phone)'); } catch (e) { }
+        try { await db.query('ALTER TABLE taxi_driver_applications ADD UNIQUE (phone)'); } catch (e) { }
+
         // Add Document Columns to Drivers if missing
         const docCols = ['dl_front', 'dl_back', 'pvc', 'aadhar_front', 'aadhar_back', 'rc_book', 'insurance', 'pollution', 'permit'];
         for (const col of docCols) {
-            try { await db.query(`ALTER TABLE taxi_drivers ADD COLUMN ${col} LONGTEXT`); } catch (e) {}
+            try { await db.query(`ALTER TABLE taxi_drivers ADD COLUMN ${col} LONGTEXT`); } catch (e) { }
         }
 
         // taxi_driver_applications (New Registrations)
@@ -563,8 +990,8 @@ async function initDB() {
         // Migration: Modify document columns to LONGTEXT to support Base64 images
         const docColsToMigrate = ['dl_front', 'dl_back', 'pvc', 'aadhar_front', 'aadhar_back', 'rc_book', 'insurance', 'pollution', 'permit'];
         for (const col of docColsToMigrate) {
-            try { await db.query(`ALTER TABLE taxi_drivers MODIFY COLUMN ${col} LONGTEXT`); } catch (e) {}
-            try { await db.query(`ALTER TABLE taxi_driver_applications MODIFY COLUMN ${col} LONGTEXT`); } catch (e) {}
+            try { await db.query(`ALTER TABLE taxi_drivers MODIFY COLUMN ${col} LONGTEXT`); } catch (e) { }
+            try { await db.query(`ALTER TABLE taxi_driver_applications MODIFY COLUMN ${col} LONGTEXT`); } catch (e) { }
         }
 
         // taxi_admins
@@ -583,7 +1010,7 @@ async function initDB() {
         if (adminRows[0].cnt === 0) {
             const salt = await bcrypt.genSalt(10);
             const hashedPassword = await bcrypt.hash('adminpass', salt);
-            await db.query('INSERT INTO taxi_admins (name, email, password) VALUES (?, ?, ?)', 
+            await db.query('INSERT INTO taxi_admins (name, email, password) VALUES (?, ?, ?)',
                 ['CityRide Admin', 'admin@cityridetaxi', hashedPassword]);
             console.log('Default admin seeded.');
         }
@@ -625,8 +1052,8 @@ async function initDB() {
         `);
 
         // Migration: Ensure coords exist
-        try { await db.query('ALTER TABLE taxi_bookings ADD COLUMN pickup_coords VARCHAR(100) AFTER pickup_loc'); } catch(e){}
-        try { await db.query('ALTER TABLE taxi_bookings ADD COLUMN drop_coords VARCHAR(100) AFTER drop_loc'); } catch(e){}
+        try { await db.query('ALTER TABLE taxi_bookings ADD COLUMN pickup_coords VARCHAR(100) AFTER pickup_loc'); } catch (e) { }
+        try { await db.query('ALTER TABLE taxi_bookings ADD COLUMN drop_coords VARCHAR(100) AFTER drop_loc'); } catch (e) { }
 
         // Migration: Ensure trip_type exists
         try {
@@ -639,72 +1066,72 @@ async function initDB() {
         } catch (e) { /* already exists */ }
 
         // Migration: Ensure distance exists
-        try { await db.query('ALTER TABLE taxi_bookings ADD COLUMN distance VARCHAR(50)'); } catch(e){}
-        
+        try { await db.query('ALTER TABLE taxi_bookings ADD COLUMN distance VARCHAR(50)'); } catch (e) { }
+
         // Migration: Ensure core columns exist (Safe recovery)
-        try { 
-            await db.query('ALTER TABLE taxi_bookings ADD COLUMN status VARCHAR(20) DEFAULT "pending" AFTER fare'); 
+        try {
+            await db.query('ALTER TABLE taxi_bookings ADD COLUMN status VARCHAR(20) DEFAULT "pending" AFTER fare');
             console.log('✅ Migration: status column added to bookings.');
-        } catch(e){
+        } catch (e) {
             if (!e.message.includes('Duplicate column name')) console.error('❌ Migration Error (status):', e.message);
         }
-        
-        try { 
-            await db.query('ALTER TABLE taxi_bookings ADD COLUMN journey_otp VARCHAR(10) AFTER status'); 
+
+        try {
+            await db.query('ALTER TABLE taxi_bookings ADD COLUMN journey_otp VARCHAR(10) AFTER status');
             console.log('✅ Migration: journey_otp column added to bookings.');
-        } catch(e){
+        } catch (e) {
             if (!e.message.includes('Duplicate column name')) console.error('❌ Migration Error (journey_otp):', e.message);
         }
 
-        try { 
-            await db.query('ALTER TABLE taxi_bookings ADD COLUMN vendor_id INT NULL'); 
+        try {
+            await db.query('ALTER TABLE taxi_bookings ADD COLUMN vendor_id INT NULL');
             console.log('✅ Migration: vendor_id column added to bookings.');
-        } catch(e){
+        } catch (e) {
             if (!e.message.includes('Duplicate column name')) console.error('❌ Migration Error (vendor_id):', e.message);
         }
 
-        try { 
-            await db.query('ALTER TABLE taxi_bookings ADD COLUMN vendor_markup DECIMAL(10,2) DEFAULT 0'); 
+        try {
+            await db.query('ALTER TABLE taxi_bookings ADD COLUMN vendor_markup DECIMAL(10,2) DEFAULT 0');
             console.log('✅ Migration: vendor_markup column added to bookings.');
-        } catch(e){
+        } catch (e) {
             if (!e.message.includes('Duplicate column name')) console.error('❌ Migration Error (vendor_markup):', e.message);
         }
-        try { await db.query('ALTER TABLE taxi_bookings ADD COLUMN journey_otp VARCHAR(10)'); } catch(e){}
+        try { await db.query('ALTER TABLE taxi_bookings ADD COLUMN journey_otp VARCHAR(10)'); } catch (e) { }
 
         // Migration: Odometer and Timer for Rental
-        try { await db.query('ALTER TABLE taxi_bookings ADD COLUMN start_odometer INT NULL'); } catch(e){}
-        try { await db.query('ALTER TABLE taxi_bookings ADD COLUMN end_odometer INT NULL'); } catch(e){}
-        try { await db.query('ALTER TABLE taxi_bookings ADD COLUMN journey_start_time DATETIME NULL'); } catch(e){}
-        try { await db.query('ALTER TABLE taxi_bookings ADD COLUMN journey_end_time DATETIME NULL'); } catch(e){}
-        try { await db.query('ALTER TABLE taxi_bookings ADD COLUMN rental_package VARCHAR(50) NULL'); } catch(e){}
+        try { await db.query('ALTER TABLE taxi_bookings ADD COLUMN start_odometer INT NULL'); } catch (e) { }
+        try { await db.query('ALTER TABLE taxi_bookings ADD COLUMN end_odometer INT NULL'); } catch (e) { }
+        try { await db.query('ALTER TABLE taxi_bookings ADD COLUMN journey_start_time DATETIME NULL'); } catch (e) { }
+        try { await db.query('ALTER TABLE taxi_bookings ADD COLUMN journey_end_time DATETIME NULL'); } catch (e) { }
+        try { await db.query('ALTER TABLE taxi_bookings ADD COLUMN rental_package VARCHAR(50) NULL'); } catch (e) { }
         // Ensure status column can handle 'finished'
-        try { await db.query("ALTER TABLE taxi_bookings MODIFY COLUMN status ENUM('pending', 'assigned', 'ongoing', 'finished', 'completed', 'cancelled', 'cancel_requested') DEFAULT 'pending'"); } catch(e){}
+        try { await db.query("ALTER TABLE taxi_bookings MODIFY COLUMN status ENUM('pending', 'assigned', 'ongoing', 'finished', 'completed', 'cancelled', 'cancel_requested') DEFAULT 'pending'"); } catch (e) { }
 
         // Migration: Vendor Support
-        try { await db.query('ALTER TABLE taxi_bookings ADD COLUMN vendor_id INT NULL'); } catch(e){}
-        try { await db.query('ALTER TABLE taxi_bookings ADD COLUMN vendor_markup DECIMAL(10,2) DEFAULT 0'); } catch(e){}
-        try { await db.query('ALTER TABLE taxi_bookings ADD COLUMN passenger_name VARCHAR(100) DEFAULT NULL'); } catch(e){}
-        try { await db.query('ALTER TABLE taxi_bookings ADD COLUMN passenger_phone VARCHAR(20) DEFAULT NULL'); } catch(e){}
+        try { await db.query('ALTER TABLE taxi_bookings ADD COLUMN vendor_id INT NULL'); } catch (e) { }
+        try { await db.query('ALTER TABLE taxi_bookings ADD COLUMN vendor_markup DECIMAL(10,2) DEFAULT 0'); } catch (e) { }
+        try { await db.query('ALTER TABLE taxi_bookings ADD COLUMN passenger_name VARCHAR(100) DEFAULT NULL'); } catch (e) { }
+        try { await db.query('ALTER TABLE taxi_bookings ADD COLUMN passenger_phone VARCHAR(20) DEFAULT NULL'); } catch (e) { }
 
         // Migration: GPS Tracking & Deviation
-        try { await db.query('ALTER TABLE taxi_bookings ADD COLUMN actual_distance VARCHAR(50) DEFAULT NULL'); } catch(e){}
-        try { await db.query('ALTER TABLE taxi_bookings ADD COLUMN is_deviated TINYINT DEFAULT 0'); } catch(e){}
-        try { await db.query('ALTER TABLE taxi_bookings ADD COLUMN original_fare VARCHAR(50) DEFAULT NULL'); } catch(e){}
-        try { await db.query('ALTER TABLE taxi_bookings ADD COLUMN return_date DATE DEFAULT NULL'); } catch(e){}
-        try { await db.query('ALTER TABLE taxi_bookings ADD COLUMN start_gps_coords VARCHAR(100) DEFAULT NULL'); } catch(e){}
-        try { await db.query('ALTER TABLE taxi_bookings ADD COLUMN end_gps_coords VARCHAR(100) DEFAULT NULL'); } catch(e){}
+        try { await db.query('ALTER TABLE taxi_bookings ADD COLUMN actual_distance VARCHAR(50) DEFAULT NULL'); } catch (e) { }
+        try { await db.query('ALTER TABLE taxi_bookings ADD COLUMN is_deviated TINYINT DEFAULT 0'); } catch (e) { }
+        try { await db.query('ALTER TABLE taxi_bookings ADD COLUMN original_fare VARCHAR(50) DEFAULT NULL'); } catch (e) { }
+        try { await db.query('ALTER TABLE taxi_bookings ADD COLUMN return_date DATE DEFAULT NULL'); } catch (e) { }
+        try { await db.query('ALTER TABLE taxi_bookings ADD COLUMN start_gps_coords VARCHAR(100) DEFAULT NULL'); } catch (e) { }
+        try { await db.query('ALTER TABLE taxi_bookings ADD COLUMN end_gps_coords VARCHAR(100) DEFAULT NULL'); } catch (e) { }
 
         // Migration: Dual Distance Calculation (Static + Dynamic)
-        try { await db.query('ALTER TABLE taxi_bookings ADD COLUMN estimated_distance VARCHAR(50) DEFAULT NULL'); } catch(e){}
-        try { await db.query('ALTER TABLE taxi_bookings ADD COLUMN estimated_fare VARCHAR(50) DEFAULT NULL'); } catch(e){}
-        try { await db.query('ALTER TABLE taxi_bookings ADD COLUMN estimated_duration VARCHAR(50) DEFAULT NULL'); } catch(e){}
-        try { await db.query('ALTER TABLE taxi_bookings ADD COLUMN dynamic_distance VARCHAR(50) DEFAULT NULL'); } catch(e){}
-        try { await db.query('ALTER TABLE taxi_bookings ADD COLUMN dynamic_fare VARCHAR(50) DEFAULT NULL'); } catch(e){}
-        try { await db.query('ALTER TABLE taxi_bookings ADD COLUMN reached_pickup_time DATETIME NULL'); } catch(e){}
-        try { await db.query('ALTER TABLE taxi_bookings ADD COLUMN end_otp VARCHAR(10) DEFAULT NULL'); } catch(e){}
-        try { await db.query('ALTER TABLE taxi_bookings ADD COLUMN rating TINYINT NULL'); } catch(e){}
-        try { await db.query('ALTER TABLE taxi_bookings ADD COLUMN rating_comment TEXT NULL'); } catch(e){}
-        
+        try { await db.query('ALTER TABLE taxi_bookings ADD COLUMN estimated_distance VARCHAR(50) DEFAULT NULL'); } catch (e) { }
+        try { await db.query('ALTER TABLE taxi_bookings ADD COLUMN estimated_fare VARCHAR(50) DEFAULT NULL'); } catch (e) { }
+        try { await db.query('ALTER TABLE taxi_bookings ADD COLUMN estimated_duration VARCHAR(50) DEFAULT NULL'); } catch (e) { }
+        try { await db.query('ALTER TABLE taxi_bookings ADD COLUMN dynamic_distance VARCHAR(50) DEFAULT NULL'); } catch (e) { }
+        try { await db.query('ALTER TABLE taxi_bookings ADD COLUMN dynamic_fare VARCHAR(50) DEFAULT NULL'); } catch (e) { }
+        try { await db.query('ALTER TABLE taxi_bookings ADD COLUMN reached_pickup_time DATETIME NULL'); } catch (e) { }
+        try { await db.query('ALTER TABLE taxi_bookings ADD COLUMN end_otp VARCHAR(10) DEFAULT NULL'); } catch (e) { }
+        try { await db.query('ALTER TABLE taxi_bookings ADD COLUMN rating TINYINT NULL'); } catch (e) { }
+        try { await db.query('ALTER TABLE taxi_bookings ADD COLUMN rating_comment TEXT NULL'); } catch (e) { }
+
         // GPS Logs Table
         await db.query(`
             CREATE TABLE IF NOT EXISTS taxi_ride_gps_logs (
@@ -719,7 +1146,7 @@ async function initDB() {
         `);
 
         // Alter to add speed column to gps logs if not exists
-        try { await db.query('ALTER TABLE taxi_ride_gps_logs ADD COLUMN speed DECIMAL(5, 2) DEFAULT 0.00'); } catch(e){}
+        try { await db.query('ALTER TABLE taxi_ride_gps_logs ADD COLUMN speed DECIMAL(5, 2) DEFAULT 0.00'); } catch (e) { }
 
         // Recovery: Generate OTPs for legacy rides that don't have one
         try {
@@ -829,7 +1256,7 @@ async function initDB() {
         // Insert default tariffs if empty
         try {
             const [tariffRows] = await db.query('SELECT COUNT(*) as cnt FROM taxi_tariffs');
-            
+
             const defaultTariffs = [
                 {
                     vehicle_type: 'bike',
@@ -859,11 +1286,11 @@ async function initDB() {
                 {
                     vehicle_type: 'auto',
                     category: 'rental',
-                    config: JSON.stringify({ 
-                        '2-20': { base: 200, extraKm: 10, extraHour: 80 }, 
-                        '4-40': { base: 380, extraKm: 10, extraHour: 80 }, 
-                        '8-80': { base: 700, extraKm: 9, extraHour: 70 }, 
-                        '12-120': { base: 1000, extraKm: 9, extraHour: 70 } 
+                    config: JSON.stringify({
+                        '2-20': { base: 200, extraKm: 10, extraHour: 80 },
+                        '4-40': { base: 380, extraKm: 10, extraHour: 80 },
+                        '8-80': { base: 700, extraKm: 9, extraHour: 70 },
+                        '12-120': { base: 1000, extraKm: 9, extraHour: 70 }
                     })
                 },
                 {
@@ -884,11 +1311,11 @@ async function initDB() {
                 {
                     vehicle_type: 'sedan',
                     category: 'rental',
-                    config: JSON.stringify({ 
-                        '2-20': { base: 600, extraKm: 18, extraHour: 150 }, 
-                        '4-40': { base: 1100, extraKm: 18, extraHour: 150 }, 
-                        '8-80': { base: 2100, extraKm: 16, extraHour: 120 }, 
-                        '12-120': { base: 2800, extraKm: 15, extraHour: 120 } 
+                    config: JSON.stringify({
+                        '2-20': { base: 600, extraKm: 18, extraHour: 150 },
+                        '4-40': { base: 1100, extraKm: 18, extraHour: 150 },
+                        '8-80': { base: 2100, extraKm: 16, extraHour: 120 },
+                        '12-120': { base: 2800, extraKm: 15, extraHour: 120 }
                     })
                 },
                 {
@@ -909,11 +1336,11 @@ async function initDB() {
                 {
                     vehicle_type: 'suv',
                     category: 'rental',
-                    config: JSON.stringify({ 
-                        '2-20': { base: 900, extraKm: 25, extraHour: 250 }, 
-                        '4-40': { base: 1600, extraKm: 25, extraHour: 250 }, 
-                        '8-80': { base: 3100, extraKm: 22, extraHour: 200 }, 
-                        '12-120': { base: 4200, extraKm: 20, extraHour: 200 } 
+                    config: JSON.stringify({
+                        '2-20': { base: 900, extraKm: 25, extraHour: 250 },
+                        '4-40': { base: 1600, extraKm: 25, extraHour: 250 },
+                        '8-80': { base: 3100, extraKm: 22, extraHour: 200 },
+                        '12-120': { base: 4200, extraKm: 20, extraHour: 200 }
                     })
                 },
                 {
@@ -934,11 +1361,11 @@ async function initDB() {
                 {
                     vehicle_type: 'hatchback',
                     category: 'rental',
-                    config: JSON.stringify({ 
-                        '2-20': { base: 450, extraKm: 15, extraHour: 120 }, 
-                        '4-40': { base: 850, extraKm: 15, extraHour: 120 }, 
-                        '8-80': { base: 1600, extraKm: 14, extraHour: 100 }, 
-                        '12-120': { base: 2200, extraKm: 13, extraHour: 100 } 
+                    config: JSON.stringify({
+                        '2-20': { base: 450, extraKm: 15, extraHour: 120 },
+                        '4-40': { base: 850, extraKm: 15, extraHour: 120 },
+                        '8-80': { base: 1600, extraKm: 14, extraHour: 100 },
+                        '12-120': { base: 2200, extraKm: 13, extraHour: 100 }
                     })
                 },
                 {
@@ -959,11 +1386,11 @@ async function initDB() {
                 {
                     vehicle_type: '8plus1',
                     category: 'rental',
-                    config: JSON.stringify({ 
-                        '2-20': { base: 1800, extraKm: 30, extraHour: 300 }, 
-                        '4-40': { base: 3200, extraKm: 30, extraHour: 300 }, 
-                        '8-80': { base: 6000, extraKm: 28, extraHour: 250 }, 
-                        '12-120': { base: 8500, extraKm: 25, extraHour: 250 } 
+                    config: JSON.stringify({
+                        '2-20': { base: 1800, extraKm: 30, extraHour: 300 },
+                        '4-40': { base: 3200, extraKm: 30, extraHour: 300 },
+                        '8-80': { base: 6000, extraKm: 28, extraHour: 250 },
+                        '12-120': { base: 8500, extraKm: 25, extraHour: 250 }
                     })
                 },
                 {
@@ -984,11 +1411,11 @@ async function initDB() {
                 {
                     vehicle_type: 'van24',
                     category: 'rental',
-                    config: JSON.stringify({ 
-                        '2-20': { base: 4000, extraKm: 50, extraHour: 500 }, 
-                        '4-40': { base: 7000, extraKm: 50, extraHour: 500 }, 
-                        '8-80': { base: 13000, extraKm: 45, extraHour: 450 }, 
-                        '12-120': { base: 18000, extraKm: 40, extraHour: 400 } 
+                    config: JSON.stringify({
+                        '2-20': { base: 4000, extraKm: 50, extraHour: 500 },
+                        '4-40': { base: 7000, extraKm: 50, extraHour: 500 },
+                        '8-80': { base: 13000, extraKm: 45, extraHour: 450 },
+                        '12-120': { base: 18000, extraKm: 40, extraHour: 400 }
                     })
                 }
             ];
@@ -1065,24 +1492,9 @@ async function initDB() {
                     console.log('✅ Migration: auto tariffs added to tariffs.');
                 }
             }
-            } catch (e) {
-                console.error('Tariff initialization failed:', e.message);
-            }
-
-        // Refresh Tokens Table (Dual-Token Architecture)
-        await db.query(`
-            CREATE TABLE IF NOT EXISTS taxi_refresh_tokens (
-                id INT AUTO_INCREMENT PRIMARY KEY,
-                token_id VARCHAR(64) UNIQUE NOT NULL,
-                user_id INT NOT NULL,
-                role VARCHAR(20) NOT NULL,
-                fingerprint VARCHAR(64),
-                expires_at TIMESTAMP NOT NULL,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                INDEX idx_refresh_user (user_id, role),
-                INDEX idx_refresh_expiry (expires_at)
-            )
-        `);
+        } catch (e) {
+            console.error('Tariff initialization failed:', e.message);
+        }
 
         // 4. Create Indexes for performance
         try {
@@ -1098,6 +1510,21 @@ async function initDB() {
             console.log('✅ Migration: Index idx_bookings_status created on taxi_bookings.');
         } catch (e) { /* Already exists or not supported */ }
 
+        // 5. System Settings Table
+        await db.query(`
+            CREATE TABLE IF NOT EXISTS taxi_settings (
+                setting_key VARCHAR(100) PRIMARY KEY,
+                setting_value TEXT,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+            )
+        `);
+        // Seed default setting: air_distance_restrict = enabled
+        await db.query(`
+            INSERT IGNORE INTO taxi_settings (setting_key, setting_value)
+            VALUES ('air_distance_restrict', '1')
+        `);
+        console.log('✅ System settings table ensured.');
+
         console.log('MySQL schema and default admin ensured.');
     } catch (err) {
         console.error('Database Initialization Failed:', err.message);
@@ -1110,18 +1537,6 @@ cron.schedule('0 * * * *', async () => {
     if (db) {
         await db.query('DELETE FROM taxi_otps WHERE expires_at < NOW()');
         console.log('--- OTP CLEANUP COMPLETED ---');
-    }
-});
-
-// Maintenance: Clean up expired refresh tokens daily at midnight
-cron.schedule('0 0 * * *', async () => {
-    if (db) {
-        try {
-            const [result] = await db.query('DELETE FROM taxi_refresh_tokens WHERE expires_at < NOW()');
-            console.log(`--- REFRESH TOKEN CLEANUP: ${result.affectedRows} expired tokens purged ---`);
-        } catch (e) {
-            console.error('[CRON] Refresh token cleanup failed:', e.message);
-        }
     }
 });
 
@@ -1164,9 +1579,9 @@ async function sendDailyReport() {
 
         let dailyRevenue = 0;
         bookings.forEach(b => {
-             if (b.status === 'completed') {
-                 dailyRevenue += parseFloat(b.fare.replace(/[^0-9.]/g, '')) || 0;
-             }
+            if (b.status === 'completed') {
+                dailyRevenue += parseFloat(b.fare.replace(/[^0-9.]/g, '')) || 0;
+            }
         });
 
         // 2. Generate CSV In-Memory
@@ -1187,7 +1602,7 @@ async function sendDailyReport() {
 
             // --- HEADER SECTION ---
             doc.rect(0, 0, 600, 100).fill('#1a1a1a');
-            
+
             // Add Logo Image
             try {
                 const logoPath = path.join(__dirname, 'public', 'logo.png');
@@ -1217,7 +1632,7 @@ async function sendDailyReport() {
 
             // --- MISSION LOG TABLE ---
             doc.fillColor('#000000').fontSize(14).text('MISSION LOG (DAILY SNAPSHOT)', 40, 215);
-            
+
             // Table Header
             const startY = 240;
             doc.rect(40, startY, 515, 20).fill('#1a1a1a');
@@ -1237,10 +1652,10 @@ async function sendDailyReport() {
                 doc.fillColor('#444444').fontSize(8);
                 doc.text(b.id.toString(), 50, rowY + 8);
                 doc.text((b.trip_type || 'oneway').toUpperCase(), 80, rowY + 8);
-                
+
                 const statusColor = b.status === 'completed' ? '#28a745' : (b.status === 'pending' ? '#ffc107' : '#dc3545');
                 doc.fillColor(statusColor).text(b.status.toUpperCase(), 140, rowY + 8);
-                
+
                 doc.fillColor('#444444').text(b.customer_name || 'Walk-in', 210, rowY + 8);
                 const route = `${b.pickup_loc.substring(0, 15)} -> ${b.drop_loc.substring(0, 15)}`;
                 doc.text(route, 320, rowY + 8);
@@ -1320,7 +1735,10 @@ app.post('/api/admin/peak-rules/delete', async (req, res) => {
 // 1. Send OTP (Email Verification Request)
 app.post('/api/auth/send-otp', async (req, res) => {
     const { email } = req.body;
-    if (!email) return res.status(400).json({ error: 'Email is required.' });
+    if (!email) {
+        logAuthEvent({ event: 'OTP_SENT', role: 'user', identifier: 'unknown', status: 'ERROR', ip: req.ip, message: 'OTP request failed: Email missing' });
+        return res.status(400).json({ error: 'Email is required.' });
+    }
 
     try {
         const otp = Math.floor(100000 + Math.random() * 900000).toString();
@@ -1341,47 +1759,57 @@ app.post('/api/auth/send-otp', async (req, res) => {
 
         console.log(`[BREVO API] Dispatching OTP for: ${email}`);
         await sendBrevoMail(email, subject, html);
+        logAuthEvent({ event: 'OTP_SENT', role: 'user', identifier: email, status: 'OK', ip: req.ip, message: 'OTP sent successfully via API' });
         res.json({ success: true, message: 'OTP sent successfully via API.' });
     } catch (err) {
         console.error('--- BREVO API FAIL ---', err.message);
+        logAuthEvent({ event: 'OTP_SENT', role: 'user', identifier: email, status: 'ERROR', ip: req.ip, message: 'Mail delivery failure', reason: err.message });
         res.status(500).json({ error: 'Mail delivery failure (API Gateway)' });
     }
 });
 
 // 2. Passenger Registry (With OTP Validation)
 app.post('/api/auth/register', authRateLimiter, async (req, res) => {
+    let { name, email, password, phone } = req.body;
     try {
-        let { name, email, password, phone } = req.body;
         name = cleanString(name);
         email = cleanString(email);
         phone = cleanString(phone);
-        
+
         if (!name || !email || !password || !phone) {
+            logAuthEvent({ event: 'REGISTER_FAIL', role: 'user', identifier: email || phone || 'unknown', status: 'ERROR', ip: req.ip, message: 'Registry failed: Missing fields', reason: 'missing_fields' });
             return res.status(400).json({ error: 'All fields are required.' });
         }
         if (name.length < 2 || name.length > 100) {
+            logAuthEvent({ event: 'REGISTER_FAIL', role: 'user', identifier: email, status: 'ERROR', ip: req.ip, message: 'Registry failed: Invalid name length', reason: 'invalid_name' });
             return res.status(400).json({ error: 'Name must be between 2 and 100 characters.' });
         }
         if (!validateEmail(email)) {
+            logAuthEvent({ event: 'REGISTER_FAIL', role: 'user', identifier: email, status: 'ERROR', ip: req.ip, message: 'Registry failed: Invalid email format', reason: 'invalid_email' });
             return res.status(400).json({ error: 'Invalid email address format.' });
         }
         if (!validatePhone(phone)) {
+            logAuthEvent({ event: 'REGISTER_FAIL', role: 'user', identifier: phone, status: 'ERROR', ip: req.ip, message: 'Registry failed: Invalid phone format', reason: 'invalid_phone' });
             return res.status(400).json({ error: 'Invalid phone number format.' });
         }
         if (password.length < 6) {
+            logAuthEvent({ event: 'REGISTER_FAIL', role: 'user', identifier: email, status: 'ERROR', ip: req.ip, message: 'Registry failed: Password too short', reason: 'password_too_short' });
             return res.status(400).json({ error: 'Password must be at least 6 characters.' });
         }
 
         // Check for Existing Member
         const [existing] = await db.query('SELECT id FROM passengers WHERE phone = ? OR email = ?', [phone, email]);
-        if (existing.length > 0) return res.status(400).json({ error: 'Identity already registered in the mainframe.' });
+        if (existing.length > 0) {
+            logAuthEvent({ event: 'REGISTER_FAIL', role: 'user', identifier: email, status: 'ERROR', ip: req.ip, message: 'Registry failed: Identity already registered', reason: 'identity_exists' });
+            return res.status(400).json({ error: 'Identity already registered in the mainframe.' });
+        }
 
         // Register Member
         const salt = await bcrypt.genSalt(10);
         const hashedPassword = await bcrypt.hash(password, salt);
         const sql = 'INSERT INTO passengers (name, email, password, phone) VALUES (?, ?, ?, ?)';
         const [result] = await db.query(sql, [name, email, hashedPassword, phone]);
-        
+
         const user = {
             id: result.insertId,
             name,
@@ -1390,56 +1818,67 @@ app.post('/api/auth/register', authRateLimiter, async (req, res) => {
             role: 'user'
         };
         await setAuthCookie(res, req, user, 'user');
+        logAuthEvent({ event: 'REGISTER_SUCCESS', role: 'user', identifier: email, status: 'OK', ip: req.ip, message: `Passenger registered: ${name}` });
         res.json({ success: true, user });
     } catch (err) {
+        logAuthEvent({ event: 'REGISTER_FAIL', role: 'user', identifier: email || 'unknown', status: 'ERROR', ip: req.ip, message: 'Registry Failure', reason: err.message });
         res.status(500).json({ error: 'Registry Failure' });
     }
 });
 
 app.post('/api/auth/login', authRateLimiter, async (req, res) => {
+    const { phone, email, password } = req.body;
+    const identifier = cleanString(phone || email);
     try {
-        const { phone, email, password } = req.body;
-        const identifier = cleanString(phone || email);
-        
         if (!identifier || !password) {
+            logAuthEvent({ event: 'LOGIN_FAIL', role: 'user', identifier: identifier || 'unknown', status: 'ERROR', ip: req.ip, message: 'Login failed: Missing credentials', reason: 'missing_fields' });
             return res.status(400).json({ error: 'Identifier (phone/email) and password are required.' });
         }
 
         // Check against both phone and email
         const [users] = await db.query(
-            'SELECT id, name, email, phone, password, is_blocked FROM passengers WHERE phone = ? OR email = ?', 
+            'SELECT id, name, email, phone, password, is_blocked FROM passengers WHERE phone = ? OR email = ?',
             [identifier, identifier]
         );
-        
+
         if (users.length > 0) {
             const user = users[0];
-            if (user.is_blocked) return res.status(403).json({ error: 'Mainframe: Your access has been permanently revoked by Command.' });
+            if (user.is_blocked) {
+                logAuthEvent({ event: 'LOGIN_FAIL', role: 'user', identifier, status: 'ERROR', ip: req.ip, message: 'Login blocked: Account suspended', reason: 'user_blocked' });
+                return res.status(403).json({ error: 'Mainframe: Your access has been permanently revoked by Command.' });
+            }
             const isMatch = await bcrypt.compare(password, user.password);
             if (isMatch) {
                 delete user.password;
                 user.role = 'user';
                 await setAuthCookie(res, req, user, 'user');
+                logAuthEvent({ event: 'LOGIN_SUCCESS', role: 'user', identifier, status: 'OK', ip: req.ip, message: `Logged in: ${user.name}` });
                 return res.json({ success: true, user });
+            } else {
+                logAuthEvent({ event: 'LOGIN_FAIL', role: 'user', identifier, status: 'ERROR', ip: req.ip, message: 'Login failed: Incorrect password', reason: 'wrong_password' });
             }
+        } else {
+            logAuthEvent({ event: 'LOGIN_FAIL', role: 'user', identifier, status: 'ERROR', ip: req.ip, message: 'Login failed: Account not found', reason: 'user_not_found' });
         }
         res.status(401).json({ error: 'Invalid phone number/email or password.' });
     } catch (err) {
+        logAuthEvent({ event: 'LOGIN_FAIL', role: 'user', identifier: identifier || 'unknown', status: 'ERROR', ip: req.ip, message: 'Auth Failure', reason: err.message });
         res.status(500).json({ error: 'Auth Failure' });
     }
 });
 
 // Admin Command Login
 app.post('/api/admin/login', authRateLimiter, async (req, res) => {
+    const { email, password } = req.body;
+    const cleanEmail = cleanString(email);
     try {
-        const { email, password } = req.body;
-        const cleanEmail = cleanString(email);
-        
         if (!cleanEmail || !password) {
+            logAuthEvent({ event: 'LOGIN_FAIL', role: 'admin', identifier: cleanEmail || 'unknown', status: 'ERROR', ip: req.ip, message: 'Admin login failed: Missing credentials', reason: 'missing_fields' });
             return res.status(400).json({ error: 'Email and password are required.' });
         }
 
         const [taxi_admins] = await db.query('SELECT id, name, email, password FROM taxi_admins WHERE email = ?', [cleanEmail]);
-        
+
         if (taxi_admins.length > 0) {
             const user = taxi_admins[0];
             const isMatch = await bcrypt.compare(password, user.password);
@@ -1447,141 +1886,150 @@ app.post('/api/admin/login', authRateLimiter, async (req, res) => {
                 delete user.password;
                 user.role = 'admin';
                 await setAuthCookie(res, req, user, 'admin');
+                logAuthEvent({ event: 'LOGIN_SUCCESS', role: 'admin', identifier: cleanEmail, status: 'OK', ip: req.ip, message: `Admin logged in: ${user.name}` });
                 return res.json({ success: true, user });
+            } else {
+                logAuthEvent({ event: 'LOGIN_FAIL', role: 'admin', identifier: cleanEmail, status: 'ERROR', ip: req.ip, message: 'Admin login failed: Incorrect password', reason: 'wrong_password' });
             }
+        } else {
+            logAuthEvent({ event: 'LOGIN_FAIL', role: 'admin', identifier: cleanEmail, status: 'ERROR', ip: req.ip, message: 'Admin login failed: Account not found', reason: 'admin_not_found' });
         }
         res.status(401).json({ error: 'Mainframe Access Denied.' });
     } catch (err) {
+        logAuthEvent({ event: 'LOGIN_FAIL', role: 'admin', identifier: cleanEmail || 'unknown', status: 'ERROR', ip: req.ip, message: 'Executive Auth Failure', reason: err.message });
         res.status(500).json({ error: 'Executive Auth Failure' });
     }
 });
 
 // Partner Pilot Login
 app.post('/api/driver/login', authRateLimiter, async (req, res) => {
+    const { phone, password } = req.body;
+    const cleanPhone = cleanString(phone);
     try {
-        const { phone, password } = req.body;
-        const cleanPhone = cleanString(phone);
-        
         if (!cleanPhone || !password) {
+            logAuthEvent({ event: 'LOGIN_FAIL', role: 'driver', identifier: cleanPhone || 'unknown', status: 'ERROR', ip: req.ip, message: 'Pilot login failed: Missing credentials', reason: 'missing_fields' });
             return res.status(400).json({ error: 'Phone and password are required.' });
         }
 
         const [drivers] = await db.query('SELECT id, name, email, phone, car_model, car_number, vehicle_type, wallet_balance, password, is_blocked FROM taxi_drivers WHERE phone = ?', [cleanPhone]);
-        
+
         if (drivers.length > 0) {
             const user = drivers[0];
-            if (user.is_blocked) return res.status(403).json({ error: 'Flight Status: Denied. Your authorization key has been revoked by Ground Control.' });
+            if (user.is_blocked) {
+                logAuthEvent({ event: 'LOGIN_FAIL', role: 'driver', identifier: cleanPhone, status: 'ERROR', ip: req.ip, message: 'Pilot login blocked: Account suspended', reason: 'driver_blocked' });
+                return res.status(403).json({ error: 'Flight Status: Denied. Your authorization key has been revoked by Ground Control.' });
+            }
             const isMatch = await bcrypt.compare(password, user.password);
             if (isMatch) {
                 delete user.password;
                 user.role = 'driver';
                 await setAuthCookie(res, req, user, 'driver');
+                logAuthEvent({ event: 'LOGIN_SUCCESS', role: 'driver', identifier: cleanPhone, status: 'OK', ip: req.ip, message: `Pilot logged in: ${user.name}` });
                 return res.json({ success: true, user });
+            } else {
+                logAuthEvent({ event: 'LOGIN_FAIL', role: 'driver', identifier: cleanPhone, status: 'ERROR', ip: req.ip, message: 'Pilot login failed: Incorrect password', reason: 'wrong_password' });
             }
+        } else {
+            logAuthEvent({ event: 'LOGIN_FAIL', role: 'driver', identifier: cleanPhone, status: 'ERROR', ip: req.ip, message: 'Pilot login failed: Account not found', reason: 'driver_not_found' });
         }
         res.status(401).json({ error: 'Pilot Authorization Denied. Invalid phone number or password.' });
     } catch (err) {
+        logAuthEvent({ event: 'LOGIN_FAIL', role: 'driver', identifier: cleanPhone || 'unknown', status: 'ERROR', ip: req.ip, message: 'Pilot Auth Failure', reason: err.message });
         res.status(500).json({ error: 'Pilot Auth Failure' });
     }
 });
 
-app.post('/api/auth/logout', async (req, res) => {
-    // Revoke refresh token from DB if present
-    const refreshToken = req.cookies.cityride_refresh;
-    if (refreshToken && db) {
-        try {
-            const decoded = jwt.verify(refreshToken, REFRESH_SECRET);
-            if (decoded.tid) {
-                await db.query('DELETE FROM taxi_refresh_tokens WHERE token_id = ?', [decoded.tid]);
-            }
-        } catch (e) { /* Token invalid/expired, cleanup not needed */ }
+// --- SESSION RESTORE ENDPOINT ---
+// Called by client pages when localStorage is empty. Validates the httpOnly
+// JWT cookie and returns user identity so the client can re-hydrate localStorage
+// without forcing the user to log in again.
+app.get('/api/auth/session', async (req, res) => {
+    const allCookies = req.cookies || {};
+    const requestedRole = req.query.role; // Optional: client can specify which role to restore
+
+    // Try to find a valid token - prefer the role-specific one if role is specified
+    let token = null;
+    if (requestedRole) {
+        token = allCookies[getRoleCookieName(requestedRole)];
     }
-    res.clearCookie('cityride_token');
-    res.clearCookie('cityride_refresh', { path: '/api/auth/refresh' });
-    res.json({ success: true, message: 'Logged out successfully' });
+    if (!token) {
+        // Try all role cookies in order
+        token = allCookies.cr_admin_tok || allCookies.cr_driver_tok ||
+            allCookies.cr_user_tok || allCookies.cr_vendor_tok ||
+            allCookies.cityride_token;
+    }
+    if (!token) {
+        return res.status(401).json({ valid: false });
+    }
+    try {
+        const decoded = jwt.verify(token, JWT_SECRET);
+        const role = decoded.role;
+        let userData = null;
+
+        if (role === 'admin') {
+            const [rows] = await db.query('SELECT id, name, email FROM taxi_admins WHERE id = ?', [decoded.id]);
+            if (rows.length > 0) userData = { ...rows[0], role: 'admin' };
+        } else if (role === 'driver') {
+            const [rows] = await db.query('SELECT id, name, phone, email, car_model, car_number, vehicle_type, wallet_balance FROM taxi_drivers WHERE id = ?', [decoded.id]);
+            if (rows.length > 0) userData = { ...rows[0], role: 'driver' };
+        } else if (role === 'vendor') {
+            const [rows] = await db.query('SELECT id, name, email, phone, business_name FROM taxi_vendors WHERE id = ?', [decoded.id]);
+            if (rows.length > 0) userData = { ...rows[0], role: 'vendor' };
+        } else if (role === 'user') {
+            const [rows] = await db.query('SELECT id, name, phone, email FROM passengers WHERE id = ?', [decoded.id]);
+            if (rows.length > 0) userData = { ...rows[0], role: 'user' };
+        }
+
+        if (!userData) {
+            return res.status(401).json({ valid: false });
+        }
+
+        return res.json({ valid: true, user: userData, role });
+    } catch (err) {
+        return res.status(401).json({ valid: false });
+    }
 });
 
-// --- REFRESH TOKEN ROTATION ENDPOINT ---
-app.post('/api/auth/refresh', async (req, res) => {
-    const refreshToken = req.cookies.cityride_refresh;
-    if (!refreshToken) {
-        return res.status(401).json({ error: 'No refresh token provided.', code: 'NO_REFRESH' });
-    }
-
-    try {
-        const decoded = jwt.verify(refreshToken, REFRESH_SECRET);
-        
-        // Verify fingerprint
-        const currentFingerprint = generateFingerprint(req);
-        if (decoded.fp && decoded.fp !== currentFingerprint) {
-            // Possible token theft - revoke ALL tokens for this user
-            if (db) {
-                await db.query('DELETE FROM taxi_refresh_tokens WHERE user_id = ? AND role = ?', [decoded.id, decoded.role]);
+app.post('/api/auth/logout', (req, res) => {
+    let identifier = 'session';
+    let role = 'user';
+    const allCookies = req.cookies || {};
+    // Find any valid token to log identity
+    const anyToken = allCookies.cr_admin_tok || allCookies.cr_driver_tok ||
+        allCookies.cr_user_tok || allCookies.cr_vendor_tok || allCookies.cityride_token;
+    if (anyToken) {
+        try {
+            const decoded = jwt.verify(anyToken, JWT_SECRET);
+            if (decoded) {
+                identifier = decoded.email || decoded.phone || decoded.name || 'session';
+                role = decoded.role || 'user';
             }
-            console.warn(`[SECURITY] Refresh token fingerprint mismatch for user ${decoded.id}. All sessions revoked.`);
-            res.clearCookie('cityride_token');
-            res.clearCookie('cityride_refresh', { path: '/api/auth/refresh' });
-            return res.status(403).json({ error: 'Session security violation. All sessions revoked.', code: 'FINGERPRINT_MISMATCH' });
-        }
-
-        // Verify token exists in DB (not revoked)
-        if (db && decoded.tid) {
-            const [rows] = await db.query('SELECT id FROM taxi_refresh_tokens WHERE token_id = ? AND user_id = ?', [decoded.tid, decoded.id]);
-            if (rows.length === 0) {
-                // Token was revoked (possible replay attack)
-                console.warn(`[SECURITY] Revoked refresh token reuse detected for user ${decoded.id}. Revoking all sessions.`);
-                await db.query('DELETE FROM taxi_refresh_tokens WHERE user_id = ? AND role = ?', [decoded.id, decoded.role]);
-                res.clearCookie('cityride_token');
-                res.clearCookie('cityride_refresh', { path: '/api/auth/refresh' });
-                return res.status(403).json({ error: 'Token reuse detected. All sessions revoked for security.', code: 'TOKEN_REUSE' });
-            }
-
-            // Rotate: delete old token
-            await db.query('DELETE FROM taxi_refresh_tokens WHERE token_id = ?', [decoded.tid]);
-        }
-
-        // Fetch fresh user data from DB
-        let user = null;
-        if (decoded.role === 'user') {
-            const [users] = await db.query('SELECT id, name, email, phone FROM passengers WHERE id = ?', [decoded.id]);
-            user = users[0];
-        } else if (decoded.role === 'driver') {
-            const [drivers] = await db.query('SELECT id, name, email, phone FROM taxi_drivers WHERE id = ?', [decoded.id]);
-            user = drivers[0];
-        } else if (decoded.role === 'admin') {
-            const [admins] = await db.query('SELECT id, name, email FROM taxi_admins WHERE id = ?', [decoded.id]);
-            user = admins[0];
-        } else if (decoded.role === 'vendor') {
-            const [vendors] = await db.query('SELECT id, name, email, phone FROM taxi_vendors WHERE id = ?', [decoded.id]);
-            user = vendors[0];
-        }
-
-        if (!user) {
-            return res.status(403).json({ error: 'User no longer exists.', code: 'USER_NOT_FOUND' });
-        }
-
-        // Issue new token pair (rotation)
-        await setAuthCookie(res, req, user, decoded.role);
-        res.json({ success: true, message: 'Tokens rotated successfully.' });
-    } catch (err) {
-        if (err.name === 'TokenExpiredError') {
-            res.clearCookie('cityride_refresh', { path: '/api/auth/refresh' });
-            return res.status(401).json({ error: 'Refresh token expired. Please log in again.', code: 'REFRESH_EXPIRED' });
-        }
-        return res.status(403).json({ error: 'Invalid refresh token.' });
+        } catch (e) { }
     }
+    logAuthEvent({ event: 'LOGOUT', role, identifier, status: 'OK', ip: req.ip, message: 'Logged out successfully' });
+    // Clear all role-specific cookies
+    res.clearCookie('cr_admin_tok');
+    res.clearCookie('cr_driver_tok');
+    res.clearCookie('cr_user_tok');
+    res.clearCookie('cr_vendor_tok');
+    res.clearCookie('cityride_token');
+    res.json({ success: true, message: 'Logged out successfully' });
 });
 
 // --- DRIVER REGISTRATION OTP FLOW ---
 app.post('/api/driver/register/send-otp', async (req, res) => {
+    const { email } = req.body;
     try {
-        const { email } = req.body;
-        if (!email) return res.status(400).json({ error: 'Email is required for verification.' });
+        if (!email) {
+            logAuthEvent({ event: 'OTP_SENT', role: 'driver', identifier: 'unknown', status: 'ERROR', ip: req.ip, message: 'OTP failed: Email missing' });
+            return res.status(400).json({ error: 'Email is required for verification.' });
+        }
 
         // Check if email already in use
         const [existing] = await db.query('SELECT id FROM taxi_drivers WHERE email = ?', [email]);
         const [existingApp] = await db.query('SELECT id FROM taxi_driver_applications WHERE email = ?', [email]);
         if (existing.length > 0 || existingApp.length > 0) {
+            logAuthEvent({ event: 'OTP_SENT', role: 'driver', identifier: email, status: 'ERROR', ip: req.ip, message: 'OTP failed: Email already registered or pending application', reason: 'email_taken' });
             return res.status(400).json({ error: 'This email is already registered or has a pending application.' });
         }
 
@@ -1602,31 +2050,42 @@ app.post('/api/driver/register/send-otp', async (req, res) => {
         `;
 
         await sendBrevoMail(email, subject, html);
+        logAuthEvent({ event: 'OTP_SENT', role: 'driver', identifier: email, status: 'OK', ip: req.ip, message: 'Pilot recruitment OTP sent' });
         res.json({ success: true, message: 'Verification token dispatched to your inbox.' });
     } catch (err) {
         console.error('OTP Dispatch Error:', err.message);
+        logAuthEvent({ event: 'OTP_SENT', role: 'driver', identifier: email || 'unknown', status: 'ERROR', ip: req.ip, message: 'OTP dispatch failure', reason: err.message });
         res.status(500).json({ error: 'Neural Link failed (Email System Offline).' });
     }
 });
 
 app.post('/api/driver/register/verify-otp', (req, res) => {
     const { email, otp } = req.body;
-    if (!email || !otp) return res.status(400).json({ error: 'Email and token are required.' });
+    if (!email || !otp) {
+        logAuthEvent({ event: 'OTP_VERIFY', role: 'driver', identifier: email || 'unknown', status: 'ERROR', ip: req.ip, message: 'OTP verification failed: Missing inputs', reason: 'missing_fields' });
+        return res.status(400).json({ error: 'Email and token are required.' });
+    }
 
     const stored = registrationOtps.get(email);
-    if (!stored) return res.status(400).json({ error: 'No verification request found for this email.' });
+    if (!stored) {
+        logAuthEvent({ event: 'OTP_VERIFY', role: 'driver', identifier: email, status: 'ERROR', ip: req.ip, message: 'OTP verification failed: Verification session not found', reason: 'no_otp_session' });
+        return res.status(400).json({ error: 'No verification request found for this email.' });
+    }
 
     if (Date.now() > stored.expiry) {
         registrationOtps.delete(email);
+        logAuthEvent({ event: 'OTP_VERIFY', role: 'driver', identifier: email, status: 'ERROR', ip: req.ip, message: 'OTP verification failed: Token expired', reason: 'expired' });
         return res.status(400).json({ error: 'Verification token expired. Please request a new one.' });
     }
 
     if (stored.otp !== otp) {
+        logAuthEvent({ event: 'OTP_VERIFY', role: 'driver', identifier: email, status: 'ERROR', ip: req.ip, message: 'OTP verification failed: Invalid token', reason: 'wrong_otp' });
         return res.status(400).json({ error: 'Invalid verification token.' });
     }
 
     // Mark as verified
     stored.verified = true;
+    logAuthEvent({ event: 'OTP_VERIFY', role: 'driver', identifier: email, status: 'OK', ip: req.ip, message: 'Pilot identity verified' });
     res.json({ success: true, message: 'Identity verified. You may now continue your application.' });
 });
 
@@ -1640,19 +2099,21 @@ app.post('/api/driver/register', authRateLimiter, upload.fields([
     { name: 'rc_book', maxCount: 1 },
     { name: 'insurance', maxCount: 1 },
     { name: 'pollution', maxCount: 1 },
-    { name: 'permit', maxCount: 1 }
+    { name: 'permit', maxCount: 1 },
+    { name: 'payment_qr', maxCount: 1 }
 ]), async (req, res) => {
+    let { name, email, password, phone, car_model, car_number, vehicle_type } = req.body;
     try {
-        let { name, email, password, phone, car_model, car_number, vehicle_type } = req.body;
         name = cleanString(name);
         email = cleanString(email);
         phone = cleanString(phone);
         car_model = cleanString(car_model);
         car_number = cleanString(car_number);
         vehicle_type = cleanString(vehicle_type);
-        
+
         // Validation
         if (!name || !email || !password || !phone) {
+            logAuthEvent({ event: 'REGISTER_FAIL', role: 'driver', identifier: email || phone || 'unknown', status: 'ERROR', ip: req.ip, message: 'Pilot registration failed: Missing fields', reason: 'missing_fields' });
             return res.status(400).json({ error: 'Core identity details are required.' });
         }
 
@@ -1669,9 +2130,11 @@ app.post('/api/driver/register', authRateLimiter, upload.fields([
         const [existingDriverPhone] = await db.query('SELECT id FROM taxi_drivers WHERE phone = ?', [phone]);
 
         if (existingEmail.length > 0 || existingDriverEmail.length > 0) {
+            logAuthEvent({ event: 'REGISTER_FAIL', role: 'driver', identifier: email, status: 'ERROR', ip: req.ip, message: 'Pilot registration failed: Email already registered', reason: 'email_taken' });
             return res.status(400).json({ error: 'This email is already registered or has a pending application.' });
         }
         if (existingPhone.length > 0 || existingDriverPhone.length > 0) {
+            logAuthEvent({ event: 'REGISTER_FAIL', role: 'driver', identifier: phone, status: 'ERROR', ip: req.ip, message: 'Pilot registration failed: Phone number already registered', reason: 'phone_taken' });
             return res.status(400).json({ error: 'This phone number is already registered or has a pending application.' });
         }
 
@@ -1688,25 +2151,28 @@ app.post('/api/driver/register', authRateLimiter, upload.fields([
         const insurance = await optimizeAndGetBase64(req.files?.['insurance']);
         const pollution = await optimizeAndGetBase64(req.files?.['pollution']);
         const permit = await optimizeAndGetBase64(req.files?.['permit']);
+        const payment_qr = await optimizeAndGetBase64(req.files?.['payment_qr']);
 
         const sql = `
             INSERT INTO taxi_driver_applications 
             (name, email, password, phone, car_model, car_number, vehicle_type, 
              dl_front, dl_back, pvc, aadhar_front, aadhar_back, 
-             rc_book, insurance, pollution, permit) 
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             rc_book, insurance, pollution, permit, payment_qr) 
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `;
 
         const values = [
             name, email, hashedPassword, phone, car_model, car_number, vehicle_type,
             dl_front, dl_back, pvc, aadhar_front, aadhar_back,
-            rc_book, insurance, pollution, permit
+            rc_book, insurance, pollution, permit, payment_qr
         ];
 
         await db.query(sql, values);
+        logAuthEvent({ event: 'REGISTER_SUCCESS', role: 'driver', identifier: email, status: 'OK', ip: req.ip, message: `Pilot application submitted: ${name}` });
         res.json({ success: true, message: 'Application submitted! Ground Control will review your credentials shortly.' });
     } catch (err) {
         console.error('Driver Registration Error:', err.message);
+        logAuthEvent({ event: 'REGISTER_FAIL', role: 'driver', identifier: email || 'unknown', status: 'ERROR', ip: req.ip, message: 'Failed to process application', reason: err.message });
         res.status(500).json({ error: 'Failed to process application.' });
     }
 });
@@ -1725,7 +2191,7 @@ app.get('/api/admin/driver-applications', async (req, res) => {
         const { status } = req.query;
         let sql = 'SELECT * FROM taxi_driver_applications';
         let params = [];
-        
+
         if (status) {
             sql += ' WHERE status = ?';
             params.push(status);
@@ -1733,9 +2199,9 @@ app.get('/api/admin/driver-applications', async (req, res) => {
             // Default to pending for the main queue
             sql += ' WHERE status = "pending"';
         }
-        
+
         sql += ' ORDER BY created_at DESC';
-        
+
         const [apps] = await db.query(sql, params);
         apps.forEach(app => delete app.password);
         res.json({ success: true, applications: apps });
@@ -1759,7 +2225,7 @@ app.post('/api/admin/driver-applications/decision', async (req, res) => {
     try {
         const [apps] = await db.query('SELECT * FROM taxi_driver_applications WHERE id = ?', [appId]);
         if (apps.length === 0) return res.status(404).json({ error: 'Application not found.' });
-        
+
         const app = apps[0];
         const escapedNote = escapeHTML(note || 'Processed by Command.');
 
@@ -1768,17 +2234,17 @@ app.post('/api/admin/driver-applications/decision', async (req, res) => {
             const sql = `
                 INSERT INTO taxi_drivers (
                     name, email, password, phone, car_model, car_number, vehicle_type, approval_status,
-                    dl_front, dl_back, pvc, aadhar_front, aadhar_back, rc_book, insurance, pollution, permit
+                    dl_front, dl_back, pvc, aadhar_front, aadhar_back, rc_book, insurance, pollution, permit, payment_qr
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, 'approved', ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, 'approved', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             `;
             const values = [
                 app.name, app.email, app.password, app.phone, app.car_model, app.car_number, app.vehicle_type,
-                app.dl_front, app.dl_back, app.pvc, app.aadhar_front, app.aadhar_back, 
-                app.rc_book, app.insurance, app.pollution, app.permit
+                app.dl_front, app.dl_back, app.pvc, app.aadhar_front, app.aadhar_back,
+                app.rc_book, app.insurance, app.pollution, app.permit, app.payment_qr
             ];
             await db.query(sql, values);
-            
+
             // Mark application as approved (History Storage)
             await db.query('UPDATE taxi_driver_applications SET status = "approved", admin_note = ? WHERE id = ?', [escapedNote, appId]);
 
@@ -1788,7 +2254,7 @@ app.post('/api/admin/driver-applications/decision', async (req, res) => {
         } else {
             // REJECTED: Delete application data as requested
             await db.query('DELETE FROM taxi_driver_applications WHERE id = ?', [appId]);
-            
+
             // Optional: Send Email Notification
             await sendBrevoMail(app.email, 'Pilot Application Update', `<h2>Ground Control Update</h2><p>Your application was not authorized at this time.</p><p><strong>Reason:</strong> ${escapedNote}</p>`).catch(e => console.error('Rejection notification failed', e));
         }
@@ -1803,7 +2269,7 @@ app.post('/api/admin/driver-applications/decision', async (req, res) => {
 // 4.1 Get Latest Driver Info
 app.get('/api/driver/info/:id', authenticateJWT, requireRole(['driver', 'user', 'admin']), async (req, res) => {
     try {
-        const [drivers] = await db.query('SELECT id, name, email, phone, car_model, car_number, vehicle_type, wallet_balance FROM taxi_drivers WHERE id = ?', [req.params.id]);
+        const [drivers] = await db.query('SELECT id, name, email, phone, car_model, car_number, vehicle_type, wallet_balance, payment_qr FROM taxi_drivers WHERE id = ?', [req.params.id]);
         if (drivers.length > 0) {
             const driver = drivers[0];
             const [ratingRows] = await db.query('SELECT AVG(rating) as avg_rating, COUNT(rating) as total_ratings FROM taxi_bookings WHERE driver_id = ? AND rating IS NOT NULL', [req.params.id]);
@@ -1818,31 +2284,74 @@ app.get('/api/driver/info/:id', authenticateJWT, requireRole(['driver', 'user', 
     }
 });
 
+app.post('/api/driver/wallet-payment-notify', authenticateJWT, requireRole(['driver']), async (req, res) => {
+    try {
+        const { amount } = req.body;
+        const driverId = req.user.id;
+
+        const [drivers] = await db.query('SELECT name, phone FROM taxi_drivers WHERE id = ?', [driverId]);
+        if (drivers.length === 0) return res.status(404).json({ error: 'Driver not found' });
+
+        const driverName = drivers[0].name;
+        const driverPhone = drivers[0].phone;
+
+        // Admin email address
+        const adminEmail = process.env.REPORT_RECEIVER_EMAIL || 'sureshit2005@gmail.com';
+
+        const emailContent = `<h2>Pilot Wallet Payment Notification</h2>
+             <p><strong>Pilot Name:</strong> ${driverName}</p>
+             <p><strong>Pilot Phone:</strong> ${driverPhone}</p>
+             <p><strong>Pilot ID:</strong> ${driverId}</p>
+             <p><strong>Amount Transferred:</strong> Rs.${parseFloat(amount).toFixed(2)}</p>
+             <p>Please verify the UPI payment and update the pilot's wallet balance in the Admin Panel.</p>`;
+
+        await sendBrevoMail(
+            adminEmail,
+            'Pilot Wallet Payment Notification',
+            emailContent
+        ).catch(e => console.error('Notify email failed to send', e));
+
+        res.json({ success: true, message: 'Ground Control Notified.' });
+    } catch (err) {
+        console.error('Wallet Payment Notify Error:', err.message);
+        res.status(500).json({ error: 'Failed to send notification.' });
+    }
+});
+
 // 5. Vendor Partner Login
 app.post('/api/vendor/login', authRateLimiter, async (req, res) => {
+    const { vendor_id, password } = req.body;
+    const cleanVendorId = cleanString(vendor_id);
     try {
-        const { vendor_id, password } = req.body;
-        const cleanVendorId = cleanString(vendor_id);
-        
         if (!cleanVendorId || !password) {
+            logAuthEvent({ event: 'LOGIN_FAIL', role: 'vendor', identifier: cleanVendorId || 'unknown', status: 'ERROR', ip: req.ip, message: 'Vendor login failed: Missing credentials', reason: 'missing_fields' });
             return res.status(400).json({ error: 'Vendor ID and password are required.' });
         }
 
         const [rows] = await db.query('SELECT * FROM taxi_vendors WHERE vendor_id = ?', [cleanVendorId]);
-        
+
         if (rows.length > 0) {
             const vendor = rows[0];
-            if (vendor.is_blocked) return res.status(403).json({ error: 'Partner Access Revoked. Contact Command.' });
+            if (vendor.is_blocked) {
+                logAuthEvent({ event: 'LOGIN_FAIL', role: 'vendor', identifier: cleanVendorId, status: 'ERROR', ip: req.ip, message: 'Vendor login blocked: Account suspended', reason: 'vendor_blocked' });
+                return res.status(403).json({ error: 'Partner Access Revoked. Contact Command.' });
+            }
             const isMatch = await bcrypt.compare(password, vendor.password);
             if (isMatch) {
                 delete vendor.password;
                 vendor.role = 'vendor';
                 await setAuthCookie(res, req, vendor, 'vendor');
+                logAuthEvent({ event: 'LOGIN_SUCCESS', role: 'vendor', identifier: cleanVendorId, status: 'OK', ip: req.ip, message: `Vendor logged in: ${vendor.name || vendor.vendor_id}` });
                 return res.json({ success: true, user: vendor });
+            } else {
+                logAuthEvent({ event: 'LOGIN_FAIL', role: 'vendor', identifier: cleanVendorId, status: 'ERROR', ip: req.ip, message: 'Vendor login failed: Incorrect password', reason: 'wrong_password' });
             }
+        } else {
+            logAuthEvent({ event: 'LOGIN_FAIL', role: 'vendor', identifier: cleanVendorId, status: 'ERROR', ip: req.ip, message: 'Vendor login failed: Account not found', reason: 'vendor_not_found' });
         }
         res.status(401).json({ error: 'Auth Failure. Invalid Vendor ID/Key.' });
     } catch (err) {
+        logAuthEvent({ event: 'LOGIN_FAIL', role: 'vendor', identifier: cleanVendorId || 'unknown', status: 'ERROR', ip: req.ip, message: 'Partner Auth Failure', reason: err.message });
         res.status(500).json({ error: 'Partner Auth Failure' });
     }
 });
@@ -1857,15 +2366,15 @@ app.post('/api/chat', async (req, res) => {
 
         // Offline Fallback
         if (!process.env.GEMINI_API_KEY) {
-            return res.json({ 
-                success: true, 
-                reply: "I am the CityRide AI. I am currently offline because the Ground Command has not connected my Neural Link API Key yet. Please call us directly!" 
+            return res.json({
+                success: true,
+                reply: "I am the CityRide AI. I am currently offline because the Ground Command has not connected my Neural Link API Key yet. Please call us directly!"
             });
         }
 
         const apiKey = (process.env.GEMINI_API_KEY || '').trim();
         const genAI = new GoogleGenerativeAI(apiKey);
-        
+
         // Final verified model: gemini-flash-latest is the only one with active quota for this project.
         const model = genAI.getGenerativeModel({ model: "gemini-flash-latest" });
 
@@ -1902,7 +2411,7 @@ app.post('/api/support/ticket', async (req, res) => {
         name = cleanString(name);
         email = cleanString(email);
         query = cleanString(query);
-        
+
         if (!name || !email || !query) return res.status(400).json({ error: 'All fields required.' });
         if (!validateEmail(email)) return res.status(400).json({ error: 'Invalid email address.' });
 
@@ -1925,9 +2434,9 @@ app.post('/api/support/ticket', async (req, res) => {
                 </div>
             </div>
         `;
-        
+
         await sendBrevoMail(adminEmail, subject, html);
-        
+
         // --- AUTO-MESSAGE / AUTO-REPLY TO CUSTOMER ---
         const customerSubject = `Ticket Received - CityRideTaxi Support`;
         const customerHtml = `
@@ -2027,7 +2536,7 @@ app.get('/api/vendor/tariffs/:vendorId', async (req, res) => {
         const vendorId = req.params.vendorId;
         const [defaultTariffs] = await db.query('SELECT * FROM taxi_tariffs');
         const [vendorTariffs] = await db.query('SELECT * FROM taxi_vendor_tariffs WHERE vendor_id = ?', [vendorId]);
-        
+
         const merged = defaultTariffs.map(def => {
             const vTariff = vendorTariffs.find(v => v.vehicle_type === def.vehicle_type && v.category === def.category);
             if (vTariff) {
@@ -2061,7 +2570,7 @@ app.post('/api/vendor/update-tariff', (req, res, next) => {
         if (!vendorId || !vehicleType || !category || !config) {
             return res.status(400).json({ error: 'vendorId, vehicleType, category, and config are required.' });
         }
-        
+
         await db.query(
             `INSERT INTO taxi_vendor_tariffs (vendor_id, vehicle_type, category, config) 
              VALUES (?, ?, ?, ?) 
@@ -2111,6 +2620,8 @@ app.post('/api/user/cancel-ride', authenticateJWT, requireRole(['user']), (req, 
         }
 
         await db.query('UPDATE taxi_bookings SET status = "cancelled", driver_id = NULL WHERE id = ?', [bookingId]);
+        // Clean up GPS state cache to prevent memory leaks
+        activeRidesGpsState.delete(bookingId);
 
         const todayStart = new Date();
         todayStart.setHours(0, 0, 0, 0);
@@ -2125,7 +2636,7 @@ app.post('/api/user/cancel-ride', authenticateJWT, requireRole(['user']), (req, 
         if (cancelCount >= 3) {
             banUntil = new Date(Date.now() + 24 * 60 * 60 * 1000);
             await db.query('UPDATE passengers SET banned_until = ? WHERE id = ?', [banUntil, userId]);
-            await db.query('UPDATE taxi_passengers SET banned_until = ? WHERE id = ?', [banUntil, userId]).catch(() => {});
+            await db.query('UPDATE taxi_passengers SET banned_until = ? WHERE id = ?', [banUntil, userId]).catch(() => { });
             banned = true;
         }
 
@@ -2191,27 +2702,50 @@ app.post('/api/bookings/accept', authenticateJWT, requireRole(['driver']), (req,
 }, async (req, res) => {
     try {
         const { bookingId, driverId } = req.body;
-        const [bookings] = await db.query('SELECT fare FROM taxi_bookings WHERE id = ? AND status = "pending"', [bookingId]);
-        if (bookings.length === 0) return res.status(400).json({ error: 'Ride no longer available.' });
-        
-        const bookingFare = parseFloat(bookings[0].fare.replace(/[^0-9.]/g, '')) || 0;
-        const requiredBalance = bookingFare * 0.10;
-        
-        const [drivers] = await db.query('SELECT wallet_balance FROM taxi_drivers WHERE id = ?', [driverId]);
-        if (drivers.length === 0) return res.status(400).json({ error: 'Pilot not found.' });
-        
-        if (parseFloat(drivers[0].wallet_balance) < requiredBalance) {
-            return res.status(400).json({ error: `Insufficient funds. Need ₹${requiredBalance.toFixed(2)}.` });
-        }
 
-        // --- ENFORCE SINGLE ACTIVE MISSION RULE ---
-        const [active] = await db.query('SELECT id FROM taxi_bookings WHERE driver_id = ? AND status = "assigned"', [driverId]);
-        if (active.length > 0) {
+        // Consolidated single select check query
+        const [checks] = await db.query(`
+            SELECT 
+              (SELECT fare FROM taxi_bookings WHERE id = ? AND status = 'pending') AS booking_fare,
+              (SELECT wallet_balance FROM taxi_drivers WHERE id = ?) AS wallet_balance,
+              (SELECT id FROM taxi_bookings WHERE driver_id = ? AND status = 'assigned' LIMIT 1) AS active_booking_id
+        `, [bookingId, driverId, driverId]);
+
+        const check = checks[0] || {};
+
+        if (check.booking_fare === null || check.booking_fare === undefined) {
+            return res.status(400).json({ error: 'Ride no longer available.' });
+        }
+        if (check.wallet_balance === null || check.wallet_balance === undefined) {
+            return res.status(400).json({ error: 'Pilot not found.' });
+        }
+        if (check.active_booking_id !== null && check.active_booking_id !== undefined) {
             return res.status(400).json({ error: 'Ground Control: You already have an active mission locked in. Complete your current duty before accepting new targets.' });
         }
 
-        await db.query('UPDATE taxi_bookings SET status = "assigned", driver_id = ? WHERE id = ?', [driverId, bookingId]);
-        await db.query('UPDATE taxi_drivers SET wallet_balance = wallet_balance - ? WHERE id = ?', [requiredBalance, driverId]);
+        const bookingFare = parseFloat(check.booking_fare.replace(/[^0-9.]/g, '')) || 0;
+        const requiredBalance = bookingFare * 0.10;
+
+        if (parseFloat(check.wallet_balance) < requiredBalance) {
+            return res.status(400).json({ error: `Insufficient funds. Need ₹${requiredBalance.toFixed(2)}.` });
+        }
+
+        // Atomic conditional update to prevent race conditions
+        const [updateResult] = await db.query(
+            'UPDATE taxi_bookings SET status = "assigned", driver_id = ? WHERE id = ? AND status = "pending"',
+            [driverId, bookingId]
+        );
+
+        if (updateResult.affectedRows === 0) {
+            return res.status(400).json({ error: 'Ride no longer available (accepted by another pilot).' });
+        }
+
+        // Deduct wallet balance only for the winning driver
+        await db.query(
+            'UPDATE taxi_drivers SET wallet_balance = wallet_balance - ? WHERE id = ?',
+            [requiredBalance, driverId]
+        );
+
         res.json({ success: true });
     } catch (err) {
         res.status(500).json({ error: err.message });
@@ -2243,6 +2777,8 @@ app.post('/api/admin/approve-cancel', async (req, res) => {
     try {
         const { bookingId } = req.body;
         await db.query('UPDATE taxi_bookings SET status = "cancelled", driver_id = NULL WHERE id = ?', [bookingId]);
+        // Clean up GPS state cache to prevent memory leaks
+        activeRidesGpsState.delete(bookingId);
         res.json({ success: true, message: 'Mission officially aborted.' });
     } catch (err) {
         res.status(500).json({ error: err.message });
@@ -2255,7 +2791,7 @@ app.post('/api/admin/reject-cancel', async (req, res) => {
         const { bookingId, note } = req.body;
         const [bookings] = await db.query('SELECT driver_id, cancel_reason FROM taxi_bookings WHERE id = ?', [bookingId]);
         if (bookings.length > 0) {
-            await db.query('INSERT INTO abort_rejections (booking_id, driver_id, original_reason, admin_note) VALUES (?, ?, ?, ?)', 
+            await db.query('INSERT INTO abort_rejections (booking_id, driver_id, original_reason, admin_note) VALUES (?, ?, ?, ?)',
                 [bookingId, bookings[0].driver_id, bookings[0].cancel_reason, note || 'Rejected by Admin Control']);
         }
         await db.query('UPDATE taxi_bookings SET status = "assigned" WHERE id = ?', [bookingId]);
@@ -2432,7 +2968,7 @@ app.post('/api/admin/delete-driver', async (req, res) => {
 app.post('/api/admin/update-user', async (req, res) => {
     try {
         const { id, name, email, phone, password } = req.body;
-        
+
         let sql = 'UPDATE passengers SET name = ?, email = ?, phone = ?';
         let params = [name, email, phone];
 
@@ -2457,7 +2993,7 @@ app.post('/api/admin/update-user', async (req, res) => {
 app.post('/api/admin/update-driver', async (req, res) => {
     try {
         const { id, name, email, phone, car_model, car_number, vehicle_type, password } = req.body;
-        
+
         let sql = 'UPDATE taxi_drivers SET name = ?, email = ?, phone = ?, car_model = ?, car_number = ?, vehicle_type = ?';
         let params = [name, email, phone, car_model, car_number, vehicle_type];
 
@@ -2493,7 +3029,7 @@ app.post('/api/admin/update-driver-password', async (req, res) => {
     try {
         const { id, password } = req.body;
         if (!id || !password) return res.status(400).json({ error: 'ID and password are required.' });
-        
+
         const salt = await bcrypt.genSalt(10);
         const hashedPassword = await bcrypt.hash(password, salt);
         await db.query('UPDATE taxi_drivers SET password = ? WHERE id = ?', [hashedPassword, id]);
@@ -2508,7 +3044,7 @@ app.post('/api/admin/update-passenger-password', async (req, res) => {
     try {
         const { id, password } = req.body;
         if (!id || !password) return res.status(400).json({ error: 'ID and password are required.' });
-        
+
         const salt = await bcrypt.genSalt(10);
         const hashedPassword = await bcrypt.hash(password, salt);
         await db.query('UPDATE passengers SET password = ? WHERE id = ?', [hashedPassword, id]);
@@ -2576,7 +3112,7 @@ app.post('/api/admin/create-vendor', async (req, res) => {
 app.post('/api/admin/update-vendor', async (req, res) => {
     try {
         const { id, vendor_id, name, business_name, email, password, phone, is_blocked } = req.body;
-        
+
         const [existing] = await db.query('SELECT id FROM taxi_vendors WHERE (vendor_id = ? OR email = ?) AND id != ?', [vendor_id, email, id]);
         if (existing.length > 0) return res.status(400).json({ error: 'Partner ID or Email already exists on another account.' });
 
@@ -2612,7 +3148,7 @@ app.get('/api/driver/jobs/:driverId', async (req, res) => {
     try {
         const [driverRows] = await db.query('SELECT vehicle_type FROM taxi_drivers WHERE id = ?', [req.params.driverId]);
         if (driverRows.length === 0) return res.status(404).json({ error: 'Driver not found' });
-        
+
         const driverVehicleType = driverRows[0].vehicle_type;
         const sql = `
             SELECT b.*, 
@@ -2625,7 +3161,64 @@ app.get('/api/driver/jobs/:driverId', async (req, res) => {
             ORDER BY b.created_at ASC
         `;
         const [rows] = await db.query(sql, [driverVehicleType]);
+
+        // --- Air Distance Restriction ---
+        // Check if the admin has enabled this feature
+        const [settingRows] = await db.query(
+            "SELECT setting_value FROM taxi_settings WHERE setting_key = 'air_distance_restrict'"
+        );
+        const restrictEnabled = settingRows.length > 0 && settingRows[0].setting_value === '1';
+
+        const driverLat = parseFloat(req.query.lat);
+        const driverLng = parseFloat(req.query.lng);
+        const driverLocationKnown = !isNaN(driverLat) && !isNaN(driverLng);
+
+        if (restrictEnabled && driverLocationKnown) {
+            // Filter bookings by haversine air distance from driver
+            const filtered = rows.filter(booking => {
+                if (!booking.pickup_coords) return true; // No coords: always show
+                const parts = booking.pickup_coords.split(',');
+                if (parts.length < 2) return true;
+                const pickupLat = parseFloat(parts[0]);
+                const pickupLng = parseFloat(parts[1]);
+                if (isNaN(pickupLat) || isNaN(pickupLng)) return true;
+
+                const tripType = (booking.trip_type || '').toLowerCase();
+                // Local: 3 km radius; Outstation (oneway/round) & Rental: 5 km radius
+                const radiusKm = (tripType === 'local') ? 3 : 5;
+                const dist = getDistance(driverLat, driverLng, pickupLat, pickupLng);
+                return dist <= radiusKm;
+            });
+            return res.json(filtered);
+        }
+
         res.json(rows);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// 4.4.1 Admin System Settings
+app.get('/api/admin/settings', authenticateJWT, requireRole(['admin']), async (req, res) => {
+    try {
+        const [rows] = await db.query('SELECT setting_key, setting_value FROM taxi_settings');
+        const settings = {};
+        rows.forEach(r => { settings[r.setting_key] = r.setting_value; });
+        res.json(settings);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+app.post('/api/admin/settings', authenticateJWT, requireRole(['admin']), async (req, res) => {
+    try {
+        const { key, value } = req.body;
+        if (!key) return res.status(400).json({ error: 'Setting key is required.' });
+        await db.query(
+            'INSERT INTO taxi_settings (setting_key, setting_value) VALUES (?, ?) ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value)',
+            [key, String(value)]
+        );
+        res.json({ success: true, message: `Setting "${key}" updated.` });
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
@@ -2643,7 +3236,7 @@ app.post('/api/admin/transfer-ride', async (req, res) => {
 
         await db.query('UPDATE taxi_bookings SET driver_id = ?, status = "assigned" WHERE id = ?', [newDriverId, bookingId]);
         await db.query('UPDATE taxi_drivers SET wallet_balance = wallet_balance - ? WHERE id = ?', [requiredBalance, newDriverId]);
-        
+
         res.json({ success: true, message: `Ride #B${bookingId} assigned/transferred. Fee deducted.` });
     } catch (err) {
         res.status(500).json({ error: err.message });
@@ -2655,15 +3248,182 @@ function getDistance(lat1, lon1, lat2, lon2) {
     const R = 6371; // km
     const dLat = (lat2 - lat1) * Math.PI / 180;
     const dLon = (lon2 - lon1) * Math.PI / 180;
-    const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
-              Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
-              Math.sin(dLon/2) * Math.sin(dLon/2);
-    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+    const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+        Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+        Math.sin(dLon / 2) * Math.sin(dLon / 2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
     return R * c;
 }
 
+// Retrieve or initialize the in-memory GPS Kalman filter state and cumulative distance for a booking
+async function getOrInitGpsState(bookingId, startCoordsStr, journeyStartTime) {
+    if (activeRidesGpsState.has(bookingId)) {
+        return activeRidesGpsState.get(bookingId);
+    }
+
+    let actualDistKm = 0;
+    let startCoords = startCoordsStr || null;
+    if (startCoords === 'null,null') {
+        startCoords = null;
+    }
+
+    // Fetch existing GPS logs in chronological order to reconstruct state
+    const [gpsLogs] = await db.query(
+        'SELECT latitude, longitude, accuracy, speed, created_at FROM taxi_ride_gps_logs WHERE booking_id = ? ORDER BY id ASC',
+        [bookingId]
+    );
+
+    let startTimeMs = Date.now();
+    if (journeyStartTime) {
+        startTimeMs = new Date(journeyStartTime).getTime();
+    } else {
+        const [bookingRows] = await db.query(
+            'SELECT journey_start_time FROM taxi_bookings WHERE id = ?',
+            [bookingId]
+        );
+        if (bookingRows.length > 0 && bookingRows[0].journey_start_time) {
+            startTimeMs = new Date(bookingRows[0].journey_start_time).getTime();
+        }
+    }
+
+    const rawPoints = [];
+    if (startCoords) {
+        const [sLng, sLat] = startCoords.split(',').map(Number);
+        if (!isNaN(sLng) && !isNaN(sLat)) {
+            rawPoints.push({ lat: sLat, lng: sLng, acc: 5, time: startTimeMs });
+        }
+    }
+
+    for (const log of gpsLogs) {
+        const lat = parseFloat(log.latitude);
+        const lng = parseFloat(log.longitude);
+        const acc = parseFloat(log.accuracy) || 0;
+        const logTime = log.created_at ? new Date(log.created_at).getTime() : Date.now();
+        if (!isNaN(lat) && !isNaN(lng) && lat !== null && lng !== null) {
+            rawPoints.push({ lat, lng, acc, time: logTime });
+        }
+    }
+
+    const filteredPoints = rawPoints.filter(p => p.acc <= 200);
+
+    let kfLat = 0;
+    let kfLng = 0;
+    let kfVariance = -1.0;
+    let kfLastTime = 0;
+
+    if (filteredPoints.length > 0) {
+        const Q_metres_per_second = 4.0;
+        let variance = -1.0;
+        let lat = 0.0;
+        let lng = 0.0;
+        let lastTimeStamp = 0;
+
+        let prevPoint = null;
+        for (const p of filteredPoints) {
+            if (variance < 0) {
+                lat = p.lat;
+                lng = p.lng;
+                variance = p.acc * p.acc;
+                lastTimeStamp = p.time;
+                prevPoint = { lat, lng, time: p.time };
+                continue;
+            }
+
+            const durationMs = p.time - lastTimeStamp;
+            if (durationMs > 0) {
+                variance += durationMs * (Q_metres_per_second / 1000.0) * (Q_metres_per_second / 1000.0);
+                lastTimeStamp = p.time;
+            }
+
+            const K = variance / (variance + p.acc * p.acc);
+            lat += K * (p.lat - lat);
+            lng += K * (p.lng - lng);
+            variance = (1.0 - K) * variance;
+
+            if (prevPoint) {
+                const segmentDist = getDistance(prevPoint.lat, prevPoint.lng, lat, lng);
+                if (segmentDist > 0) {
+                    const dtSeconds = Math.max(0.1, (p.time - prevPoint.time) / 1000.0);
+                    const calculatedSpeedMPS = (segmentDist * 1000.0) / dtSeconds;
+
+                    if (calculatedSpeedMPS <= 45.0 && segmentDist >= 0.001 && calculatedSpeedMPS >= 0.05) {
+                        actualDistKm += segmentDist;
+                        prevPoint = { lat, lng, time: p.time };
+                    }
+                }
+            } else {
+                prevPoint = { lat, lng, time: p.time };
+            }
+        }
+
+        kfLat = lat;
+        kfLng = lng;
+        kfVariance = variance;
+        kfLastTime = lastTimeStamp;
+    }
+
+    const state = {
+        kfLat,
+        kfLng,
+        kfVariance,
+        kfLastTime,
+        cumulativeDistance: actualDistKm
+    };
+
+    activeRidesGpsState.set(bookingId, state);
+    return state;
+}
+
+// Process a new GPS coordinate update incrementally using in-memory Kalman filter
+async function processNewGpsPoint(bookingId, newLat, newLng, newAcc, newSpeed, startCoordsStr, journeyStartTime) {
+    const state = await getOrInitGpsState(bookingId, startCoordsStr, journeyStartTime);
+    const nowMs = Date.now();
+
+    const Q_metres_per_second = 4.0;
+
+    if (state.kfVariance < 0) {
+        state.kfLat = newLat;
+        state.kfLng = newLng;
+        state.kfVariance = newAcc * newAcc;
+        state.kfLastTime = nowMs;
+        activeRidesGpsState.set(bookingId, state);
+        return state.cumulativeDistance;
+    }
+
+    const durationMs = nowMs - state.kfLastTime;
+    let tempVariance = state.kfVariance;
+    if (durationMs > 0) {
+        tempVariance += durationMs * (Q_metres_per_second / 1000.0) * (Q_metres_per_second / 1000.0);
+    }
+
+    const K = tempVariance / (tempVariance + newAcc * newAcc);
+    const updatedLat = state.kfLat + K * (newLat - state.kfLat);
+    const updatedLng = state.kfLng + K * (newLng - state.kfLng);
+    const updatedVariance = (1.0 - K) * tempVariance;
+
+    const segmentDist = getDistance(state.kfLat, state.kfLng, updatedLat, updatedLng);
+    if (segmentDist > 0) {
+        const dtSeconds = Math.max(0.1, durationMs / 1000.0);
+        const calculatedSpeedMPS = (segmentDist * 1000.0) / dtSeconds;
+
+        if (calculatedSpeedMPS <= 45.0 && segmentDist >= 0.001 && calculatedSpeedMPS >= 0.05) {
+            state.cumulativeDistance += segmentDist;
+            state.kfLat = updatedLat;
+            state.kfLng = updatedLng;
+            state.kfVariance = updatedVariance;
+            state.kfLastTime = nowMs;
+        }
+    } else {
+        state.kfVariance = updatedVariance;
+        state.kfLastTime = nowMs;
+    }
+
+    activeRidesGpsState.set(bookingId, state);
+    return state.cumulativeDistance;
+}
+
 // Odometer-style distance calculator summing segments from logged coordinates
-async function calculateOdometerDistance(bookingId, startCoordsStr, fallbackEstimatedDistance) {
+async function calculateOdometerDistance(bookingId, startCoordsStr, journeyStartTime, preFetchedGpsLogs) {
     try {
         let actualDistKm = 0;
         let startCoords = startCoordsStr || null;
@@ -2671,20 +3431,24 @@ async function calculateOdometerDistance(bookingId, startCoordsStr, fallbackEsti
             startCoords = null;
         }
 
-        // Fetch all GPS logs in chronological order with speed and created_at
-        const [gpsLogs] = await db.query(
+        // Fetch all GPS logs in chronological order with speed and created_at if not pre-fetched
+        const gpsLogs = preFetchedGpsLogs || (await db.query(
             'SELECT latitude, longitude, accuracy, speed, created_at FROM taxi_ride_gps_logs WHERE booking_id = ? ORDER BY id ASC',
             [bookingId]
-        );
+        ))[0];
 
-        // Fetch journey start time for start coordinates timestamp fallback
-        const [bookingRows] = await db.query(
-            'SELECT journey_start_time FROM taxi_bookings WHERE id = ?',
-            [bookingId]
-        );
         let startTimeMs = Date.now();
-        if (bookingRows.length > 0 && bookingRows[0].journey_start_time) {
-            startTimeMs = new Date(bookingRows[0].journey_start_time).getTime();
+        if (journeyStartTime) {
+            startTimeMs = new Date(journeyStartTime).getTime();
+        } else {
+            // Fetch journey start time for start coordinates timestamp fallback
+            const [bookingRows] = await db.query(
+                'SELECT journey_start_time FROM taxi_bookings WHERE id = ?',
+                [bookingId]
+            );
+            if (bookingRows.length > 0 && bookingRows[0].journey_start_time) {
+                startTimeMs = new Date(bookingRows[0].journey_start_time).getTime();
+            }
         }
 
         // Build list of raw points
@@ -2783,7 +3547,7 @@ async function calculateOdometerDistance(bookingId, startCoordsStr, fallbackEsti
                 // 2. Ignore tiny jitter noise when stationary
                 // (e.g. movements < 1 meter or extremely slow speed < 0.05 m/s or 0.18 km/h)
                 if (segmentDist < 0.001 || calculatedSpeedMPS < 0.05) {
-                    continue; 
+                    continue;
                 }
 
                 actualDistKm += segmentDist;
@@ -2823,14 +3587,14 @@ function getPeakMultiplier(timeStr, peakRules) {
 app.get('/api/driver/dashboard-stats/:driverId', async (req, res) => {
     try {
         const driverId = req.params.driverId;
-        
+
         // Total completed rides & earnings
         const [completedStats] = await db.query(
             `SELECT COUNT(*) as total_rides, 
                     COALESCE(SUM(CAST(REPLACE(REPLACE(fare, '₹', ''), ',', '') AS DECIMAL(10,2))), 0) as total_earnings
              FROM taxi_bookings WHERE driver_id = ? AND status IN ('completed', 'finished')`, [driverId]
         );
-        
+
         // Today's stats
         const [todayStats] = await db.query(
             `SELECT COUNT(*) as today_rides, 
@@ -2844,12 +3608,12 @@ app.get('/api/driver/dashboard-stats/:driverId', async (req, res) => {
                     COALESCE(SUM(CAST(REPLACE(REPLACE(fare, '₹', ''), ',', '') AS DECIMAL(10,2))), 0) as week_earnings
              FROM taxi_bookings WHERE driver_id = ? AND status IN ('completed', 'finished') AND COALESCE(journey_end_time, created_at) >= DATE_SUB(CURDATE(), INTERVAL 7 DAY)`, [driverId]
         );
-        
+
         // Ride counts by status
         const [statusCounts] = await db.query(
             `SELECT status, COUNT(*) as count FROM taxi_bookings WHERE driver_id = ? GROUP BY status`, [driverId]
         );
-        
+
         // Recent ride history (last 50 completed, finished, and cancelled rides with customer details)
         const [rideHistory] = await db.query(
             `SELECT b.id, b.pickup_loc, b.drop_loc, b.fare, b.distance, b.actual_distance, b.vehicle_type, b.trip_type, 
@@ -2862,7 +3626,7 @@ app.get('/api/driver/dashboard-stats/:driverId', async (req, res) => {
              WHERE b.driver_id = ? AND b.status IN ('completed', 'finished', 'cancelled')
              ORDER BY COALESCE(b.journey_end_time, b.created_at) DESC LIMIT 50`, [driverId]
         );
-        
+
         // Average rating & total ratings count
         const [ratingStats] = await db.query(
             `SELECT AVG(rating) as avg_rating, COUNT(rating) as total_ratings 
@@ -2870,7 +3634,7 @@ app.get('/api/driver/dashboard-stats/:driverId', async (req, res) => {
         );
         const avgRating = ratingStats[0].avg_rating ? parseFloat(ratingStats[0].avg_rating).toFixed(1) : '5.0';
         const totalRatings = ratingStats[0].total_ratings || 0;
-        
+
         res.json({
             totals: completedStats[0],
             today: todayStats[0],
@@ -2910,11 +3674,9 @@ app.post('/api/bookings/start-journey', authenticateJWT, requireRole(['driver'])
     try {
         const { bookingId, startOdometer, latitude, longitude, otp } = req.body;
         if (!bookingId) return res.status(400).json({ error: 'Booking ID is required.' });
-        // Fetch booking details
-        const [rows] = await db.query('SELECT journey_otp, fare, original_fare, pickup_coords, drop_coords, vehicle_type, trip_type, pickup_time, rental_package, return_date, pickup_date, vendor_id, vendor_markup, distance FROM taxi_bookings WHERE id = ?', [bookingId]);
-        if (rows.length === 0) return res.status(404).json({ error: 'Booking not found.' });
 
-        const booking = rows[0];
+        // Fetch booking details from cached request context
+        const booking = req.booking;
         const isVendorBooking = !!booking.vendor_id;
 
         if (booking.trip_type !== 'local') {
@@ -2932,17 +3694,6 @@ app.post('/api/bookings/start-journey', authenticateJWT, requireRole(['driver'])
                 return res.status(400).json({ error: 'Invalid passenger OTP. Please double-check with the passenger.' });
             }
         }
-
-        // Store original fare if not already stored
-        if (!booking.original_fare) {
-            await db.query('UPDATE taxi_bookings SET original_fare = ? WHERE id = ?', [booking.fare, bookingId]);
-        }
-
-        // Also backfill estimated values if missing (for legacy bookings created before this feature)
-        await db.query(
-            'UPDATE taxi_bookings SET estimated_distance = COALESCE(estimated_distance, ?), estimated_fare = COALESCE(estimated_fare, ?) WHERE id = ?',
-            [booking.distance || '0 KM', booking.fare || '₹0', bookingId]
-        );
 
         // Determine start coordinates from driver's actual GPS or fallback to booking pickup coords
         let startCoords = null;
@@ -2962,100 +3713,105 @@ app.post('/api/bookings/start-journey', authenticateJWT, requireRole(['driver'])
         let dynamicDistStr = `${dynamicDistKm.toFixed(1)} KM`;
 
         if (booking.trip_type !== 'rental' && dynamicDistKm >= 0) {
-            // Fetch tariff config (check vendor tariff first, then system fallback)
+            // Fetch tariff config (check vendor tariff first, then system fallback) and peak rules in parallel
             let pricingConfig = null;
+            let vendorTariffPromise = Promise.resolve([[]]);
             if (booking.vendor_id) {
-                const [vendorTariffRows] = await db.query('SELECT config FROM taxi_vendor_tariffs WHERE vendor_id = ? AND vehicle_type = ? AND category = ?', [booking.vendor_id, booking.vehicle_type, booking.trip_type]);
-                if (vendorTariffRows.length > 0) {
-                    pricingConfig = typeof vendorTariffRows[0].config === 'string' ? JSON.parse(vendorTariffRows[0].config) : vendorTariffRows[0].config;
-                }
+                vendorTariffPromise = db.query('SELECT config FROM taxi_vendor_tariffs WHERE vendor_id = ? AND vehicle_type = ? AND category = ?', [booking.vendor_id, booking.vehicle_type, booking.trip_type]);
             }
-            if (!pricingConfig) {
-                const [tariffRows] = await db.query('SELECT config FROM tariffs WHERE vehicle_type = ? AND category = ?', [booking.vehicle_type, booking.trip_type]);
-                if (tariffRows.length > 0) {
-                    pricingConfig = typeof tariffRows[0].config === 'string' ? JSON.parse(tariffRows[0].config) : tariffRows[0].config;
-                }
+            const tariffPromise = db.query('SELECT config FROM tariffs WHERE vehicle_type = ? AND category = ?', [booking.vehicle_type, booking.trip_type]);
+            const peakRulesPromise = db.query('SELECT * FROM taxi_peak_rules WHERE is_active = 1');
+
+            const [[vendorTariffRows], [tariffRows], [peakRules]] = await Promise.all([vendorTariffPromise, tariffPromise, peakRulesPromise]);
+
+            if (vendorTariffRows.length > 0) {
+                pricingConfig = typeof vendorTariffRows[0].config === 'string' ? JSON.parse(vendorTariffRows[0].config) : vendorTariffRows[0].config;
+            } else if (tariffRows.length > 0) {
+                pricingConfig = typeof tariffRows[0].config === 'string' ? JSON.parse(tariffRows[0].config) : tariffRows[0].config;
             }
 
-            // Fetch peak rules
-            const [peakRules] = await db.query('SELECT * FROM taxi_peak_rules WHERE is_active = 1');
             const peakMult = getPeakMultiplier(booking.pickup_time, peakRules);
 
             if (booking.trip_type === 'local') {
                 const config = pricingConfig || { base: 150, perKm: 20, minKm: 0 };
-                const baseFare = Math.max(300, config.base || 0);
-                if (dynamicDistKm <= 0) {
-                    // 0 KM = base fare only
-                    dynamicFare = baseFare * 1.05;
-                    console.log(`[Start Journey #${bookingId}] Dynamic distance is 0 KM. Applying base fare only: ₹${Math.ceil(dynamicFare)}`);
-                } else {
-                    const distanceFare = dynamicDistKm * config.perKm;
-                    const baseKmFare = Math.max(baseFare, distanceFare);
-                    const peakCharge = baseKmFare * peakMult;
-                    dynamicFare = (baseKmFare + peakCharge) * 1.05;
-                }
+                const baseFare = config.base || 0;
+                const minKm = typeof config.minKm === 'number' ? config.minKm : 0;
+                const billableDist = Math.max(dynamicDistKm, minKm);
+                const distanceFare = billableDist * config.perKm;
+                const baseKmFare = Math.max(baseFare, distanceFare);
+                const peakCharge = baseKmFare * peakMult;
+                dynamicFare = (baseKmFare + peakCharge) * 1.05;
             } else if (booking.trip_type === 'oneway') {
                 const config = pricingConfig || { base: 0, perKm: 13, minKm: 130 };
-                const baseFare = Math.max(300, config.base || 0);
-                if (dynamicDistKm <= 0) {
-                    // 0 KM = base fare + driver allowance only
-                    const driverAllowance = booking.vehicle_type === 'bike' ? 0 : 400;
-                    dynamicFare = (baseFare + driverAllowance) * 1.05;
-                    console.log(`[Start Journey #${bookingId}] Dynamic distance is 0 KM. Applying base fare only: ₹${Math.ceil(dynamicFare)}`);
-                } else {
-                    const minKm = typeof config.minKm === 'number' ? config.minKm : 130;
-                    const billableDist = Math.max(dynamicDistKm, minKm);
-                    const distanceFare = billableDist * (config.perKm || 13);
-                    const baseKmFare = Math.max(baseFare, distanceFare);
-                    const driverAllowance = billableDist > 250 ? 600 : 400;
-                    dynamicFare = (baseKmFare + (booking.vehicle_type === 'bike' ? 0 : driverAllowance)) * 1.05;
-                }
+                const baseFare = config.base || 0;
+                const minKm = typeof config.minKm === 'number' ? config.minKm : 130;
+                const billableDist = Math.max(dynamicDistKm, minKm);
+                const distanceFare = billableDist * (config.perKm || 13);
+                const baseKmFare = Math.max(baseFare, distanceFare);
+                const driverAllowance = billableDist > 250 ? 600 : 400;
+                dynamicFare = (baseKmFare + (booking.vehicle_type === 'bike' ? 0 : driverAllowance)) * 1.05;
             } else if (booking.trip_type === 'round') {
                 const config = pricingConfig || { base: 0, perKm: 12, minKmPerDay: 250 };
-                const baseFare = Math.max(300, config.base || 0);
-                if (dynamicDistKm <= 0) {
-                    const driverAllowance = booking.vehicle_type === 'bike' ? 0 : 400;
-                    dynamicFare = (baseFare + driverAllowance) * 1.05;
-                    console.log(`[Start Journey #${bookingId}] Dynamic distance is 0 KM. Applying base fare only: ₹${Math.ceil(dynamicFare)}`);
-                } else {
-                    let tripDays = 1;
-                    if (booking.return_date && booking.pickup_date) {
-                        const start = new Date(booking.pickup_date);
-                        const end = new Date(booking.return_date);
-                        if (end > start) {
-                            const diffTime = Math.abs(end - start);
-                            tripDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) + 1;
-                        }
+                const baseFare = config.base || 0;
+                let tripDays = 1;
+                if (booking.return_date && booking.pickup_date) {
+                    const start = new Date(booking.pickup_date);
+                    const end = new Date(booking.return_date);
+                    if (end > start) {
+                        const diffTime = Math.abs(end - start);
+                        tripDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) + 1;
                     }
-                    const minKmForTrip = (typeof config.minKmPerDay === 'number' ? config.minKmPerDay : 250) * tripDays;
-                    const billableDist = Math.max(dynamicDistKm, minKmForTrip);
-                    const distanceFare = billableDist * (config.perKm || 12);
-                    const baseKmFare = Math.max(baseFare, distanceFare);
-                    const driverAllowance = billableDist > 250 ? 600 : 400;
-                    dynamicFare = ((baseKmFare + (booking.vehicle_type === 'bike' ? 0 : driverAllowance * tripDays))) * 1.05;
                 }
+                const minKmForTrip = (typeof config.minKmPerDay === 'number' ? config.minKmPerDay : 250) * tripDays;
+                const billableDist = Math.max(dynamicDistKm, minKmForTrip);
+                const distanceFare = billableDist * (config.perKm || 12);
+                const baseKmFare = Math.max(baseFare, distanceFare);
+                const driverAllowance = billableDist > 250 ? 600 : 400;
+                dynamicFare = ((baseKmFare + (booking.vehicle_type === 'bike' ? 0 : driverAllowance * tripDays))) * 1.05;
             }
 
             dynamicFareStr = `₹${Math.ceil(dynamicFare)}`;
         }
 
-        // === UPDATE DATABASE ===
+        // === UPDATE DATABASE (Combined into a single query to eliminate multiple round trips) ===
+        let queryStr = `
+            UPDATE taxi_bookings 
+            SET status = "ongoing", 
+                journey_start_time = NOW(), 
+                start_gps_coords = ?, 
+                dynamic_distance = ?, 
+                dynamic_fare = ?, 
+                fare = ?, 
+                distance = ?,
+                original_fare = COALESCE(original_fare, ?),
+                estimated_distance = COALESCE(estimated_distance, ?),
+                estimated_fare = COALESCE(estimated_fare, ?)
+        `;
+        const params = [
+            startCoords,
+            dynamicDistStr,
+            dynamicFareStr,
+            dynamicFareStr,
+            dynamicDistStr,
+            booking.fare,
+            booking.distance || '0 KM',
+            booking.fare || '₹0'
+        ];
+
         if (startOdometer) {
-            await db.query(
-                'UPDATE taxi_bookings SET status = "ongoing", start_odometer = ?, journey_start_time = NOW(), start_gps_coords = ?, dynamic_distance = ?, dynamic_fare = ?, fare = ?, distance = ? WHERE id = ?',
-                [startOdometer, startCoords, dynamicDistStr, dynamicFareStr, dynamicFareStr, dynamicDistStr, bookingId]
-            );
-        } else {
-            await db.query(
-                'UPDATE taxi_bookings SET status = "ongoing", journey_start_time = NOW(), start_gps_coords = ?, dynamic_distance = ?, dynamic_fare = ?, fare = ?, distance = ? WHERE id = ?',
-                [startCoords, dynamicDistStr, dynamicFareStr, dynamicFareStr, dynamicDistStr, bookingId]
-            );
+            queryStr += `, start_odometer = ?`;
+            params.push(startOdometer);
         }
+
+        queryStr += ` WHERE id = ?`;
+        params.push(bookingId);
+
+        await db.query(queryStr, params);
 
         console.log(`[Start Journey #${bookingId}] Estimated: ${booking.distance} / ${booking.fare} → Dynamic: ${dynamicDistStr} / ${dynamicFareStr}`);
 
-        res.json({ 
-            success: true, 
+        res.json({
+            success: true,
             message: 'Journey started. GPS tracking is now active.',
             estimatedDistance: booking.distance,
             estimatedFare: booking.fare,
@@ -3071,13 +3827,10 @@ app.post('/api/bookings/start-journey', authenticateJWT, requireRole(['driver'])
 app.post('/api/bookings/update-status', authenticateJWT, requireRole(['driver', 'user', 'admin']), verifyBookingAccess, async (req, res) => {
     try {
         const { status, bookingId, otp, endOdometer } = req.body;
-        
+
         // If completing, verify OTP
         if (status === 'completed') {
-            const [rows] = await db.query('SELECT journey_otp, end_otp, status, trip_type, rental_package, start_odometer, journey_start_time, vehicle_type, vendor_id, vendor_markup, driver_id, fare FROM taxi_bookings WHERE id = ?', [bookingId]);
-            if (rows.length === 0) return res.status(404).json({ error: 'Booking missing.' });
-            
-            const booking = rows[0];
+            const booking = req.booking;
             const isVendorBooking = !!booking.vendor_id;
 
             let requiredOtp = booking.journey_otp;
@@ -3093,33 +3846,45 @@ app.post('/api/bookings/update-status', authenticateJWT, requireRole(['driver', 
             let vendorProfitDeducted = 0;
             if (booking.status !== 'completed' && booking.vendor_id && parseFloat(booking.vendor_markup) > 0) {
                 vendorProfitDeducted = parseFloat(booking.vendor_markup);
-                await db.query('UPDATE taxi_drivers SET wallet_balance = wallet_balance - ? WHERE id = ?', [vendorProfitDeducted, booking.driver_id]);
+            }
+
+            const updatePromises = [];
+            if (vendorProfitDeducted > 0) {
+                updatePromises.push(db.query('UPDATE taxi_drivers SET wallet_balance = wallet_balance - ? WHERE id = ?', [vendorProfitDeducted, booking.driver_id]));
                 console.log(`[FINANCE] Deducted ₹${vendorProfitDeducted} vendor profit from Driver #${booking.driver_id} for Ride #B${bookingId}`);
             }
 
-            // Handle Rental Calculations (Legacy - now handled in /finish-trip)
+            // Combine end time and status updates into a single database update
             if (booking.trip_type === 'rental') {
                 if (!booking.journey_end_time) {
-                    await db.query('UPDATE taxi_bookings SET journey_end_time = NOW() WHERE id = ?', [bookingId]);
+                    updatePromises.push(db.query('UPDATE taxi_bookings SET status = ?, journey_end_time = NOW() WHERE id = ?', [status, bookingId]));
+                } else {
+                    updatePromises.push(db.query('UPDATE taxi_bookings SET status = ? WHERE id = ?', [status, bookingId]));
                 }
             } else {
-                await db.query('UPDATE taxi_bookings SET journey_end_time = NOW() WHERE id = ?', [bookingId]);
+                updatePromises.push(db.query('UPDATE taxi_bookings SET status = ?, journey_end_time = NOW() WHERE id = ?', [status, bookingId]));
             }
 
-            await db.query('UPDATE taxi_bookings SET status = ? WHERE id = ?', [status, bookingId]);
-            
-            return res.json({ 
-                success: true, 
+            await Promise.all(updatePromises);
+
+            // Clean up GPS state cache to prevent memory leaks
+            activeRidesGpsState.delete(bookingId);
+
+            return res.json({
+                success: true,
                 vendorProfit: vendorProfitDeducted,
                 totalFare: booking.fare,
-                baseFare: (parseFloat(booking.fare.replace(/[^0-9.]/g,'')) || 0) - vendorProfitDeducted
+                baseFare: (parseFloat(booking.fare.replace(/[^0-9.]/g, '')) || 0) - vendorProfitDeducted
             });
         }
-        
+
         if (status === 'cancelled') {
-            await db.query('UPDATE taxi_bookings SET driver_id = NULL WHERE id = ?', [bookingId]);
+            await db.query('UPDATE taxi_bookings SET status = ?, driver_id = NULL WHERE id = ?', [status, bookingId]);
+            // Clean up GPS state cache to prevent memory leaks
+            activeRidesGpsState.delete(bookingId);
+        } else {
+            await db.query('UPDATE taxi_bookings SET status = ? WHERE id = ?', [status, bookingId]);
         }
-        await db.query('UPDATE taxi_bookings SET status = ? WHERE id = ?', [status, bookingId]);
         res.json({ success: true });
     } catch (err) {
         res.status(500).json({ error: err.message });
@@ -3139,7 +3904,7 @@ app.post('/api/bookings/rate-driver', authenticateJWT, requireRole(['user']), as
 
         const [bookings] = await db.query('SELECT driver_id FROM taxi_bookings WHERE id = ?', [bookingId]);
         if (bookings.length === 0) return res.status(404).json({ error: 'Booking not found.' });
-        
+
         const booking = bookings[0];
         if (!booking.driver_id) {
             return res.status(400).json({ error: 'No driver is assigned to this booking.' });
@@ -3157,11 +3922,16 @@ app.post('/api/bookings/rate-driver', authenticateJWT, requireRole(['user']), as
 app.post('/api/bookings/finish-trip', authenticateJWT, requireRole(['driver']), verifyBookingAccess, async (req, res) => {
     try {
         const { bookingId, endOdometer, latitude, longitude, clientDistance } = req.body;
+        const booking = req.booking;
 
-        const [rows] = await db.query('SELECT * FROM taxi_bookings WHERE id = ?', [bookingId]);
-        if (rows.length === 0) return res.status(404).json({ error: 'Booking not found.' });
+        // Fetch all dependencies in parallel: active peak rules and all GPS logs for the booking
+        const gpsLogsPromise = db.query(
+            'SELECT latitude, longitude, accuracy, speed, created_at FROM taxi_ride_gps_logs WHERE booking_id = ? ORDER BY id ASC',
+            [bookingId]
+        );
+        const peakRulesPromise = db.query('SELECT * FROM taxi_peak_rules WHERE is_active = 1');
 
-        const booking = rows[0];
+        const [[gpsLogs], [peakRules]] = await Promise.all([gpsLogsPromise, peakRulesPromise]);
 
         // Calculate pre-ride waiting charge (5 min grace time, then ₹2/min)
         let preRideWaitingCharge = 0;
@@ -3179,10 +3949,10 @@ app.post('/api/bookings/finish-trip', authenticateJWT, requireRole(['driver']), 
         if (latitude !== undefined && longitude !== undefined) {
             endCoords = `${longitude},${latitude}`;
         } else {
-            // Get the last logged GPS coords
-            const [lastLog] = await db.query('SELECT latitude, longitude FROM taxi_ride_gps_logs WHERE booking_id = ? ORDER BY id DESC LIMIT 1', [bookingId]);
-            if (lastLog.length > 0) {
-                endCoords = `${lastLog[0].longitude},${lastLog[0].latitude}`;
+            // Get the last logged GPS coords from pre-fetched logs
+            if (gpsLogs.length > 0) {
+                const lastLog = gpsLogs[gpsLogs.length - 1];
+                endCoords = `${lastLog.longitude},${lastLog.latitude}`;
             } else {
                 endCoords = booking.drop_coords || null;
             }
@@ -3195,73 +3965,89 @@ app.post('/api/bookings/finish-trip', authenticateJWT, requireRole(['driver']), 
 
             let finalFareStr = booking.fare;
             let durationHrs = null;
+            let waitingCharge = 0;
+
+            const startTime = new Date(booking.journey_start_time);
+            const endTime = new Date();
+            const durationMs = endTime - startTime;
+            const durationMins = durationMs / (1000 * 60);
+            const allowedMins = distanceCovered * 2;
+            if (durationMins > allowedMins) {
+                waitingCharge = (durationMins - allowedMins) * 2;
+            }
 
             let pricingConfig = null;
+            let vendorTariffPromise = Promise.resolve([[]]);
             if (booking.vendor_id) {
-                const [vendorTariffRows] = await db.query('SELECT config FROM taxi_vendor_tariffs WHERE vendor_id = ? AND vehicle_type = ? AND category = "rental"', [booking.vendor_id, booking.vehicle_type]);
-                if (vendorTariffRows.length > 0) {
-                    pricingConfig = typeof vendorTariffRows[0].config === 'string' ? JSON.parse(vendorTariffRows[0].config) : vendorTariffRows[0].config;
-                }
+                vendorTariffPromise = db.query('SELECT config FROM taxi_vendor_tariffs WHERE vendor_id = ? AND vehicle_type = ? AND category = "rental"', [booking.vendor_id, booking.vehicle_type]);
             }
-            if (!pricingConfig) {
-                const [tariffRows] = await db.query('SELECT config FROM tariffs WHERE vehicle_type = ? AND category = "rental"', [booking.vehicle_type]);
-                if (tariffRows.length > 0) {
-                    pricingConfig = typeof tariffRows[0].config === 'string' ? JSON.parse(tariffRows[0].config) : tariffRows[0].config;
-                }
+            const tariffPromise = db.query('SELECT config FROM tariffs WHERE vehicle_type = ? AND category = "rental"', [booking.vehicle_type]);
+
+            const [[vendorTariffRows], [tariffRows]] = await Promise.all([vendorTariffPromise, tariffPromise]);
+
+            if (vendorTariffRows.length > 0) {
+                pricingConfig = typeof vendorTariffRows[0].config === 'string' ? JSON.parse(vendorTariffRows[0].config) : vendorTariffRows[0].config;
+            } else if (tariffRows.length > 0) {
+                pricingConfig = typeof tariffRows[0].config === 'string' ? JSON.parse(tariffRows[0].config) : tariffRows[0].config;
             }
 
             if (pricingConfig) {
                 const config = pricingConfig;
                 const packageConfig = config[booking.rental_package];
-                
+
                 if (packageConfig) {
                     const [pMaxHrs, pMaxKm] = booking.rental_package.split('-').map(Number);
-                    
+
                     // 1. Distance Calculation
                     const extraKm = Math.max(0, distanceCovered - pMaxKm);
                     const extraKmCharge = extraKm * packageConfig.extraKm;
 
                     // 2. Time Calculation
-                    const startTime = new Date(booking.journey_start_time);
-                    const endTime = new Date();
-                    const durationMs = endTime - startTime;
                     durationHrs = durationMs / (1000 * 60 * 60);
-                    
+
                     const extraHrs = Math.max(0, Math.ceil(durationHrs - pMaxHrs));
                     const extraHrCharge = extraHrs * packageConfig.extraHour;
 
                     const totalExtra = extraKmCharge + extraHrCharge;
-                    const baseWithExtra = packageConfig.base + totalExtra + preRideWaitingCharge;
+                    const baseWithExtra = packageConfig.base + totalExtra + waitingCharge;
                     const finalFareNum = Math.ceil(baseWithExtra * 1.05); // Incl 5% GST
-                    
+
                     finalFareStr = `₹${finalFareNum}`;
                 }
             }
-            
+
             // --- VENDOR PROFIT DEDUCTION ---
             let vendorProfitDeducted = 0;
             if (booking.status !== 'completed' && booking.vendor_id && parseFloat(booking.vendor_markup) > 0) {
                 vendorProfitDeducted = parseFloat(booking.vendor_markup);
-                await db.query('UPDATE taxi_drivers SET wallet_balance = wallet_balance - ? WHERE id = ?', [vendorProfitDeducted, booking.driver_id]);
-                console.log(`[FINANCE] Deducted ₹${vendorProfitDeducted} vendor profit from Driver #${booking.driver_id} for Ride #B${bookingId}`);
             }
 
             const nextStatus = booking.vendor_id ? "completed" : "finished";
-            await db.query('UPDATE taxi_bookings SET status = ?, end_odometer = ?, journey_end_time = NOW(), fare = ?, end_gps_coords = ? WHERE id = ?', [nextStatus, endOdometer, finalFareStr, endCoords, bookingId]);
-            
-            return res.json({ 
-                success: true, 
-                finalFare: finalFareStr, 
+            const updatePromises = [];
+            if (vendorProfitDeducted > 0) {
+                updatePromises.push(db.query('UPDATE taxi_drivers SET wallet_balance = wallet_balance - ? WHERE id = ?', [vendorProfitDeducted, booking.driver_id]));
+                console.log(`[FINANCE] Deducted ₹${vendorProfitDeducted} vendor profit from Driver #${booking.driver_id} for Ride #B${bookingId}`);
+            }
+            updatePromises.push(db.query('UPDATE taxi_bookings SET status = ?, end_odometer = ?, journey_end_time = NOW(), fare = ?, end_gps_coords = ? WHERE id = ?', [nextStatus, endOdometer, finalFareStr, endCoords, bookingId]));
+
+            await Promise.all(updatePromises);
+
+            // Clean up GPS state cache to prevent memory leaks
+            activeRidesGpsState.delete(bookingId);
+
+            return res.json({
+                success: true,
+                finalFare: finalFareStr,
                 distance: distanceCovered,
                 duration: durationHrs ? durationHrs.toFixed(2) : null,
-                waitingCharge: preRideWaitingCharge,
+                waitingCharge: Math.ceil(waitingCharge),
                 vendorProfit: vendorProfitDeducted,
                 status: nextStatus
             });
         } else {
             // For standard trips (local, oneway, round)
             let distanceCovered = 0;
-            
+
             if (booking.trip_type !== 'local') {
                 if (!endOdometer) return res.status(400).json({ error: 'End Odometer reading is required for this trip type.' });
                 if (!/^\d{8}$/.test(String(endOdometer).trim())) return res.status(400).json({ error: 'Odometer reading must be exactly 8 digits.' });
@@ -3274,7 +4060,16 @@ app.post('/api/bookings/finish-trip', authenticateJWT, requireRole(['driver']), 
                 if (startCoords === 'null,null') {
                     startCoords = null;
                 }
-                const serverDistance = await calculateOdometerDistance(bookingId, startCoords);
+
+                // Use in-memory cached cumulative distance if available, falling back to calculation
+                let serverDistance = 0;
+                const cachedState = activeRidesGpsState.get(bookingId);
+                if (cachedState) {
+                    serverDistance = cachedState.cumulativeDistance;
+                    console.log(`[Finish Trip #${bookingId}] Using cached server distance: ${serverDistance.toFixed(2)} KM`);
+                } else {
+                    serverDistance = await calculateOdometerDistance(bookingId, startCoords, booking.journey_start_time, gpsLogs);
+                }
                 distanceCovered = serverDistance;
 
                 if (clientDistance !== undefined && clientDistance !== null) {
@@ -3301,82 +4096,72 @@ app.post('/api/bookings/finish-trip', authenticateJWT, requireRole(['driver']), 
             // Allowed time = distanceCovered * 2 min/km
             const allowedMins = distanceCovered * 2;
             let waitingCharge = 0;
-            if (durationMins > allowedMins) {
-                waitingCharge = (durationMins - allowedMins) * 2; // 2 rupees per minute
+            if (booking.trip_type === 'local') {
+                if (durationMins > allowedMins) {
+                    waitingCharge = (durationMins - allowedMins) * 2; // 2 rupees per minute
+                }
+                waitingCharge += preRideWaitingCharge;
+            } else {
+                if (durationMins > allowedMins) {
+                    waitingCharge = (durationMins - allowedMins) * 2; // 2 rupees per minute
+                }
             }
-            waitingCharge += preRideWaitingCharge;
 
             // Recalculate Final Fare (check vendor tariff first, then system fallback)
             let totalFare = 0;
             let pricingConfig = null;
+            let vendorTariffPromise = Promise.resolve([[]]);
             if (booking.vendor_id) {
-                const [vendorTariffRows] = await db.query('SELECT config FROM taxi_vendor_tariffs WHERE vendor_id = ? AND vehicle_type = ? AND category = ?', [booking.vendor_id, booking.vehicle_type, booking.trip_type]);
-                if (vendorTariffRows.length > 0) {
-                    pricingConfig = typeof vendorTariffRows[0].config === 'string' ? JSON.parse(vendorTariffRows[0].config) : vendorTariffRows[0].config;
-                }
+                vendorTariffPromise = db.query('SELECT config FROM taxi_vendor_tariffs WHERE vendor_id = ? AND vehicle_type = ? AND category = ?', [booking.vendor_id, booking.vehicle_type, booking.trip_type]);
             }
-            if (!pricingConfig) {
-                const [tariffRows] = await db.query('SELECT config FROM tariffs WHERE vehicle_type = ? AND category = ?', [booking.vehicle_type, booking.trip_type]);
-                if (tariffRows.length > 0) {
-                    pricingConfig = typeof tariffRows[0].config === 'string' ? JSON.parse(tariffRows[0].config) : tariffRows[0].config;
-                }
+            const tariffPromise = db.query('SELECT config FROM tariffs WHERE vehicle_type = ? AND category = ?', [booking.vehicle_type, booking.trip_type]);
+
+            const [[vendorTariffRows], [tariffRows]] = await Promise.all([vendorTariffPromise, tariffPromise]);
+
+            if (vendorTariffRows.length > 0) {
+                pricingConfig = typeof vendorTariffRows[0].config === 'string' ? JSON.parse(vendorTariffRows[0].config) : vendorTariffRows[0].config;
+            } else if (tariffRows.length > 0) {
+                pricingConfig = typeof tariffRows[0].config === 'string' ? JSON.parse(tariffRows[0].config) : tariffRows[0].config;
             }
 
-            const [peakRules] = await db.query('SELECT * FROM taxi_peak_rules WHERE is_active = 1');
             const peakMult = getPeakMultiplier(booking.pickup_time, peakRules);
 
             if (booking.trip_type === 'local') {
                 const config = pricingConfig || { base: 150, perKm: 20, minKm: 0 };
-                const baseFare = Math.max(300, config.base || 0);
-                if (distanceCovered <= 0) {
-                    // 0 KM = base fare only
-                    totalFare = (baseFare + waitingCharge) * 1.05;
-                    console.log(`[Finish Trip #${bookingId}] 0 KM distance. Base fare only: ₹${Math.ceil(totalFare)}`);
-                } else {
-                    const distanceFare = distanceCovered * config.perKm;
-                    const baseKmFare = Math.max(baseFare, distanceFare);
-                    const peakCharge = baseKmFare * peakMult;
-                    totalFare = (baseKmFare + peakCharge + waitingCharge) * 1.05;
-                }
+                const baseFare = config.base || 0;
+                const minKm = typeof config.minKm === 'number' ? config.minKm : 0;
+                const billableDist = Math.max(distanceCovered, minKm);
+                const distanceFare = billableDist * config.perKm;
+                const baseKmFare = Math.max(baseFare, distanceFare);
+                const peakCharge = baseKmFare * peakMult;
+                totalFare = (baseKmFare + peakCharge + waitingCharge) * 1.05;
             } else if (booking.trip_type === 'oneway') {
                 const config = pricingConfig || { base: 0, perKm: 13, minKm: 130 };
-                const baseFare = Math.max(300, config.base || 0);
-                if (distanceCovered <= 0) {
-                    const driverAllowance = booking.vehicle_type === 'bike' ? 0 : 400;
-                    totalFare = (baseFare + driverAllowance + waitingCharge) * 1.05;
-                    console.log(`[Finish Trip #${bookingId}] 0 KM distance. Base fare only: ₹${Math.ceil(totalFare)}`);
-                } else {
-                    const minKm = typeof config.minKm === 'number' ? config.minKm : 130;
-                    const billableDist = Math.max(distanceCovered, minKm);
-                    const distanceFare = billableDist * (config.perKm || 13);
-                    const baseKmFare = Math.max(baseFare, distanceFare);
-                    const driverAllowance = billableDist > 250 ? 600 : 400;
-                    totalFare = (baseKmFare + (booking.vehicle_type === 'bike' ? 0 : driverAllowance) + waitingCharge) * 1.05;
-                }
+                const baseFare = config.base || 0;
+                const minKm = typeof config.minKm === 'number' ? config.minKm : 130;
+                const billableDist = Math.max(distanceCovered, minKm);
+                const distanceFare = billableDist * (config.perKm || 13);
+                const baseKmFare = Math.max(baseFare, distanceFare);
+                const driverAllowance = billableDist > 250 ? 600 : 400;
+                totalFare = (baseKmFare + (booking.vehicle_type === 'bike' ? 0 : driverAllowance) + waitingCharge) * 1.05;
             } else if (booking.trip_type === 'round') {
                 const config = pricingConfig || { base: 0, perKm: 12, minKmPerDay: 250 };
-                const baseFare = Math.max(300, config.base || 0);
-                if (distanceCovered <= 0) {
-                    const driverAllowance = booking.vehicle_type === 'bike' ? 0 : 400;
-                    totalFare = (baseFare + driverAllowance + waitingCharge) * 1.05;
-                    console.log(`[Finish Trip #${bookingId}] 0 KM distance. Base fare only: ₹${Math.ceil(totalFare)}`);
-                } else {
-                    let tripDays = 1;
-                    if (booking.return_date && booking.pickup_date) {
-                        const start = new Date(booking.pickup_date);
-                        const end = new Date(booking.return_date);
-                        if (end > start) {
-                            const diffTime = Math.abs(end - start);
-                            tripDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) + 1;
-                        }
+                const baseFare = config.base || 0;
+                let tripDays = 1;
+                if (booking.return_date && booking.pickup_date) {
+                    const start = new Date(booking.pickup_date);
+                    const end = new Date(booking.return_date);
+                    if (end > start) {
+                        const diffTime = Math.abs(end - start);
+                        tripDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) + 1;
                     }
-                    const minKmForTrip = (typeof config.minKmPerDay === 'number' ? config.minKmPerDay : 250) * tripDays;
-                    const billableDist = Math.max(distanceCovered, minKmForTrip);
-                    const distanceFare = billableDist * (config.perKm || 12);
-                    const baseKmFare = Math.max(baseFare, distanceFare);
-                    const driverAllowance = billableDist > 250 ? 600 : 400;
-                    totalFare = ((baseKmFare + (booking.vehicle_type === 'bike' ? 0 : driverAllowance * tripDays)) + waitingCharge) * 1.05;
                 }
+                const minKmForTrip = (typeof config.minKmPerDay === 'number' ? config.minKmPerDay : 250) * tripDays;
+                const billableDist = Math.max(distanceCovered, minKmForTrip);
+                const distanceFare = billableDist * (config.perKm || 12);
+                const baseKmFare = Math.max(baseFare, distanceFare);
+                const driverAllowance = billableDist > 250 ? 600 : 400;
+                totalFare = ((baseKmFare + (booking.vehicle_type === 'bike' ? 0 : driverAllowance * tripDays)) + waitingCharge) * 1.05;
             }
 
             const finalFareStr = `₹${Math.ceil(totalFare)}`;
@@ -3386,22 +4171,30 @@ app.post('/api/bookings/finish-trip', authenticateJWT, requireRole(['driver']), 
             let vendorProfitDeducted = 0;
             if (booking.status !== 'completed' && booking.vendor_id && parseFloat(booking.vendor_markup) > 0) {
                 vendorProfitDeducted = parseFloat(booking.vendor_markup);
-                await db.query('UPDATE taxi_drivers SET wallet_balance = wallet_balance - ? WHERE id = ?', [vendorProfitDeducted, booking.driver_id]);
-                console.log(`[FINANCE] Deducted ₹${vendorProfitDeducted} vendor profit from Driver #${booking.driver_id} for Ride #B${bookingId}`);
             }
 
             const nextStatus = (booking.vendor_id || booking.trip_type === 'local') ? "completed" : "finished";
+            const updatePromises = [];
+            if (vendorProfitDeducted > 0) {
+                updatePromises.push(db.query('UPDATE taxi_drivers SET wallet_balance = wallet_balance - ? WHERE id = ?', [vendorProfitDeducted, booking.driver_id]));
+                console.log(`[FINANCE] Deducted ₹${vendorProfitDeducted} vendor profit from Driver #${booking.driver_id} for Ride #B${bookingId}`);
+            }
+
             if (booking.trip_type !== 'local') {
-                await db.query(
+                updatePromises.push(db.query(
                     'UPDATE taxi_bookings SET status = ?, end_odometer = ?, journey_end_time = NOW(), fare = ?, actual_distance = ?, end_gps_coords = ? WHERE id = ?',
                     [nextStatus, endOdometer, finalFareStr, distanceStr, endCoords, bookingId]
-                );
+                ));
             } else {
-                await db.query(
+                updatePromises.push(db.query(
                     'UPDATE taxi_bookings SET status = ?, journey_end_time = NOW(), fare = ?, actual_distance = ?, end_gps_coords = ? WHERE id = ?',
                     [nextStatus, finalFareStr, distanceStr, endCoords, bookingId]
-                );
+                ));
             }
+            await Promise.all(updatePromises);
+
+            // Clean up GPS state cache to prevent memory leaks
+            activeRidesGpsState.delete(bookingId);
 
             return res.json({
                 success: true,
@@ -3457,12 +4250,28 @@ app.post('/api/bookings/update-gps-location', authenticateJWT, requireRole(['dri
             });
         }
 
-        // 3. Calculate actual distance traveled so far (odometer-style) using logged coordinates
+        // 3. Calculate actual distance traveled so far (odometer-style) using cached Kalman filter state
         let startCoords = booking.start_gps_coords || null;
         if (startCoords === 'null,null') {
             startCoords = null;
         }
-        const serverDistKm = await calculateOdometerDistance(bookingId, startCoords);
+
+        let serverDistKm = 0;
+        try {
+            serverDistKm = await processNewGpsPoint(
+                bookingId,
+                parseFloat(latitude),
+                parseFloat(longitude),
+                parseFloat(accuracy || 0),
+                parseFloat(speed || 0),
+                startCoords,
+                booking.journey_start_time
+            );
+        } catch (e) {
+            console.error(`[GPS Cache Error #${bookingId}] Falling back to DB distance calculation:`, e.message);
+            serverDistKm = await calculateOdometerDistance(bookingId, startCoords, booking.journey_start_time);
+        }
+
         let actualDistKm = serverDistKm;
 
         if (clientDistance !== undefined && clientDistance !== null) {
@@ -3502,8 +4311,10 @@ app.post('/api/bookings/update-gps-location', authenticateJWT, requireRole(['dri
             allowedMins = originalDistKm * 2;
         }
         let waitingCharge = 0;
-        if (elapsedMins > allowedMins) {
-            waitingCharge = (elapsedMins - allowedMins) * 2;
+        if (booking.trip_type === 'local') {
+            if (elapsedMins > allowedMins) {
+                waitingCharge = (elapsedMins - allowedMins) * 2;
+            }
         }
 
         // 6. Recalculate Fare (check vendor tariff first, then system fallback)
@@ -3528,14 +4339,16 @@ app.post('/api/bookings/update-gps-location', authenticateJWT, requireRole(['dri
 
         if (booking.trip_type === 'local') {
             const config = pricingConfig || { base: 150, perKm: 20, minKm: 0 };
-            const baseFare = Math.max(300, config.base || 0);
-            const distanceFare = totalDistance * config.perKm;
+            const baseFare = config.base || 0;
+            const minKm = typeof config.minKm === 'number' ? config.minKm : 0;
+            const billableDist = Math.max(totalDistance, minKm);
+            const distanceFare = billableDist * config.perKm;
             const baseKmFare = Math.max(baseFare, distanceFare);
             const peakCharge = baseKmFare * peakMult;
             totalFare = (baseKmFare + peakCharge + waitingCharge) * 1.05;
         } else if (booking.trip_type === 'oneway') {
             const config = pricingConfig || { base: 0, perKm: 13, minKm: 130 };
-            const baseFare = Math.max(300, config.base || 0);
+            const baseFare = config.base || 0;
             const minKm = typeof config.minKm === 'number' ? config.minKm : 130;
             const billableDist = Math.max(totalDistance, minKm);
             const distanceFare = billableDist * (config.perKm || 13);
@@ -3544,7 +4357,7 @@ app.post('/api/bookings/update-gps-location', authenticateJWT, requireRole(['dri
             totalFare = (baseKmFare + (booking.vehicle_type === 'bike' ? 0 : driverAllowance) + waitingCharge) * 1.05;
         } else if (booking.trip_type === 'round') {
             const config = pricingConfig || { base: 0, perKm: 12, minKmPerDay: 250 };
-            const baseFare = Math.max(300, config.base || 0);
+            const baseFare = config.base || 0;
             let tripDays = 1;
             if (booking.return_date && booking.pickup_date) {
                 const start = new Date(booking.pickup_date);
@@ -3564,7 +4377,7 @@ app.post('/api/bookings/update-gps-location', authenticateJWT, requireRole(['dri
             const packageVal = booking.rental_package || '2-20';
             const [pMaxHrs, pMaxKm] = packageVal.split('-').map(Number);
             const packageConfig = (pricingConfig && pricingConfig[packageVal]) || { base: 600, extraKm: 18, extraHour: 150 };
-            
+
             const extraKm = Math.max(0, actualDistKm - pMaxKm);
             const extraKmCharge = extraKm * packageConfig.extraKm;
 
@@ -3655,7 +4468,9 @@ app.get('/api/bookings/driver-location/:bookingId', authenticateJWT, requireRole
 app.get('/api/proxy/geocode', async (req, res) => {
     try {
         const { q, limit, lang, lon, lat } = req.query;
-        const url = `https://photon.komoot.io/api/?q=${encodeURIComponent(q)}&limit=${limit || 5}&lang=${lang || 'en'}&lon=${lon}&lat=${lat}`;
+        const biasLon = lon && lon !== 'undefined' && lon !== 'null' ? lon : '80.2707';
+        const biasLat = lat && lat !== 'undefined' && lat !== 'null' ? lat : '13.0827';
+        const url = `https://photon.komoot.io/api/?q=${encodeURIComponent(q)}&limit=${limit || 5}&lang=${lang || 'en'}&lon=${biasLon}&lat=${biasLat}`;
         const response = await axios.get(url);
         res.json(response.data);
     } catch (err) {
@@ -3707,12 +4522,76 @@ app.post('/api/admin/update-tariff', async (req, res) => {
     try {
         const { id, config } = req.body;
         if (!id || !config) return res.status(400).json({ error: 'ID and config are required.' });
-        
+
         await db.query('UPDATE taxi_tariffs SET config = ? WHERE id = ?', [JSON.stringify(config), id]);
         res.json({ success: true, message: 'Tariff updated successfully.' });
     } catch (err) {
         res.status(500).json({ error: 'Failed to update tariff.' });
     }
+});
+
+// --- LIVE MONITOR API ---
+
+// SSE Stream for real-time log events
+app.get('/api/monitor/stream', (req, res) => {
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.flushHeaders();
+
+    // Purely live stream — no historical replay on connect
+
+    // Add this client
+    monitorClients.add(res);
+
+    // Keep-alive ping every 25 seconds
+    const keepAlive = setInterval(() => {
+        try { res.write(':ping\n\n'); } catch (e) { clearInterval(keepAlive); }
+    }, 25000);
+
+    req.on('close', () => {
+        clearInterval(keepAlive);
+        monitorClients.delete(res);
+    });
+});
+
+// DB Stats - get row counts for all main tables
+app.get('/api/monitor/stats', async (req, res) => {
+    try {
+        const tables = [
+            'taxi_bookings', 'taxi_drivers', 'taxi_passengers', 'passengers',
+            'taxi_vendors', 'taxi_tariffs', 'taxi_peak_rules'
+        ];
+        const stats = {};
+        for (const table of tables) {
+            try {
+                const [[row]] = await db.query(`SELECT COUNT(*) as count FROM \`${table}\``);
+                stats[table] = row.count;
+            } catch (e) { stats[table] = 0; }
+        }
+
+        // Recent activity counts (last 24h)
+        const [[bookings24h]] = await db.query(`SELECT COUNT(*) as count FROM taxi_bookings WHERE created_at >= NOW() - INTERVAL 24 HOUR`).catch(() => [[{ count: 0 }]]);
+        const [[activeDrivers]] = await db.query(`SELECT COUNT(*) as count FROM taxi_drivers WHERE status = 'active'`).catch(() => [[{ count: 0 }]]);
+
+        res.json({
+            tables: stats,
+            bookings24h: bookings24h.count,
+            activeDrivers: activeDrivers.count,
+            connectedClients: monitorClients.size,
+            logBufferSize: activityLog.length,
+            authStats
+        });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Full log history dump
+app.get('/api/monitor/history', (req, res) => {
+    const limit = Math.min(parseInt(req.query.limit) || 100, 500);
+    res.json(activityLog.slice(0, limit));
 });
 
 // --- PEAK RULES CONTROLLER ---
@@ -3728,7 +4607,7 @@ app.get('/api/peak-rules', async (req, res) => {
 app.post('/api/admin/peak-rules/add', async (req, res) => {
     try {
         const { start_time, end_time, surcharge_percentage } = req.body;
-        await db.query('INSERT INTO taxi_peak_rules (start_time, end_time, surcharge_percentage) VALUES (?, ?, ?)', 
+        await db.query('INSERT INTO taxi_peak_rules (start_time, end_time, surcharge_percentage) VALUES (?, ?, ?)',
             [start_time, end_time, surcharge_percentage]);
         res.json({ success: true });
     } catch (err) {
@@ -3739,7 +4618,7 @@ app.post('/api/admin/peak-rules/add', async (req, res) => {
 app.post('/api/admin/peak-rules/update', async (req, res) => {
     try {
         const { id, start_time, end_time, surcharge_percentage } = req.body;
-        await db.query('UPDATE taxi_peak_rules SET start_time = ?, end_time = ?, surcharge_percentage = ? WHERE id = ?', 
+        await db.query('UPDATE taxi_peak_rules SET start_time = ?, end_time = ?, surcharge_percentage = ? WHERE id = ?',
             [start_time, end_time, surcharge_percentage, id]);
         res.json({ success: true });
     } catch (err) {
@@ -3768,6 +4647,262 @@ app.get('/api/test/daily-report', async (req, res) => {
         res.status(500).json({ error: err.message });
     }
 });
+
+// ============================================================
+// --- DATABASE MANAGER API ---
+// ============================================================
+
+// Allowlist of manageable tables (excludes sensitive ones)
+const MANAGEABLE_TABLES = [
+    'taxi_bookings',
+    'taxi_drivers',
+    'taxi_passengers',
+    'passengers',
+    'taxi_admins',
+    'taxi_vendors',
+    'taxi_tariffs',
+    'taxi_peak_rules',
+    'taxi_driver_applications',
+    'taxi_otps',
+    'taxi_abort_rejections',
+    'abort_rejections',
+    'taxi_ride_gps_logs',
+    'tariffs',
+    'taxi_vendor_tariffs'
+];
+
+// Columns that should never be directly editable
+const PROTECTED_COLUMNS = ['password', 'token', 'otp', 'secret'];
+
+function isManageableTable(table) {
+    return MANAGEABLE_TABLES.includes(table);
+}
+
+// GET /api/dbmanager/tables - list all tables with row counts
+app.get('/api/dbmanager/tables', async (req, res) => {
+    try {
+        const result = [];
+        for (const table of MANAGEABLE_TABLES) {
+            try {
+                const [[row]] = await db.query(`SELECT COUNT(*) as count FROM \`${table}\``);
+                result.push({ name: table, rows: row.count });
+            } catch (e) {
+                result.push({ name: table, rows: 0, error: true });
+            }
+        }
+        broadcastLog({ type: 'DB_MANAGER', op: 'LIST_TABLES', status: 'OK', ts: Date.now() });
+        res.json({ tables: result });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// GET /api/dbmanager/schema/:table - get column definitions for a table
+app.get('/api/dbmanager/schema/:table', async (req, res) => {
+    const { table } = req.params;
+    if (!isManageableTable(table)) return res.status(403).json({ error: 'Access denied to this table.' });
+    try {
+        const [cols] = await db.query(`SHOW COLUMNS FROM \`${table}\``);
+        // Mask protected columns info
+        const safe = cols.map(c => ({
+            field: c.Field,
+            type: c.Type,
+            nullable: c.Null === 'YES',
+            key: c.Key,
+            default: c.Default,
+            extra: c.Extra,
+            protected: PROTECTED_COLUMNS.some(p => c.Field.toLowerCase().includes(p))
+        }));
+        res.json({ columns: safe });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// GET /api/dbmanager/rows/:table - get paginated rows
+app.get('/api/dbmanager/rows/:table', async (req, res) => {
+    const { table } = req.params;
+    if (!isManageableTable(table)) return res.status(403).json({ error: 'Access denied to this table.' });
+    const page = Math.max(1, parseInt(req.query.page) || 1);
+    const limit = Math.min(100, Math.max(10, parseInt(req.query.limit) || 50));
+    const offset = (page - 1) * limit;
+    const search = req.query.search ? `%${req.query.search}%` : null;
+    const sortCol = req.query.sort || 'id';
+    const sortDir = req.query.dir === 'desc' ? 'DESC' : 'ASC';
+
+    try {
+        // Get column names to validate sort column
+        const [cols] = await db.query(`SHOW COLUMNS FROM \`${table}\``);
+        const colNames = cols.map(c => c.Field);
+        const safeSortCol = colNames.includes(sortCol) ? sortCol : (colNames.includes('id') ? 'id' : colNames[0]);
+
+        let rows, total;
+
+        if (search && colNames.length > 0) {
+            // Build a LIKE search across text-like columns
+            const textCols = cols.filter(c => /varchar|text|char|enum/i.test(c.Type)).map(c => `\`${c.Field}\` LIKE ?`);
+            const whereClause = textCols.length > 0 ? `WHERE ${textCols.join(' OR ')}` : '';
+            const searchParams = textCols.map(() => search);
+
+            [[{ total }]] = await db.query(`SELECT COUNT(*) as total FROM \`${table}\` ${whereClause}`, searchParams);
+            [rows] = await db.query(
+                `SELECT * FROM \`${table}\` ${whereClause} ORDER BY \`${safeSortCol}\` ${sortDir} LIMIT ? OFFSET ?`,
+                [...searchParams, limit, offset]
+            );
+        } else {
+            [[{ total }]] = await db.query(`SELECT COUNT(*) as total FROM \`${table}\``);
+            [rows] = await db.query(`SELECT * FROM \`${table}\` ORDER BY \`${safeSortCol}\` ${sortDir} LIMIT ? OFFSET ?`, [limit, offset]);
+        }
+
+        // Mask protected fields in response
+        const safeRows = rows.map(row => {
+            const safe = { ...row };
+            for (const key of Object.keys(safe)) {
+                if (PROTECTED_COLUMNS.some(p => key.toLowerCase().includes(p))) {
+                    safe[key] = '***PROTECTED***';
+                }
+                // Truncate very long base64 fields
+                if (typeof safe[key] === 'string' && safe[key].length > 500) {
+                    safe[key] = safe[key].substring(0, 80) + '... [TRUNCATED]';
+                }
+            }
+            return safe;
+        });
+
+        res.json({ rows: safeRows, total, page, limit, pages: Math.ceil(total / limit) });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// POST /api/dbmanager/insert/:table - insert a new row
+app.post('/api/dbmanager/insert/:table', async (req, res) => {
+    const { table } = req.params;
+    if (!isManageableTable(table)) return res.status(403).json({ error: 'Access denied to this table.' });
+    const data = req.body;
+    if (!data || Object.keys(data).length === 0) return res.status(400).json({ error: 'No data provided.' });
+
+    // Remove protected fields from insert
+    const cleanData = {};
+    for (const [k, v] of Object.entries(data)) {
+        if (!PROTECTED_COLUMNS.some(p => k.toLowerCase().includes(p))) {
+            cleanData[k] = v === '' ? null : v;
+        }
+    }
+
+    // Remove id (auto-increment)
+    delete cleanData.id;
+
+    const cols = Object.keys(cleanData);
+    const vals = Object.values(cleanData);
+    if (cols.length === 0) return res.status(400).json({ error: 'No valid columns to insert.' });
+
+    try {
+        const placeholders = cols.map(() => '?').join(', ');
+        const [result] = await db.query(
+            `INSERT INTO \`${table}\` (\`${cols.join('`, `')}\`) VALUES (${placeholders})`,
+            vals
+        );
+        broadcastLog({ type: 'DB_MANAGER', op: 'INSERT', table, affectedId: result.insertId, status: 'OK', ts: Date.now() });
+        res.json({ success: true, insertId: result.insertId });
+    } catch (err) {
+        broadcastLog({ type: 'DB_MANAGER', op: 'INSERT', table, status: 'ERROR', error: err.message, ts: Date.now() });
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// PUT /api/dbmanager/update/:table/:id - update a row by primary key
+app.put('/api/dbmanager/update/:table/:id', async (req, res) => {
+    const { table, id } = req.params;
+    if (!isManageableTable(table)) return res.status(403).json({ error: 'Access denied to this table.' });
+    const data = req.body;
+    if (!data || Object.keys(data).length === 0) return res.status(400).json({ error: 'No data provided.' });
+
+    // Remove protected + id fields
+    const cleanData = {};
+    for (const [k, v] of Object.entries(data)) {
+        if (k === 'id') continue;
+        if (!PROTECTED_COLUMNS.some(p => k.toLowerCase().includes(p))) {
+            cleanData[k] = v === '' ? null : v;
+        }
+    }
+
+    const cols = Object.keys(cleanData);
+    const vals = Object.values(cleanData);
+    if (cols.length === 0) return res.status(400).json({ error: 'No valid columns to update.' });
+
+    try {
+        const setParts = cols.map(c => `\`${c}\` = ?`).join(', ');
+        const [result] = await db.query(`UPDATE \`${table}\` SET ${setParts} WHERE id = ?`, [...vals, id]);
+        if (result.affectedRows === 0) return res.status(404).json({ error: 'Row not found.' });
+        broadcastLog({ type: 'DB_MANAGER', op: 'UPDATE', table, affectedId: id, status: 'OK', ts: Date.now() });
+        res.json({ success: true, affectedRows: result.affectedRows });
+    } catch (err) {
+        broadcastLog({ type: 'DB_MANAGER', op: 'UPDATE', table, affectedId: id, status: 'ERROR', error: err.message, ts: Date.now() });
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// DELETE /api/dbmanager/delete/:table/:id - delete a row by primary key
+app.delete('/api/dbmanager/delete/:table/:id', async (req, res) => {
+    const { table, id } = req.params;
+    if (!isManageableTable(table)) return res.status(403).json({ error: 'Access denied to this table.' });
+    try {
+        const [result] = await db.query(`DELETE FROM \`${table}\` WHERE id = ?`, [id]);
+        if (result.affectedRows === 0) return res.status(404).json({ error: 'Row not found.' });
+        broadcastLog({ type: 'DB_MANAGER', op: 'DELETE', table, affectedId: id, status: 'OK', ts: Date.now() });
+        res.json({ success: true });
+    } catch (err) {
+        broadcastLog({ type: 'DB_MANAGER', op: 'DELETE', table, affectedId: id, status: 'ERROR', error: err.message, ts: Date.now() });
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Tables that have password fields we allow managing
+const PASSWORD_TABLES = ['taxi_passengers', 'passengers', 'taxi_drivers', 'taxi_admins', 'taxi_vendors', 'taxi_driver_applications'];
+
+// GET /api/dbmanager/password/:table/:id - get the hashed password for a row (for display)
+app.get('/api/dbmanager/password/:table/:id', async (req, res) => {
+    const { table, id } = req.params;
+    if (!isManageableTable(table) || !PASSWORD_TABLES.includes(table)) {
+        return res.status(403).json({ error: 'Password access not available for this table.' });
+    }
+    try {
+        // Only fetch the password column
+        const [rows] = await db.query(`SELECT id, password FROM \`${table}\` WHERE id = ?`, [id]);
+        if (!rows || rows.length === 0) return res.status(404).json({ error: 'Row not found.' });
+        broadcastLog({ type: 'DB_MANAGER', op: 'VIEW_PASSWORD', table, affectedId: id, status: 'OK', ts: Date.now() });
+        res.json({ id: rows[0].id, passwordHash: rows[0].password || null });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// PUT /api/dbmanager/password/:table/:id - update password for a row (accepts plaintext, stores bcrypt hash)
+app.put('/api/dbmanager/password/:table/:id', async (req, res) => {
+    const { table, id } = req.params;
+    if (!isManageableTable(table) || !PASSWORD_TABLES.includes(table)) {
+        return res.status(403).json({ error: 'Password update not available for this table.' });
+    }
+    const { newPassword } = req.body;
+    if (!newPassword || typeof newPassword !== 'string' || newPassword.trim().length < 4) {
+        return res.status(400).json({ error: 'New password must be at least 4 characters.' });
+    }
+    try {
+        const salt = await bcrypt.genSalt(10);
+        const hashed = await bcrypt.hash(newPassword.trim(), salt);
+        const [result] = await db.query(`UPDATE \`${table}\` SET password = ? WHERE id = ?`, [hashed, id]);
+        if (result.affectedRows === 0) return res.status(404).json({ error: 'Row not found.' });
+        broadcastLog({ type: 'DB_MANAGER', op: 'UPDATE_PASSWORD', table, affectedId: id, status: 'OK', ts: Date.now() });
+        res.json({ success: true, message: 'Password updated successfully.' });
+    } catch (err) {
+        broadcastLog({ type: 'DB_MANAGER', op: 'UPDATE_PASSWORD', table, affectedId: id, status: 'ERROR', error: err.message, ts: Date.now() });
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Route for DB Manager HTML
+app.get('/dbmanager', (req, res) => res.sendFile(path.join(__dirname, 'public', 'dbmanager.html')));
 
 // --- CENTRALIZED ERROR HANDLING MIDDLEWARE ---
 app.use((err, req, res, next) => {

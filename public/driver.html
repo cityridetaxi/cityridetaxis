@@ -1343,6 +1343,93 @@
             letter-spacing: 0.5px;
             text-transform: uppercase;
         }
+
+        /* Interactive Sand-Clock Processing Overlay */
+        #processing-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(9, 10, 15, 0.85);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            z-index: 20000;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            opacity: 0;
+            visibility: hidden;
+            transition: opacity 0.3s ease, visibility 0.3s ease;
+        }
+        #processing-overlay.visible {
+            opacity: 1;
+            visibility: visible;
+        }
+        .processing-content {
+            background: var(--bg-card);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 24px;
+            padding: 30px 40px;
+            width: 90%;
+            max-width: 360px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            text-align: center;
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.6), inset 0 1px 0 rgba(255,255,255,0.05);
+        }
+        .hourglass-wrapper {
+            margin-bottom: 20px;
+            filter: drop-shadow(0 0 15px rgba(255, 159, 10, 0.3));
+        }
+        .hourglass-svg {
+            animation: hourglass-flip 2.5s cubic-bezier(0.77, 0, 0.175, 1) infinite;
+            transform-origin: 50% 50%;
+        }
+        .sand-top {
+            animation: sand-empty 2.5s cubic-bezier(0.77, 0, 0.175, 1) infinite;
+            transform-origin: 50% 49px;
+        }
+        .sand-bottom {
+            animation: sand-fill 2.5s cubic-bezier(0.77, 0, 0.175, 1) infinite;
+            transform-origin: 50% 80px;
+        }
+        .sand-drip {
+            stroke-dasharray: 4, 6;
+            animation: drip-flow 0.4s linear infinite;
+        }
+        .processing-title {
+            font-size: 0.75rem;
+            font-weight: 800;
+            color: var(--accent-brand);
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            margin-bottom: 8px;
+        }
+        .processing-message {
+            font-size: 0.9rem;
+            font-weight: 500;
+            color: var(--text-white);
+            line-height: 1.4;
+        }
+
+        @keyframes hourglass-flip {
+            0%, 85% { transform: rotate(0deg); }
+            100% { transform: rotate(180deg); }
+        }
+        @keyframes sand-empty {
+            0% { transform: scaleY(1) scaleX(1); opacity: 1; }
+            45%, 100% { transform: scaleY(0) scaleX(0.4); opacity: 0; }
+        }
+        @keyframes sand-fill {
+            0% { transform: scaleY(0); }
+            45%, 100% { transform: scaleY(1); }
+        }
+        @keyframes drip-flow {
+            from { stroke-dashoffset: 0; }
+            to { stroke-dashoffset: 10; }
+        }
     </style>
 </head>
 <body>
@@ -1352,6 +1439,30 @@
         <img src="logo.png" class="splash-logo" alt="CityRideTaxi">
         <div style="font-size: 1.5rem; font-weight: 800; margin-bottom: 5px;"><span>CityRide</span>Partner</div>
         <div class="splash-status">Authenticating Pilot Systems...</div>
+    </div>
+
+    <!-- Processing/Loading Screen Overlay -->
+    <div id="processing-overlay">
+        <div class="processing-content">
+            <div class="hourglass-wrapper">
+                <svg class="hourglass-svg" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="80" height="80">
+                    <g class="hourglass-frame">
+                        <!-- Upper/Lower Caps -->
+                        <path d="M25 15 L75 15 M25 85 L75 85" stroke="var(--accent-brand)" stroke-width="8" stroke-linecap="round"/>
+                        <!-- Glass Outer contour -->
+                        <path d="M30 18 C30 42, 45 48, 45 50 C45 52, 30 58, 30 82 L70 82 C70 58, 55 52, 55 50 C55 48, 70 42, 70 18 Z" fill="none" stroke="rgba(255, 255, 255, 0.15)" stroke-width="4"/>
+                        <!-- Top sand (shrinking) -->
+                        <path class="sand-top" d="M32 23 L68 23 C65 38, 52 46, 50 49 C48 46, 35 38, 32 23 Z" fill="var(--warning-amber)"/>
+                        <!-- Bottom sand (growing) -->
+                        <path class="sand-bottom" d="M32 80 C35 72, 48 70, 50 70 C52 70, 65 72, 68 80 Z" fill="var(--warning-amber)"/>
+                        <!-- Drip -->
+                        <line class="sand-drip" x1="50" y1="49" x2="50" y2="71" stroke="var(--warning-amber)" stroke-width="3"/>
+                    </g>
+                </svg>
+            </div>
+            <div class="processing-title" id="processing-title">PROCESSING REQUEST</div>
+            <div class="processing-message" id="processing-message">Please wait while we update your status...</div>
+        </div>
     </div>
 
     <div class="app-container">
@@ -1407,20 +1518,20 @@
 
                     <div style="font-size: 1.1rem; font-weight: 800;" id="active-passenger-name">Passenger Name</div>
                     
-                    <div class="active-metrics-grid">
-                        <div class="active-metric-box">
+                    <div class="active-metrics-grid" id="active-metrics-grid">
+                        <div class="active-metric-box" id="active-box-fare">
                             <span class="active-metric-lbl">Est. Fare</span>
                             <span class="active-metric-val green" id="active-fare-val">₹0</span>
                         </div>
-                        <div class="active-metric-box">
-                            <span class="active-metric-lbl">Trip Distance</span>
-                            <span class="active-metric-val" id="active-dist-val">0 KM</span>
+                        <div class="active-metric-box" id="active-box-duration">
+                            <span class="active-metric-lbl">Est. Duration</span>
+                            <span class="active-metric-val" id="active-dist-val">TBD</span>
                         </div>
-                        <div class="active-metric-box">
-                            <span class="active-metric-lbl">Traveled</span>
+                        <div class="active-metric-box" id="active-box-distance">
+                            <span class="active-metric-lbl" id="active-dist-lbl">Traveled</span>
                             <span class="active-metric-val" id="active-actual-dist">0.0 KM</span>
                         </div>
-                        <div class="active-metric-box">
+                        <div class="active-metric-box" id="active-box-waiting">
                             <span class="active-metric-lbl">Waiting Extra</span>
                             <span class="active-metric-val" id="active-waiting-charge">₹0</span>
                         </div>
@@ -1441,7 +1552,7 @@
                         <div style="display:flex; justify-content:center; align-items:baseline; gap:6px; margin-bottom:12px;">
                             <span id="timer-elapsed-display" style="font-size:2.2rem; font-weight:900; font-variant-numeric:tabular-nums; letter-spacing:-1px; color:var(--text-white);">00:00:00</span>
                         </div>
-                        <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:8px; text-align:center;">
+                        <div id="timer-stats-grid" style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:8px; text-align:center;">
                             <div style="background:rgba(255,255,255,0.03); padding:8px 4px; border-radius:10px;">
                                 <div style="font-size:0.65rem; color:var(--text-gray); margin-bottom:2px;">Allowed</div>
                                 <div id="timer-allowed-time" style="font-size:0.9rem; font-weight:700; color:var(--success-green);">0:00</div>
@@ -1456,7 +1567,7 @@
                             </div>
                         </div>
                         <!-- Progress bar showing allowed vs elapsed -->
-                        <div style="margin-top:10px; height:6px; background:rgba(255,255,255,0.05); border-radius:3px; overflow:hidden;">
+                        <div id="timer-progress-wrapper" style="margin-top:10px; height:6px; background:rgba(255,255,255,0.05); border-radius:3px; overflow:hidden;">
                             <div id="timer-progress-bar" style="height:100%; width:0%; background:var(--success-green); border-radius:3px; transition:width 1s linear, background 0.3s;"></div>
                         </div>
                     </div>
@@ -1631,6 +1742,31 @@
                     </div>
                 </div>
 
+                <!-- Add Money to Wallet -->
+                <div class="glass-card" style="margin-top: 1rem;">
+                    <div class="card-header">
+                        <div class="card-title"><i class="ph-bold ph-bank"></i> Add Money to Wallet</div>
+                    </div>
+                    <div style="display: flex; flex-direction: column; align-items: center; gap: 15px; padding: 10px 0;">
+                        <img src="logo.png" alt="Admin QR Code" style="width: 150px; height: 150px; border-radius: 10px; border: 1px solid rgba(255,255,255,0.1); background: #fff; padding: 5px;">
+                        <div style="text-align: center;">
+                            <div style="font-weight: 700; color: #fff; font-size: 1.1rem;">Scan & Pay via UPI</div>
+                            <div style="color: var(--accent-brand); font-size: 0.9rem; margin-top: 4px;">UPI ID: admin@upi</div>
+                        </div>
+                        
+                        <div style="width: 100%; display: flex; gap: 10px; align-items: center; margin-top: 10px;">
+                            <input type="number" id="wallet-pay-amount" placeholder="Enter Amount (₹)" style="flex: 1; padding: 12px; border-radius: 10px; border: 1px solid rgba(255,255,255,0.1); background: rgba(0,0,0,0.2); color: #fff; outline: none;">
+                            <button class="btn btn-primary" onclick="notifyWalletPayment()" style="padding: 12px 20px; white-space: nowrap;"><i class="ph-bold ph-paper-plane-right"></i> Notify Admin</button>
+                        </div>
+                        
+                        <a href="https://wa.me/910000000000" target="_blank" style="width: 100%; text-decoration: none;">
+                            <button class="btn" style="width: 100%; padding: 12px; background: #25D366; color: #fff; border: none; border-radius: 10px; display: flex; align-items: center; justify-content: center; gap: 8px; font-weight: 700; cursor: pointer;">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="currentColor" viewBox="0 0 256 256"><path d="M187.58,144.84l-32-16a8,8,0,0,0-8,1.5l-19.24,16a5.36,5.36,0,0,1-4,.83,107.9,107.9,0,0,1-31.43-17.51A108.11,108.11,0,0,1,75.46,98.25a5.38,5.38,0,0,1,.84-4l16-19.24a8,8,0,0,0,1.5-8l-16-32A8,8,0,0,0,69.56,31a22.56,22.56,0,0,0-16.71,8,48,48,0,0,0-12,27.18c-3.11,36.53,19.33,76.6,54.85,112.13S171.31,229.93,207.84,226.8A48,48,0,0,0,235,214.81a22.54,22.54,0,0,0,8-16.71A8,8,0,0,0,239.05,149.86Zm-28.84,60.94c-30.82,2.64-67.43-16.85-99.11-48.53S13.76,88.42,16.4,57.6A6.53,6.53,0,0,1,21,55.33l13.56-6.78,12,24-11,13.25a21.43,21.43,0,0,0-4.08,18.06A123.86,123.86,0,0,0,51.86,129a124.08,124.08,0,0,0,25.21,21.18,21.41,21.41,0,0,0,18.06-4.08l13.25-11,24,12-6.78,13.56A6.53,6.53,0,0,1,158.74,205.78Z"></path></svg> WhatsApp Admin
+                            </button>
+                        </a>
+                    </div>
+                </div>
+
                 <!-- Ledger list of transactions -->
                 <div class="glass-card">
                     <div class="card-header">
@@ -1794,20 +1930,9 @@
 
     <!-- Live Script -->
     <script>
-        // Global Fetch Interceptor with Silent Token Refresh (Dual-Token Architecture)
+        // Global Fetch Interceptor for Auth Expiration Redirects
         (function() {
             const originalFetch = window.fetch;
-            let isRefreshing = false;
-            let refreshPromise = null;
-
-            async function attemptTokenRefresh() {
-                if (isRefreshing) return refreshPromise;
-                isRefreshing = true;
-                refreshPromise = originalFetch('/api/auth/refresh', { method: 'POST', credentials: 'include' })
-                    .then(r => { isRefreshing = false; return r.ok; })
-                    .catch(() => { isRefreshing = false; return false; });
-                return refreshPromise;
-            }
 
             function getLoginRedirect(url) {
                 if (typeof url === 'string' && url.includes('/api/')) {
@@ -1825,18 +1950,11 @@
                 const response = await originalFetch(...args);
                 const url = args[0];
                 
-                if (typeof url === 'string' && (url.includes('/api/auth/refresh') || url.includes('/api/auth/logout'))) {
+                if (typeof url === 'string' && url.includes('/api/auth/logout')) {
                     return response;
                 }
 
                 if (response.status === 401) {
-                    const refreshed = await attemptTokenRefresh();
-                    if (refreshed) {
-                        return originalFetch(...args);
-                    }
-                    const redirect = getLoginRedirect(url);
-                    if (redirect) window.location.href = redirect;
-                } else if (response.status === 403) {
                     const redirect = getLoginRedirect(url);
                     if (redirect) window.location.href = redirect;
                 }
@@ -1848,6 +1966,7 @@
         let isOnline = true;
         let driverData = null;
         let gpsWatchId = null;
+        let wakeLock = null;
         let driverMap = null;
         let driverMarker = null;
         let activeRouteLine = null;
@@ -1928,11 +2047,29 @@
 
         // Initialize App on DOM Content Loaded
         document.addEventListener('DOMContentLoaded', async () => {
-            // Verify pilot login session
+            // Verify pilot login session - check localStorage first, then server cookie
             driverData = JSON.parse(localStorage.getItem('cityride_pilot'));
             if (!driverData) {
-                window.location.href = 'driver-login.html';
-                return;
+                // localStorage lost (tab close, cache clear, etc) - try restoring from server cookie
+                try {
+                    const sessionRes = await fetch('/api/auth/session?role=driver');
+                    if (sessionRes.ok) {
+                        const sessionData = await sessionRes.json();
+                        if (sessionData.valid && sessionData.role === 'driver') {
+                            driverData = sessionData.user;
+                            localStorage.setItem('cityride_pilot', JSON.stringify(driverData));
+                        } else {
+                            window.location.href = 'driver-login.html';
+                            return;
+                        }
+                    } else {
+                        window.location.href = 'driver-login.html';
+                        return;
+                    }
+                } catch (e) {
+                    window.location.href = 'driver-login.html';
+                    return;
+                }
             }
 
             // Sync driver header metrics
@@ -2202,7 +2339,7 @@
         // Smooth Visual Odometer Interpolator (Zero-Latency Rendering)
         let visualDistanceCovered = 0;
         setInterval(() => {
-            if (activeRideObj && activeRideObj.status === 'ongoing' && window.localDistanceCovered !== undefined) {
+            if (activeRideObj && activeRideObj.status === 'ongoing' && activeRideObj.trip_type === 'local' && window.localDistanceCovered !== undefined) {
                 if (window.localDistanceCovered > visualDistanceCovered) {
                     const diff = window.localDistanceCovered - visualDistanceCovered;
                     if (diff < 0.001) {
@@ -2231,8 +2368,31 @@
             }
         }, 100);
 
+        async function requestWakeLock() {
+            try {
+                if ('wakeLock' in navigator) {
+                    wakeLock = await navigator.wakeLock.request('screen');
+                }
+            } catch (err) {}
+        }
+
+        // Recover location when returning from background
+        document.addEventListener('visibilitychange', () => {
+            if (document.visibilityState === 'visible') {
+                if (isOnline) requestWakeLock();
+                if (isOnline && navigator.geolocation) {
+                    navigator.geolocation.getCurrentPosition(pos => {
+                        window.lastGpsCoords = { lat: pos.coords.latitude, lng: pos.coords.longitude, time: Date.now() };
+                        updateGpsUI('locked', pos.coords.accuracy);
+                        updateDriverLocationOnMap(pos.coords.latitude, pos.coords.longitude);
+                    }, () => {}, { enableHighAccuracy: true });
+                }
+            }
+        });
+
         // GPS Geolocation Watcher logic
         async function startGpsTracking() {
+            requestWakeLock();
             // Native Capacitor Permission Prompt
             if (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.Geolocation) {
                 try {
@@ -2356,8 +2516,8 @@
                 }
             }, {
                 enableHighAccuracy: true,
-                timeout: 10000,
-                maximumAge: 0
+                timeout: 30000,
+                maximumAge: 5000
             });
         }
 
@@ -2366,6 +2526,10 @@
             if (gpsWatchId) {
                 navigator.geolocation.clearWatch(gpsWatchId);
                 gpsWatchId = null;
+            }
+            if (wakeLock !== null) {
+                wakeLock.release().catch(()=>{});
+                wakeLock = null;
             }
         }
 
@@ -2463,8 +2627,13 @@
                     }
                 }
 
-                // 2. Fetch pending jobs
-                const resOpps = await fetch(`${API_BASE_URL}/api/driver/jobs/${driverData.id}`);
+                // 2. Fetch pending jobs (pass current GPS coords for air-distance restriction)
+                const gpsCoords = window.lastGpsCoords;
+                let jobsUrl = `${API_BASE_URL}/api/driver/jobs/${driverData.id}`;
+                if (gpsCoords && gpsCoords.lat && gpsCoords.lng) {
+                    jobsUrl += `?lat=${gpsCoords.lat}&lng=${gpsCoords.lng}`;
+                }
+                const resOpps = await fetch(jobsUrl);
                 if (!resOpps.ok) return;
                 const jobs = await resOpps.json();
                 
@@ -2474,9 +2643,10 @@
                     window.passedRideIds = window.passedRideIds || [];
                     const visibleJobs = jobs.filter(j => !window.passedRideIds.includes(j.id));
                     
-                    renderOpportunityListView(visibleJobs);
+                    // Render the opportunities list (including passed ones as archived)
+                    renderOpportunityListView(jobs);
 
-                    // Open ping screen if a pending job matches
+                    // Open ping screen only if a non-passed pending job matches
                     const urgent = visibleJobs.find(j => j.status === 'pending');
                     if (urgent) {
                         triggerOlaPingAlert(urgent);
@@ -2496,6 +2666,11 @@
             const list = document.getElementById('opportunity-card-list');
             const searchingPanel = document.getElementById('searching-panel');
 
+            // Find unpassed (active) and passed (archived) jobs
+            window.passedRideIds = window.passedRideIds || [];
+            const activeJobs = jobs.filter(j => !window.passedRideIds.includes(j.id));
+            const passedJobs = jobs.filter(j => window.passedRideIds.includes(j.id));
+
             if (jobs.length === 0) {
                 panel.classList.add('hidden');
                 if (isOnline && !activeRideObj) {
@@ -2506,28 +2681,72 @@
                 return;
             }
 
-            searchingPanel.classList.add('hidden');
+            // Show radar scanning display if there are no new active opportunities
+            if (activeJobs.length === 0 && isOnline && !activeRideObj) {
+                searchingPanel.classList.remove('hidden');
+            } else {
+                searchingPanel.classList.add('hidden');
+            }
+
             panel.classList.remove('hidden');
-            list.innerHTML = jobs.map(job => `
-                <div class="opp-card">
-                    <div class="opp-card-row">
-                        <div class="opp-badge-row">
-                            <span class="opp-badge vehicle">${job.vehicle_type}</span>
-                            <span class="opp-badge type">${job.trip_type}</span>
-                            ${job.vendor_id ? '<span class="opp-badge vendor">Vendor</span>' : ''}
+            
+            let html = '';
+
+            // Render active unpassed jobs
+            if (activeJobs.length > 0) {
+                html += activeJobs.map(job => `
+                    <div class="opp-card">
+                        <div class="opp-card-row">
+                            <div class="opp-badge-row">
+                                <span class="opp-badge vehicle">${job.vehicle_type}</span>
+                                <span class="opp-badge type">${job.trip_type}</span>
+                                ${job.vendor_id ? '<span class="opp-badge vendor">Vendor</span>' : ''}
+                            </div>
+                            <span class="opp-fare">${job.fare}</span>
                         </div>
-                        <span class="opp-fare">${job.fare}</span>
+                        <div class="opp-loc-line">
+                            <div style="font-weight:700;"><span style="color:var(--accent-brand)">📍</span> ${job.pickup_loc}</div>
+                            <div style="color:var(--text-gray); margin-top:2px;">🏁 ${job.drop_loc}</div>
+                        </div>
+                        <div class="opp-card-row" style="margin-top:6px; border-top:1px solid rgba(255,255,255,0.04); padding-top:10px;">
+                            <span class="opp-dist">Distance: ${job.distance} ${job.estimated_duration ? ` | 🕒 ${job.estimated_duration}` : ''}</span>
+                            <button class="payout-btn" style="padding:6px 12px; font-size:0.75rem;" onclick="acceptBookingPing(${job.id})">Accept Ride</button>
+                        </div>
                     </div>
-                    <div class="opp-loc-line">
-                        <div style="font-weight:700;"><span style="color:var(--accent-brand)">📍</span> ${job.pickup_loc}</div>
-                        <div style="color:var(--text-gray); margin-top:2px;">🏁 ${job.drop_loc}</div>
+                `).join('');
+            }
+
+            // Render passed archived jobs
+            if (passedJobs.length > 0) {
+                html += `
+                    <div style="font-size: 0.75rem; font-weight: 700; color: var(--text-gray); margin-top: 15px; margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.5px; border-bottom: 1px solid rgba(255,255,255,0.08); padding-bottom: 5px;">
+                        Passed Opportunities (Archive)
                     </div>
-                    <div class="opp-card-row" style="margin-top:6px; border-top:1px solid rgba(255,255,255,0.04); padding-top:10px;">
-                        <span class="opp-dist">Distance: ${job.distance} ${job.estimated_duration ? ` | 🕒 ${job.estimated_duration}` : ''}</span>
-                        <button class="payout-btn" style="padding:6px 12px; font-size:0.75rem;" onclick="acceptBookingPing(${job.id})">Accept Ride</button>
+                `;
+                html += passedJobs.map(job => `
+                    <div class="opp-card passed-archived" style="opacity: 0.7; border-left: 2px solid var(--text-gray); background: rgba(255,255,255,0.02);">
+                        <div class="opp-card-row">
+                            <div class="opp-badge-row">
+                                <span class="opp-badge vehicle" style="opacity: 0.7;">${job.vehicle_type}</span>
+                                <span class="opp-badge type" style="opacity: 0.7;">${job.trip_type}</span>
+                                ${job.vendor_id ? '<span class="opp-badge vendor" style="opacity: 0.7;">Vendor</span>' : ''}
+                                <span class="opp-badge archive" style="background: rgba(255,255,255,0.08); color: var(--text-gray); border: 1px solid rgba(255,255,255,0.15);">Passed</span>
+                            </div>
+                            <span class="opp-fare" style="opacity: 0.8;">${job.fare}</span>
+                        </div>
+                        <div class="opp-loc-line">
+                            <div style="font-weight:700; opacity: 0.8;"><span style="color:var(--text-gray)">📍</span> ${job.pickup_loc}</div>
+                            <div style="color:var(--text-gray); margin-top:2px; opacity: 0.8;">🏁 ${job.drop_loc}</div>
+                        </div>
+                        <div class="opp-card-row" style="margin-top:6px; border-top:1px solid rgba(255,255,255,0.04); padding-top:10px;">
+                            <span class="opp-dist" style="opacity: 0.8;">Distance: ${job.distance} ${job.estimated_duration ? ` | 🕒 ${job.estimated_duration}` : ''}</span>
+                            <button class="payout-btn" style="padding:6px 12px; font-size:0.75rem; background: var(--text-gray); border-color: var(--text-gray);" onclick="acceptBookingPing(${job.id})">Accept Ride</button>
+                        </div>
                     </div>
-                </div>
-            `).join('');
+                `).join('');
+            }
+
+            list.innerHTML = html;
         }
 
         // Audio chimes Alert system
@@ -2697,7 +2916,7 @@
                     if (storedCoords) return storedCoords.split(',').map(Number);
                     if (!addr) return null;
                     try {
-                        const r = await fetch(`${API_BASE_URL}/api/proxy/geocode?q=${encodeURIComponent(addr)}&limit=1`);
+                        const r = await fetch(`${API_BASE_URL}/api/proxy/geocode?q=${encodeURIComponent(addr)}&limit=1&lon=80.2707&lat=13.0827`);
                         if (!r.ok) return null;
                         const d = await r.json();
                         return d.features[0]?.geometry.coordinates;
@@ -2745,7 +2964,6 @@
         // === LIVE WAITING CHARGE TIMER SYSTEM ===
         function startWaitingTimer(ride) {
             stopPreRideWaitingTimer();
-            // Don't restart if already running for the same ride
             if (waitingTimerInterval) return;
 
             // Initialize elapsed seconds (prefer DB calculated difference, fallback to client date parsing)
@@ -2776,10 +2994,29 @@
             // Show the timer panel
             document.getElementById('waiting-timer-panel').classList.remove('hidden');
 
-            // Set allowed time display
-            const allowedH = Math.floor(allowedMins / 60);
-            const allowedM = Math.floor(allowedMins % 60);
-            document.getElementById('timer-allowed-time').textContent = allowedH > 0 ? `${allowedH}h ${allowedM}m` : `${allowedM}m`;
+            if (ride.trip_type !== 'local') {
+                const statsGrid = document.getElementById('timer-stats-grid');
+                if (statsGrid) statsGrid.style.display = 'none';
+                const progWrap = document.getElementById('timer-progress-wrapper');
+                if (progWrap) progWrap.style.display = 'none';
+                
+                const badge = document.getElementById('timer-status-badge');
+                if (badge) {
+                    badge.textContent = 'ON TRIP';
+                    badge.style.background = 'rgba(52, 199, 89, 0.1)';
+                    badge.style.color = 'var(--success-green)';
+                }
+            } else {
+                const statsGrid = document.getElementById('timer-stats-grid');
+                if (statsGrid) statsGrid.style.display = 'grid';
+                const progWrap = document.getElementById('timer-progress-wrapper');
+                if (progWrap) progWrap.style.display = 'block';
+                
+                // Set allowed time display
+                const allowedH = Math.floor(allowedMins / 60);
+                const allowedM = Math.floor(allowedMins % 60);
+                document.getElementById('timer-allowed-time').textContent = allowedH > 0 ? `${allowedH}h ${allowedM}m` : `${allowedM}m`;
+            }
 
             function updateTimer() {
                 const elapsedSecs = currentElapsedSecs;
@@ -2792,46 +3029,51 @@
                 document.getElementById('timer-elapsed-display').textContent =
                     `${String(eH).padStart(2,'0')}:${String(eM).padStart(2,'0')}:${String(eS).padStart(2,'0')}`;
 
-                // Calculate waiting
-                const waitingMins = Math.max(0, elapsedMins - allowedMins);
-                const waitingCharge = Math.ceil(waitingMins * 2); // ₹2 per minute
+                if (ride.trip_type === 'local') {
+                    // Calculate waiting
+                    const waitingMins = Math.max(0, elapsedMins - allowedMins);
+                    const waitingCharge = Math.ceil(waitingMins * 2); // ₹2 per minute
 
-                // Format waiting time
-                const wM = Math.floor(waitingMins);
-                const wS = Math.floor((waitingMins - wM) * 60);
-                document.getElementById('timer-waiting-time').textContent = `${wM}:${String(wS).padStart(2,'0')}`;
-                document.getElementById('timer-waiting-charge').textContent = `₹${waitingCharge}`;
+                    // Format waiting time
+                    const wM = Math.floor(waitingMins);
+                    const wS = Math.floor((waitingMins - wM) * 60);
+                    document.getElementById('timer-waiting-time').textContent = `${wM}:${String(wS).padStart(2,'0')}`;
+                    document.getElementById('timer-waiting-charge').textContent = `₹${waitingCharge}`;
 
-                // Also update the metric box in the card header
-                document.getElementById('active-waiting-charge').textContent = `₹${waitingCharge}`;
+                    // Also update the metric box in the card header
+                    document.getElementById('active-waiting-charge').textContent = `₹${waitingCharge}`;
 
-                // Status badge and progress bar
-                const badge = document.getElementById('timer-status-badge');
-                const bar = document.getElementById('timer-progress-bar');
-                const elapsedDisplay = document.getElementById('timer-elapsed-display');
+                    // Status badge and progress bar
+                    const badge = document.getElementById('timer-status-badge');
+                    const bar = document.getElementById('timer-progress-bar');
+                    const elapsedDisplay = document.getElementById('timer-elapsed-display');
 
-                if (waitingMins > 0) {
-                    badge.textContent = 'WAITING';
-                    badge.style.background = 'rgba(255, 59, 48, 0.15)';
-                    badge.style.color = 'var(--danger-red)';
-                    bar.style.background = 'var(--danger-red)';
-                    bar.style.width = '100%';
-                    elapsedDisplay.style.color = 'var(--danger-red)';
-                } else {
-                    badge.textContent = 'ON TIME';
-                    badge.style.background = 'rgba(52, 199, 89, 0.1)';
-                    badge.style.color = 'var(--success-green)';
-                    bar.style.background = 'var(--success-green)';
-                    // Progress: what percentage of allowed time has been consumed
-                    const pct = allowedMins > 0 ? Math.min(100, (elapsedMins / allowedMins) * 100) : 0;
-                    bar.style.width = `${pct}%`;
-                    if (pct > 80) {
-                        bar.style.background = 'var(--warning-amber)';
-                        badge.textContent = 'ALMOST DUE';
-                        badge.style.background = 'rgba(255, 159, 10, 0.1)';
-                        badge.style.color = 'var(--warning-amber)';
+                    if (waitingMins > 0) {
+                        badge.textContent = 'WAITING';
+                        badge.style.background = 'rgba(255, 59, 48, 0.15)';
+                        badge.style.color = 'var(--danger-red)';
+                        bar.style.background = 'var(--danger-red)';
+                        bar.style.width = '100%';
+                        elapsedDisplay.style.color = 'var(--danger-red)';
+                    } else {
+                        badge.textContent = 'ON TIME';
+                        badge.style.background = 'rgba(52, 199, 89, 0.1)';
+                        badge.style.color = 'var(--success-green)';
+                        bar.style.background = 'var(--success-green)';
+                        // Progress: what percentage of allowed time has been consumed
+                        const pct = allowedMins > 0 ? Math.min(100, (elapsedMins / allowedMins) * 100) : 0;
+                        bar.style.width = `${pct}%`;
+                        if (pct > 80) {
+                            bar.style.background = 'var(--warning-amber)';
+                            badge.textContent = 'ALMOST DUE';
+                            badge.style.background = 'rgba(255, 159, 10, 0.1)';
+                            badge.style.color = 'var(--warning-amber)';
+                        }
+                        elapsedDisplay.style.color = 'var(--text-white)';
                     }
-                    elapsedDisplay.style.color = 'var(--text-white)';
+                } else {
+                    const elapsedDisplay = document.getElementById('timer-elapsed-display');
+                    if (elapsedDisplay) elapsedDisplay.style.color = 'var(--text-white)';
                 }
 
                 // Increment elapsed seconds for next tick
@@ -2980,11 +3222,10 @@
             const navigationRow = document.querySelector('.navigation-row');
             if (ride.trip_type !== 'local') {
                 if (mapPanel) mapPanel.classList.add('hidden');
-                if (navigationRow) navigationRow.style.display = 'none';
             } else {
                 if (mapPanel && isOnline) mapPanel.classList.remove('hidden');
-                if (navigationRow) navigationRow.style.display = 'grid';
             }
+            if (navigationRow) navigationRow.style.display = 'flex';
 
             // Odometer info for manual rides
             const odoInfoPanel = document.getElementById('active-odo-info');
@@ -3018,9 +3259,32 @@
                 durationVal = '';
             }
             window.activeRideDuration = durationVal;
-            const tripDist = ride.estimated_distance || ride.distance || '0 KM';
-            document.getElementById('active-dist-val').textContent = tripDist + (window.activeRideDuration ? ` (${window.activeRideDuration})` : '');
-            document.getElementById('active-actual-dist').textContent = ride.actual_distance || '0.0 KM';
+            document.getElementById('active-dist-val').textContent = durationVal || 'TBD';
+            
+            // Handle active card metrics grid based on trip_type
+            const metricsGrid = document.getElementById('active-metrics-grid');
+            const boxWaiting = document.getElementById('active-box-waiting');
+            const distLbl = document.getElementById('active-dist-lbl');
+            const actualDistEl = document.getElementById('active-actual-dist');
+            
+            if (ride.trip_type !== 'local') {
+                if (boxWaiting) boxWaiting.style.display = 'none';
+                if (metricsGrid) metricsGrid.style.gridTemplateColumns = 'repeat(3, 1fr)';
+                if (distLbl) distLbl.textContent = 'Est. Distance';
+                
+                let estDistVal = ride.estimated_distance || ride.distance || '0';
+                if (estDistVal && !String(estDistVal).toLowerCase().includes('km')) {
+                    const parsed = parseFloat(String(estDistVal).replace(/[^\d.]/g, ''));
+                    estDistVal = !isNaN(parsed) ? parsed.toFixed(1) + ' KM' : estDistVal;
+                }
+                if (actualDistEl) actualDistEl.textContent = estDistVal || 'TBD';
+            } else {
+                if (boxWaiting) boxWaiting.style.display = 'flex';
+                if (metricsGrid) metricsGrid.style.gridTemplateColumns = ''; // restore CSS repeat(2, 1fr)
+                if (distLbl) distLbl.textContent = 'Traveled';
+                if (actualDistEl) actualDistEl.textContent = ride.actual_distance || '0.0 KM';
+            }
+
             document.getElementById('active-pickup-loc').textContent = ride.pickup_loc;
             document.getElementById('active-drop-loc').textContent = ride.drop_loc;
 
@@ -3055,7 +3319,11 @@
                     badge.style.background = 'rgba(52, 199, 89, 0.1)';
                     badge.style.color = 'var(--success-green)';
                     
-                    startPreRideWaitingTimer(ride);
+                    if (ride.trip_type === 'local') {
+                        startPreRideWaitingTimer(ride);
+                    } else {
+                        stopWaitingTimer();
+                    }
 
                     btnsArea.innerHTML = `
                         <button class="btn btn-primary" onclick="initiateStartJourney(${ride.id}, '${ride.trip_type}')">Start Journey</button>
@@ -3091,6 +3359,22 @@
                         Abort request has been logged. Standing by for Admin Dispatch approval.
                     </div>
                 `;
+            }
+        }
+
+        function showProcessingLoader(message) {
+            const overlay = document.getElementById('processing-overlay');
+            const msgEl = document.getElementById('processing-message');
+            if (overlay && msgEl) {
+                msgEl.textContent = message || 'Please wait while we update your status...';
+                overlay.classList.add('visible');
+            }
+        }
+
+        function hideProcessingLoader() {
+            const overlay = document.getElementById('processing-overlay');
+            if (overlay) {
+                overlay.classList.remove('visible');
             }
         }
 
@@ -3145,10 +3429,11 @@
                 }
             }
 
+            showProcessingLoader('Starting Journey: Acquiring precise GPS coordinates...');
             let lat = null, lng = null;
             try {
                 const pos = await new Promise((res, rej) => {
-                    navigator.geolocation.getCurrentPosition(res, rej, { timeout: 4000 });
+                    navigator.geolocation.getCurrentPosition(res, rej, { timeout: 15000, maximumAge: 5000, enableHighAccuracy: true });
                 });
                 lat = pos.coords.latitude;
                 lng = pos.coords.longitude;
@@ -3160,6 +3445,7 @@
             }
 
             try {
+                showProcessingLoader('Starting Journey: Registering with CityRide engine...');
                 const res = await fetch(`${API_BASE_URL}/api/bookings/start-journey`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -3172,6 +3458,7 @@
                     })
                 });
 
+                hideProcessingLoader();
                 if (res.ok) {
                     const data = await res.json();
                     
@@ -3220,11 +3507,13 @@
                     Swal.fire('Error', err.error || 'Failed', 'error');
                 }
             } catch (err) {
+                hideProcessingLoader();
                 Swal.fire('Error', 'Network connection error.', 'error');
             }
         }
 
         async function markReachedLocation(bookingId) {
+            showProcessingLoader('Marking Arrival: Notifying passenger & dispatch...');
             try {
                 const response = await fetch(`${API_BASE_URL}/api/bookings/reached-pickup`, {
                     method: 'POST',
@@ -3232,8 +3521,16 @@
                     body: JSON.stringify({ bookingId })
                 });
 
+                hideProcessingLoader();
                 if (response.ok) {
-                    showBannerNotification('Status updated: You have reached the pickup location.');
+                    Swal.fire({
+                        title: 'Arrived!',
+                        text: 'You have reached the pickup location.',
+                        icon: 'success',
+                        timer: 2500,
+                        showConfirmButton: false,
+                        ...swalDarkOpts
+                    });
                     // Force refresh active ride details
                     pollOpportunityJobs();
                 } else {
@@ -3241,6 +3538,7 @@
                     Swal.fire('Failed', data.error || 'Could not update status.', 'error');
                 }
             } catch (err) {
+                hideProcessingLoader();
                 Swal.fire('Error', 'Network error occurred.', 'error');
             }
         }
@@ -3309,10 +3607,11 @@
                 }
             }
 
+            showProcessingLoader('Ending Journey: Acquiring precise GPS coordinates...');
             let lat = null, lng = null;
             try {
                 const pos = await new Promise((res, rej) => {
-                    navigator.geolocation.getCurrentPosition(res, rej, { timeout: 4000 });
+                    navigator.geolocation.getCurrentPosition(res, rej, { timeout: 15000, maximumAge: 5000, enableHighAccuracy: true });
                 });
                 lat = pos.coords.latitude;
                 lng = pos.coords.longitude;
@@ -3324,9 +3623,11 @@
             }
 
             try {
+                showProcessingLoader('Ending Journey: Syncing offline track data...');
                 // Sync any remaining offline GPS logs before finishing the trip
                 await syncOfflineGpsLogs(rideId);
 
+                showProcessingLoader('Ending Journey: Calculating fare breakdown & invoice...');
                 const res = await fetch(`${API_BASE_URL}/api/bookings/finish-trip`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -3339,6 +3640,7 @@
                     })
                 });
 
+                hideProcessingLoader();
                 if (res.ok) {
                     const data = await res.json();
                     
@@ -3352,11 +3654,18 @@
                                 </div>
                                 <div style="display:flex; justify-content:space-between;">
                                     <span>Distance Traveled:</span>
-                                    <span>${parseFloat(data.distance).toFixed(1)} KM</span>
+                                    <span>${(() => {
+                                        const dist = parseFloat(data.distance);
+                                        return isNaN(dist) ? '0.0' : dist.toFixed(1);
+                                    })()} KM</span>
                                 </div>
                                 <div style="display:flex; justify-content:space-between;">
                                     <span>Duration:</span>
-                                    <span>${parseFloat(data.duration).toFixed(0)} min</span>
+                                    <span>${(() => {
+                                        const dur = parseFloat(data.duration);
+                                        if (isNaN(dur)) return '0';
+                                        return tripType === 'rental' ? (dur * 60).toFixed(0) : dur.toFixed(0);
+                                    })()} min</span>
                                 </div>
                                 ${data.waitingCharge > 0 ? `
                                 <div style="display:flex; justify-content:space-between; color:var(--danger-red);">
@@ -3424,6 +3733,7 @@
                     Swal.fire('Error', err.error, 'error');
                 }
             } catch (err) {
+                hideProcessingLoader();
                 Swal.fire('Error', 'Connection failed.', 'error');
             }
         }
@@ -3450,6 +3760,7 @@
             }
 
             try {
+                showProcessingLoader('Verifying OTP: Completing ride booking...');
                 const res = await fetch(`${API_BASE_URL}/api/bookings/update-status`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -3460,6 +3771,7 @@
                     })
                 });
 
+                hideProcessingLoader();
                 if (res.ok) {
                     const data = await res.json();
                     
@@ -3534,7 +3846,10 @@
                     const err = await res.json();
                     Swal.fire('Failed', err.error || 'OTP verification failed.', 'error');
                 }
-            } catch(e) { Swal.fire('Error', 'Request failed.', 'error'); }
+            } catch(e) {
+                hideProcessingLoader();
+                Swal.fire('Error', 'Request failed.', 'error');
+            }
         }
 
         // Cache tariffs locally in localStorage
@@ -3603,13 +3918,15 @@
                 
                 let totalFare = 0;
                 if (booking.trip_type === 'local') {
-                    const baseFare = Math.max(300, config.base || 0);
-                    const distanceFare = distanceKm * config.perKm;
+                    const baseFare = config.base || 0;
+                    const minKm = typeof config.minKm === 'number' ? config.minKm : 0;
+                    const billableDist = Math.max(distanceKm, minKm);
+                    const distanceFare = billableDist * config.perKm;
                     const baseKmFare = Math.max(baseFare, distanceFare);
                     const peakCharge = baseKmFare * peakMult;
                     totalFare = (baseKmFare + peakCharge + waitingCharge) * 1.05;
                 } else if (booking.trip_type === 'oneway') {
-                    const baseFare = Math.max(300, config.base || 0);
+                    const baseFare = config.base || 0;
                     const minKm = typeof config.minKm === 'number' ? config.minKm : 130;
                     const billableDist = Math.max(distanceKm, minKm);
                     const distanceFare = billableDist * (config.perKm || 13);
@@ -3617,7 +3934,7 @@
                     const driverAllowance = billableDist > 250 ? 600 : 400;
                     totalFare = (baseKmFare + (booking.vehicle_type === 'bike' ? 0 : driverAllowance) + waitingCharge) * 1.05;
                 } else if (booking.trip_type === 'round') {
-                    const baseFare = Math.max(300, config.base || 0);
+                    const baseFare = config.base || 0;
                     let tripDays = 1;
                     if (booking.return_date && booking.pickup_date) {
                         const start = new Date(booking.pickup_date);
@@ -3698,7 +4015,7 @@
                     if (fareEl && data.newFare) fareEl.textContent = data.newFare;
 
                     const distEl = document.getElementById('active-dist-val');
-                    if (distEl && data.totalDistance) distEl.textContent = data.totalDistance + (window.activeRideDuration ? ` (${window.activeRideDuration})` : '');
+                    if (distEl) distEl.textContent = window.activeRideDuration || 'TBD';
 
                     if (data.actualDistance) {
                         const serverDist = parseFloat(data.actualDistance) || 0;
@@ -3869,7 +4186,7 @@
                     const statusLabel = ride.status ? (ride.status.charAt(0).toUpperCase() + ride.status.slice(1)) : 'Unknown';
                     const typeLabel = (ride.trip_type || 'local').toUpperCase();
                     const vehicleLabel = (ride.vehicle_type || 'sedan').toUpperCase();
-                    const distanceStr = ride.actual_distance || ride.distance || '0.0 KM';
+                    const distanceStr = ride.actual_distance || '0.0 KM';
                     
                     return `
                         <div class="history-card">
@@ -3914,7 +4231,7 @@
             }
         }
         // View Ride Invoice Modal
-        function viewRideInvoice(rideId) {
+        async function viewRideInvoice(rideId) {
             if (!window.weeklyEarningsData) return;
             const ride = window.weeklyEarningsData.find(r => r.id === rideId);
             if (!ride) return;
@@ -3970,6 +4287,46 @@
                  if (baseFare < 0) baseFare = 0;
             }
 
+            // Fetch tariff data for accurate breakdown if available
+            let configBaseFare = null;
+            let minKmVal = 0, minKmCharge = 0;
+            try {
+                const tariffRes = await fetch(`${API_BASE_URL}/api/tariffs`);
+                const tariffs = await tariffRes.json();
+                const vType = ride.vehicle_type || 'suv';
+                const category = ride.trip_type || 'local';
+                const match = tariffs.find(t => t.vehicle_type === vType && t.category === category);
+                if (match) {
+                    const config = typeof match.config === 'string' ? JSON.parse(match.config) : match.config;
+                    configBaseFare = config.base || 0;
+                    const perKmRate = config.perKm || 0;
+                    if (category === 'local') {
+                        const minKm = typeof config.minKm === 'number' ? config.minKm : 0;
+                        minKmVal = minKm;
+                        minKmCharge = minKm * perKmRate;
+                    } else if (category === 'oneway') {
+                        const minKm = typeof config.minKm === 'number' ? config.minKm : 130;
+                        minKmVal = minKm;
+                        minKmCharge = minKm * perKmRate;
+                    } else if (category === 'round') {
+                        let tripDays = 1;
+                        if (ride.return_date && ride.pickup_date) {
+                            const start = new Date(ride.pickup_date);
+                            const end = new Date(ride.return_date);
+                            if (end > start) {
+                                const diffTime = Math.abs(end - start);
+                                tripDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) + 1;
+                            }
+                        }
+                        const minKmPerDay = (typeof config.minKmPerDay === 'number' ? config.minKmPerDay : 250) * tripDays;
+                        minKmVal = minKmPerDay;
+                        minKmCharge = minKmPerDay * perKmRate;
+                    }
+                }
+            } catch(e) { console.warn('Could not fetch tariff breakdown for driver invoice modal:', e); }
+
+            const displayBaseFare = configBaseFare !== null ? configBaseFare : baseFare;
+
             let htmlContent = `
                 <div style="text-align:left; font-size:0.85rem; display:flex; flex-direction:column; gap:8px;">
                     <div style="font-size: 0.75rem; color: var(--text-gray); text-align: center; border-bottom: 1px dashed rgba(255,255,255,0.1); padding-bottom: 8px;">
@@ -4003,7 +4360,7 @@
                     </div>
                     <div style="display:flex; justify-content:space-between;">
                         <span>Distance Traveled:</span>
-                        <span style="font-weight:700; color:var(--text-white);">${ride.actual_distance || ride.distance || '0 KM'}</span>
+                        <span style="font-weight:700; color:var(--text-white);">${ride.actual_distance || '0.0 KM'}</span>
                     </div>
                     <div style="display:flex; justify-content:space-between;">
                         <span>Time Duration:</span>
@@ -4014,8 +4371,15 @@
                     
                     <div style="display:flex; justify-content:space-between;">
                         <span>Base Fare:</span>
-                        <span style="color:var(--text-white);">₹${baseFare.toFixed(2)}</span>
+                        <span style="color:var(--text-white);">₹${displayBaseFare.toFixed(2)}</span>
                     </div>
+                    
+                    ${minKmVal > 0 ? `
+                    <div style="display:flex; justify-content:space-between;">
+                        <span>Min. KM Charge (${minKmVal} KM):</span>
+                        <span style="color:var(--text-white);">₹${minKmCharge.toFixed(2)}</span>
+                    </div>
+                    ` : ''}
                     
                     ${waitingCharge > 0 ? `
                     <div style="display:flex; justify-content:space-between; color:var(--warning-amber);">
@@ -4193,6 +4557,44 @@
                     });
                 }
             });
+        }
+
+        // Notify Wallet Payment
+        async function notifyWalletPayment() {
+            const amountInput = document.getElementById('wallet-pay-amount');
+            const amount = parseFloat(amountInput.value);
+            
+            if (!amount || amount <= 0) {
+                return Swal.fire('Invalid Amount', 'Please enter a valid transfer amount.', 'error');
+            }
+
+            const btn = document.querySelector('button[onclick="notifyWalletPayment()"]');
+            btn.disabled = true;
+            btn.innerHTML = 'Sending...';
+
+            try {
+                const res = await fetch(`${API_BASE_URL}/api/driver/wallet-payment-notify`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${localStorage.getItem('cityride_pilot')}`
+                    },
+                    body: JSON.stringify({ amount })
+                });
+
+                const data = await res.json();
+                if (res.ok) {
+                    amountInput.value = '';
+                    Swal.fire('Notification Sent', data.message || 'Ground Control has been notified of your payment.', 'success');
+                } else {
+                    Swal.fire('Failed', data.error || 'Failed to notify Ground Control.', 'error');
+                }
+            } catch (err) {
+                Swal.fire('Error', 'Network error. Please try again.', 'error');
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = '<i class="ph-bold ph-paper-plane-right"></i> Notify Admin';
+            }
         }
 
         // Logout
