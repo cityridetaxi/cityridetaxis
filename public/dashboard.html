@@ -1146,7 +1146,11 @@
         }
 
         function logoutUser() {
-            fetch('/api/auth/logout', { method: 'POST' }).catch(() => {});
+            fetch('/api/auth/logout', { 
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ role: 'user' })
+            }).catch(() => {});
             localStorage.removeItem('cityride_member');
             window.location.href = 'auth.html';
         }

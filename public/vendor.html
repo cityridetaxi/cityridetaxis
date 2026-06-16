@@ -2161,7 +2161,11 @@
         }
 
         function logoutVendor() {
-            fetch('/api/auth/logout', { method: 'POST' }).catch(() => {});
+            fetch('/api/auth/logout', { 
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ role: 'vendor' })
+            }).catch(() => {});
             localStorage.removeItem('cityride_vendor');
             window.location.href = '/vendor-login';
         }

@@ -28,7 +28,18 @@ const activeRidesGpsState = new Map();
 
 // --- MIDDLEWARE HARDENING & OPTIMIZATIONS ---
 app.use(helmet({
-    contentSecurityPolicy: false // Disable CSP to prevent blocking inline scripts and Leaflet/SweetAlert CDNs
+    contentSecurityPolicy: {
+        directives: {
+            defaultSrc: ["'self'"],
+            scriptSrc: ["'self'", "'unsafe-inline'", "'unsafe-eval'", "https://unpkg.com", "https://cdn.jsdelivr.net", "https://cdnjs.cloudflare.com"],
+            styleSrc: ["'self'", "'unsafe-inline'", "https://unpkg.com", "https://fonts.googleapis.com"],
+            fontSrc: ["'self'", "https://fonts.gstatic.com"],
+            imgSrc: ["'self'", "data:", "blob:", "https://*", "http://*"],
+            connectSrc: ["'self'", "https://photon.komoot.io"],
+            objectSrc: ["'none'"],
+            upgradeInsecureRequests: [],
+        },
+    }
 }));
 app.disable('x-powered-by');
 app.use(compression({
@@ -53,10 +64,12 @@ app.use(express.urlencoded({ limit: '2mb', extended: true }));
 const allowedOrigins = (process.env.ALLOWED_ORIGINS || '').split(',').map(o => o.trim()).filter(Boolean);
 app.use(cors({
     origin: (origin, callback) => {
-        if (!origin || allowedOrigins.length === 0) {
+        const isDev = process.env.NODE_ENV !== 'production';
+        if (!origin) {
+            // Allow requests with no origin (like mobile apps or curl requests)
             return callback(null, true);
         }
-        if (allowedOrigins.includes(origin)) {
+        if (allowedOrigins.includes(origin) || (isDev && origin === 'http://localhost:3000')) {
             return callback(null, true);
         }
         return callback(new Error('CORS Policy: Origin not allowed.'));
@@ -439,8 +452,12 @@ app.use('/uploads', (req, res) => {
 });
 
 // --- JWT CONFIGURATION & HELPERS (Single-Token Architecture) ---
-const JWT_SECRET = process.env.JWT_SECRET || 'cityride_super_secure_jwt_key_2026';
-const ACCESS_TOKEN_EXPIRY = '36500d'; // 100 years access token (practically infinite, persists until logout)
+if (!process.env.JWT_SECRET) {
+    console.error("FATAL ERROR: process.env.JWT_SECRET is not defined. Server cannot start securely.");
+    process.exit(1);
+}
+const JWT_SECRET = process.env.JWT_SECRET;
+const ACCESS_TOKEN_EXPIRY = '3650d'; // 10 years access token (safe from 32-bit integer overflows, practically infinite)
 
 // Cookie name per role so different panels can coexist in the same browser
 function getRoleCookieName(role) {
@@ -462,14 +479,14 @@ async function setAuthCookie(res, req, user, role) {
         httpOnly: true,
         secure: process.env.NODE_ENV === 'production',
         sameSite: 'Lax',
-        maxAge: 100 * 365 * 24 * 60 * 60 * 1000 // 100 years
+        maxAge: 10 * 365 * 24 * 60 * 60 * 1000 // 10 years (avoids Y2K38 integer overflow in browsers)
     });
     // Keep legacy cookie in sync so old clients aren't broken immediately
     res.cookie('cityride_token', accessToken, {
         httpOnly: true,
         secure: process.env.NODE_ENV === 'production',
         sameSite: 'Lax',
-        maxAge: 100 * 365 * 24 * 60 * 60 * 1000 // 100 years
+        maxAge: 10 * 365 * 24 * 60 * 60 * 1000 // 10 years (avoids Y2K38 integer overflow in browsers)
     });
 }
 
@@ -1991,28 +2008,32 @@ app.get('/api/auth/session', async (req, res) => {
 });
 
 app.post('/api/auth/logout', (req, res) => {
+    const roleToLogout = req.query.role || req.body?.role;
     let identifier = 'session';
-    let role = 'user';
+    let role = roleToLogout || 'user';
     const allCookies = req.cookies || {};
-    // Find any valid token to log identity
-    const anyToken = allCookies.cr_admin_tok || allCookies.cr_driver_tok ||
-        allCookies.cr_user_tok || allCookies.cr_vendor_tok || allCookies.cityride_token;
-    if (anyToken) {
+    
+    const targetCookie = roleToLogout ? getRoleCookieName(roleToLogout) : null;
+    const tokenToVerify = targetCookie ? allCookies[targetCookie] : (allCookies.cr_admin_tok || allCookies.cr_driver_tok || allCookies.cr_user_tok || allCookies.cr_vendor_tok || allCookies.cityride_token);
+
+    if (tokenToVerify) {
         try {
-            const decoded = jwt.verify(anyToken, JWT_SECRET);
+            const decoded = jwt.verify(tokenToVerify, JWT_SECRET);
             if (decoded) {
                 identifier = decoded.email || decoded.phone || decoded.name || 'session';
-                role = decoded.role || 'user';
+                role = decoded.role || role;
             }
         } catch (e) { }
     }
-    logAuthEvent({ event: 'LOGOUT', role, identifier, status: 'OK', ip: req.ip, message: 'Logged out successfully' });
-    // Clear all role-specific cookies
-    res.clearCookie('cr_admin_tok');
-    res.clearCookie('cr_driver_tok');
-    res.clearCookie('cr_user_tok');
-    res.clearCookie('cr_vendor_tok');
-    res.clearCookie('cityride_token');
+    logAuthEvent({ event: 'LOGOUT', role, identifier, status: 'OK', ip: req.ip, message: `Logged out role: ${role}` });
+    
+    if (roleToLogout) {
+        res.clearCookie(getRoleCookieName(roleToLogout));
+    } else {
+        // Legacy fallback if no role is provided
+        res.clearCookie('cityride_token');
+        res.clearCookie('cr_user_tok'); 
+    }
     res.json({ success: true, message: 'Logged out successfully' });
 });
 
@@ -3165,9 +3186,18 @@ app.get('/api/driver/jobs/:driverId', async (req, res) => {
         // --- Air Distance Restriction ---
         // Check if the admin has enabled this feature
         const [settingRows] = await db.query(
-            "SELECT setting_value FROM taxi_settings WHERE setting_key = 'air_distance_restrict'"
+            "SELECT setting_key, setting_value FROM taxi_settings WHERE setting_key IN ('air_distance_restrict', 'air_distance_local_km', 'air_distance_outstation_km')"
         );
-        const restrictEnabled = settingRows.length > 0 && settingRows[0].setting_value === '1';
+        
+        let restrictEnabled = false;
+        let localRadiusKm = 3;
+        let outstationRadiusKm = 5;
+
+        settingRows.forEach(row => {
+            if (row.setting_key === 'air_distance_restrict' && row.setting_value === '1') restrictEnabled = true;
+            if (row.setting_key === 'air_distance_local_km') localRadiusKm = parseFloat(row.setting_value) || 3;
+            if (row.setting_key === 'air_distance_outstation_km') outstationRadiusKm = parseFloat(row.setting_value) || 5;
+        });
 
         const driverLat = parseFloat(req.query.lat);
         const driverLng = parseFloat(req.query.lng);
@@ -3184,8 +3214,7 @@ app.get('/api/driver/jobs/:driverId', async (req, res) => {
                 if (isNaN(pickupLat) || isNaN(pickupLng)) return true;
 
                 const tripType = (booking.trip_type || '').toLowerCase();
-                // Local: 3 km radius; Outstation (oneway/round) & Rental: 5 km radius
-                const radiusKm = (tripType === 'local') ? 3 : 5;
+                const radiusKm = (tripType === 'local') ? localRadiusKm : outstationRadiusKm;
                 const dist = getDistance(driverLat, driverLng, pickupLat, pickupLng);
                 return dist <= radiusKm;
             });
@@ -4093,18 +4122,21 @@ app.post('/api/bookings/finish-trip', authenticateJWT, requireRole(['driver']), 
             const durationMs = endTime - startTime;
             const durationMins = durationMs / (1000 * 60);
 
-            // Allowed time = distanceCovered * 2 min/km
-            const allowedMins = distanceCovered * 2;
+            let allowedMins = distanceCovered * 2; // Default for local: 2 min per actual travelled km
+            if (booking.trip_type === 'rental') {
+                const packageVal = booking.rental_package || '2-20';
+                const [pMaxHrs] = packageVal.split('-').map(Number);
+                allowedMins = (pMaxHrs || 2) * 60;
+            } else if (booking.trip_type === 'outstation') {
+                allowedMins = Infinity; // Outstation bills by day allowance, no minutely waiting
+            }
+
             let waitingCharge = 0;
+            if (durationMins > allowedMins) {
+                waitingCharge = (durationMins - allowedMins) * 2; // 2 rupees per minute
+            }
             if (booking.trip_type === 'local') {
-                if (durationMins > allowedMins) {
-                    waitingCharge = (durationMins - allowedMins) * 2; // 2 rupees per minute
-                }
                 waitingCharge += preRideWaitingCharge;
-            } else {
-                if (durationMins > allowedMins) {
-                    waitingCharge = (durationMins - allowedMins) * 2; // 2 rupees per minute
-                }
             }
 
             // Recalculate Final Fare (check vendor tariff first, then system fallback)
@@ -4467,12 +4499,24 @@ app.get('/api/bookings/driver-location/:bookingId', authenticateJWT, requireRole
 // --- GEOCODING PROXY (To avoid CORS issues with Photon API) ---
 app.get('/api/proxy/geocode', async (req, res) => {
     try {
-        const { q, limit, lang, lon, lat } = req.query;
-        const biasLon = lon && lon !== 'undefined' && lon !== 'null' ? lon : '80.2707';
-        const biasLat = lat && lat !== 'undefined' && lat !== 'null' ? lat : '13.0827';
-        const url = `https://photon.komoot.io/api/?q=${encodeURIComponent(q)}&limit=${limit || 5}&lang=${lang || 'en'}&lon=${biasLon}&lat=${biasLat}`;
-        const response = await axios.get(url);
-        res.json(response.data);
+        const { q, limit } = req.query;
+        // Append Tamil Nadu to force high accuracy bounds
+        const searchQuery = q.toLowerCase().includes('tamil nadu') ? q : `${q}, Tamil Nadu, India`;
+        
+        const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(searchQuery)}&format=json&addressdetails=1&limit=${limit || 5}&countrycodes=in`;
+        const response = await axios.get(url, { headers: { 'User-Agent': 'CityRideTaxiApp/1.0' } });
+        
+        // Map Nominatim JSON array to Photon FeatureCollection format for frontend compatibility
+        const features = response.data.map(item => ({
+            geometry: { coordinates: [parseFloat(item.lon), parseFloat(item.lat)] },
+            properties: {
+                name: item.display_name,
+                street: '',
+                city: '',
+                state: ''
+            }
+        }));
+        res.json({ features });
     } catch (err) {
         console.error('Geocode Proxy Error:', err.message);
         res.status(500).json({ error: 'Geocoding service unavailable via proxy.' });
@@ -4482,9 +4526,20 @@ app.get('/api/proxy/geocode', async (req, res) => {
 app.get('/api/proxy/reverse', async (req, res) => {
     try {
         const { lon, lat } = req.query;
-        const url = `https://photon.komoot.io/reverse?lon=${lon}&lat=${lat}`;
-        const response = await axios.get(url);
-        res.json(response.data);
+        const url = `https://nominatim.openstreetmap.org/reverse?lon=${lon}&lat=${lat}&format=json&addressdetails=1`;
+        const response = await axios.get(url, { headers: { 'User-Agent': 'CityRideTaxiApp/1.0' } });
+        
+        const item = response.data;
+        const features = item.error ? [] : [{
+            geometry: { coordinates: [parseFloat(item.lon), parseFloat(item.lat)] },
+            properties: {
+                name: item.display_name,
+                street: '',
+                city: '',
+                state: ''
+            }
+        }];
+        res.json({ features });
     } catch (err) {
         console.error('Reverse Geocode Proxy Error:', err.message);
         res.status(500).json({ error: 'Reverse geocoding service unavailable via proxy.' });
@@ -4494,7 +4549,8 @@ app.get('/api/proxy/reverse', async (req, res) => {
 app.get('/api/proxy/route', async (req, res) => {
     try {
         const { pickup, drop } = req.query;
-        const url = `https://router.project-osrm.org/route/v1/driving/${pickup};${drop}?overview=false`;
+        // Fetch full route geometry for map drawing
+        const url = `https://router.project-osrm.org/route/v1/driving/${pickup};${drop}?overview=full&geometries=geojson`;
         const response = await axios.get(url);
         res.json(response.data);
     } catch (err) {

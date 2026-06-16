@@ -1246,12 +1246,18 @@
                     </div>
                     <div style="border-top: 1px solid #333; padding-top: 1rem;">
                         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.8rem;">
-                            <div style="background: #1a1a2e; border-radius: 10px; padding: 1rem; text-align: center;">
-                                <div style="font-size: 1.6rem; font-weight: 800; color: #e65100;">3 km</div>
+                            <div style="background: #1a1a2e; border-radius: 10px; padding: 1rem; text-align: center; display: flex; flex-direction: column; align-items: center; justify-content: center;">
+                                <div style="display: flex; align-items: baseline; gap: 5px;">
+                                    <input type="number" id="adr-local-km" value="3" step="0.1" style="font-size: 1.6rem; font-weight: 800; color: #e65100; background: transparent; border: none; border-bottom: 1px dashed #555; outline: none; text-align: center; width: 60px; padding: 0;" onchange="saveAirDistanceKm('air_distance_local_km', this.value)">
+                                    <span style="font-size: 1rem; font-weight: 800; color: #e65100;">km</span>
+                                </div>
                                 <div style="font-size: 0.8rem; color: #aaa; margin-top: 0.3rem;">Local Rides Radius</div>
                             </div>
-                            <div style="background: #1a1a2e; border-radius: 10px; padding: 1rem; text-align: center;">
-                                <div style="font-size: 1.6rem; font-weight: 800; color: #e65100;">5 km</div>
+                            <div style="background: #1a1a2e; border-radius: 10px; padding: 1rem; text-align: center; display: flex; flex-direction: column; align-items: center; justify-content: center;">
+                                <div style="display: flex; align-items: baseline; gap: 5px;">
+                                    <input type="number" id="adr-outstation-km" value="5" step="0.1" style="font-size: 1.6rem; font-weight: 800; color: #e65100; background: transparent; border: none; border-bottom: 1px dashed #555; outline: none; text-align: center; width: 60px; padding: 0;" onchange="saveAirDistanceKm('air_distance_outstation_km', this.value)">
+                                    <span style="font-size: 1rem; font-weight: 800; color: #e65100;">km</span>
+                                </div>
                                 <div style="font-size: 0.8rem; color: #aaa; margin-top: 0.3rem;">Outstation &amp; Rental Radius</div>
                             </div>
                         </div>
@@ -2020,9 +2026,13 @@
         }
 
         function logoutAdmin() {
-            fetch('/api/auth/logout', { method: 'POST' }).catch(() => {});
+            fetch('/api/auth/logout', { 
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ role: 'admin' })
+            }).catch(() => {});
             localStorage.removeItem('cityride_master');
-            window.location.href = '/admin-login';
+            window.location.href = 'admin-login.html';
         }
 
         // Handle Driver Creation
@@ -2985,6 +2995,12 @@
                 const settings = await res.json();
                 const enabled = settings['air_distance_restrict'] === '1';
                 applyToggleVisual(enabled);
+
+                const localKm = document.getElementById('adr-local-km');
+                if (localKm && settings['air_distance_local_km']) localKm.value = settings['air_distance_local_km'];
+                
+                const outstationKm = document.getElementById('adr-outstation-km');
+                if (outstationKm && settings['air_distance_outstation_km']) outstationKm.value = settings['air_distance_outstation_km'];
             } catch (err) {
                 console.error('loadSystemSettings error:', err);
                 const status = document.getElementById('adr-toggle-status');
@@ -3008,6 +3024,22 @@
                 showAlertBanner('Failed to save setting.', 'error');
                 // Revert UI
                 loadSystemSettings();
+            }
+        }
+
+        async function saveAirDistanceKm(key, value) {
+            try {
+                const token = localStorage.getItem('token');
+                const res = await fetch(`${API_BASE_URL}/api/admin/settings`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                    body: JSON.stringify({ key, value })
+                });
+                if (!res.ok) throw new Error('Failed to save setting');
+                showAlertBanner('Radius distance updated successfully.', 'success');
+            } catch (err) {
+                console.error('saveAirDistanceKm error:', err);
+                showAlertBanner('Failed to update distance.', 'error');
             }
         }
     </script>

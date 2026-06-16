@@ -1283,13 +1283,12 @@
 
         /* Floating Speed & Distance Odometer widgets */
         .ride-stats-floating {
-            position: absolute;
-            top: 20px;
-            right: 20px;
-            z-index: 1000;
             display: flex;
-            flex-direction: column;
+            flex-direction: row;
+            justify-content: space-between;
             gap: 12px;
+            margin-bottom: 15px;
+            width: 100%;
             pointer-events: none; /* Let clicks pass through if needed, but the cards can be interactive */
         }
         .ride-stat-float-card {
@@ -1605,6 +1604,24 @@
                     </div>
                 </div>
 
+                <!-- Live Speed & Odometer widgets (Outside the map) -->
+                <div class="ride-stats-floating" id="ride-stats-floating" style="display: flex;">
+                    <div class="ride-stat-float-card speed-card" style="flex: 1; justify-content: center;">
+                        <div class="icon-wrap">⚡</div>
+                        <div class="stat-content">
+                            <span class="value" id="float-speed-val">0</span>
+                            <span class="unit">KM/H</span>
+                        </div>
+                    </div>
+                    <div class="ride-stat-float-card dist-card" style="flex: 1; justify-content: center;">
+                        <div class="icon-wrap">🛣️</div>
+                        <div class="stat-content">
+                            <span class="value" id="float-dist-val">0.000</span>
+                            <span class="unit">KM</span>
+                        </div>
+                    </div>
+                </div>
+
                 <!-- Live Map View when Online -->
                 <div class="map-section" id="map-tracking-panel">
                     <div class="gps-status-overlay">
@@ -1613,24 +1630,6 @@
                     </div>
                     
                     <div id="dashboard-map"></div>
-
-                    <!-- Floating Speed & Odometer widgets -->
-                    <div class="ride-stats-floating" id="ride-stats-floating" style="display: none;">
-                        <div class="ride-stat-float-card speed-card">
-                            <div class="icon-wrap">⚡</div>
-                            <div class="stat-content">
-                                <span class="value" id="float-speed-val">0</span>
-                                <span class="unit">KM/H</span>
-                            </div>
-                        </div>
-                        <div class="ride-stat-float-card dist-card">
-                            <div class="icon-wrap">🛣️</div>
-                            <div class="stat-content">
-                                <span class="value" id="float-dist-val">0.0</span>
-                                <span class="unit">KM</span>
-                            </div>
-                        </div>
-                    </div>
                     
                     <button class="map-floating-btn" onclick="triggerEmergencySOS()" title="Emergency Trigger">
                         SOS
@@ -2243,13 +2242,14 @@
                 return;
             }
             
-            // Map dark mode theme configuration (CartoDB Dark Matter)
+            // Map Satellite theme configuration
             driverMap = L.map('dashboard-map', {
                 zoomControl: false,
                 attributionControl: false
             }).setView([13.0827, 80.2707], 12); // Default Chennai center
 
-            L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+            // Google Maps Satellite Hybrid (Satellite + Labels) View
+            L.tileLayer('https://mt1.google.com/vt/lyrs=y&x={x}&y={y}&z={z}', {
                 maxZoom: 20
             }).addTo(driverMap);
 
@@ -2339,7 +2339,7 @@
         // Smooth Visual Odometer Interpolator (Zero-Latency Rendering)
         let visualDistanceCovered = 0;
         setInterval(() => {
-            if (activeRideObj && activeRideObj.status === 'ongoing' && activeRideObj.trip_type === 'local' && window.localDistanceCovered !== undefined) {
+            if (window.localDistanceCovered !== undefined) {
                 if (window.localDistanceCovered > visualDistanceCovered) {
                     const diff = window.localDistanceCovered - visualDistanceCovered;
                     if (diff < 0.001) {
@@ -2358,7 +2358,7 @@
                 if (activeActualDist) activeActualDist.textContent = visualDistanceCovered.toFixed(3) + ' KM';
 
                 // Real-time offline fallback fare calculation
-                if (window.gpsUpdateFailed || !navigator.onLine) {
+                if ((window.gpsUpdateFailed || !navigator.onLine) && activeRideObj && activeRideObj.status === 'ongoing' && activeRideObj.trip_type === 'local') {
                     const localFare = calculateLocalFare(activeRideObj, visualDistanceCovered);
                     if (localFare) {
                         const fareEl = document.getElementById('active-fare-val');
@@ -2423,6 +2423,23 @@
 
             updateGpsUI('searching');
 
+            // --- GPS Watchdog (Auto-Recover stalled geolocation on mobile) ---
+            if (window.gpsWatchdogInterval) clearInterval(window.gpsWatchdogInterval);
+            window.gpsWatchdogInterval = setInterval(() => {
+                if (window.lastGpsCoords && (Date.now() - window.lastGpsCoords.time > 15000)) {
+                    console.warn('GPS Watchdog: Signal stalled, manually forcing location refresh...');
+                    navigator.geolocation.getCurrentPosition((pos) => {
+                        // Force update
+                        window.lastGpsCoords = { lat: pos.coords.latitude, lng: pos.coords.longitude, time: Date.now() };
+                        updateGpsUI('locked', pos.coords.accuracy);
+                        updateDriverLocationOnMap(pos.coords.latitude, pos.coords.longitude);
+                    }, () => {
+                        updateGpsUI('searching');
+                    }, { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 });
+                }
+            }, 10000);
+
+            if (gpsWatchId) navigator.geolocation.clearWatch(gpsWatchId);
             gpsWatchId = navigator.geolocation.watchPosition((pos) => {
                 const lat = pos.coords.latitude;
                 const lng = pos.coords.longitude;
@@ -2448,49 +2465,49 @@
                 const floatSpeedVal = document.getElementById('float-speed-val');
                 if (floatSpeedVal) floatSpeedVal.textContent = speedKmh;
 
-                // Client-side real-time odometer accumulator
+                // Client-side real-time odometer accumulator (ALWAYS RUNS WHEN ONLINE)
+                if (!window.clientKalmanFilter) {
+                    window.clientKalmanFilter = new LatLngKalmanFilter(4.0); // 4.0 process noise matches optimized backend
+                }
+                
+                const smoothed = window.clientKalmanFilter.process(lat, lng, acc, Date.now());
+                
+                if (window.lastOdoCalcTime) {
+                    const dtSeconds = Math.max(0.1, (Date.now() - window.lastOdoCalcTime) / 1000.0);
+                    let incrementalDistanceKm = 0;
+
+                    // Primary Method: Doppler Speed Integration (Extremely accurate, mirrors physical odometer)
+                    // Uses the GPS chip's native speed to calculate distance precisely via Speed * Time
+                    if (pos.coords.speed !== null && !isNaN(pos.coords.speed) && pos.coords.speed >= 0) {
+                        // Filter out completely stationary micro-vibrations (e.g. speed < 0.2 m/s or ~0.7 km/h)
+                        if (pos.coords.speed >= 0.2) {
+                            incrementalDistanceKm = (pos.coords.speed * dtSeconds) / 1000.0;
+                        }
+                    } 
+                    // Fallback Method: Kalman-Smoothed Coordinates
+                    else if (window.lastSmoothedCoords) {
+                        const segmentDist = getDistance(window.lastSmoothedCoords.lat, window.lastSmoothedCoords.lng, smoothed.lat, smoothed.lng);
+                        const calculatedSpeedMPS = (segmentDist * 1000.0) / dtSeconds;
+
+                        // 1. Reject teleportation jumps (> 45 m/s)
+                        // 2. Ignore stationary micro-jitter (movement < 1m or speed < 0.05 m/s)
+                        if (acc <= 200 && calculatedSpeedMPS <= 45.0 && segmentDist >= 0.001 && calculatedSpeedMPS >= 0.05) {
+                            incrementalDistanceKm = segmentDist;
+                        }
+                    }
+
+                    // Accumulate distance (UI will be smoothly updated by the generic interpolator)
+                    if (incrementalDistanceKm > 0 && incrementalDistanceKm < 5.0) {
+                        window.localDistanceCovered = (window.localDistanceCovered || 0) + incrementalDistanceKm;
+                    }
+                }
+                
+                window.lastSmoothedCoords = { lat: smoothed.lat, lng: smoothed.lng };
+                window.lastOdoCalcTime = Date.now();
+
+                // LOSSLESS OFFLINE CACHING: Aggressively cache every valid point (max 1 per second)
+                // This ensures no curves or turns are lost even if internet goes down for 5+ minutes.
                 if (activeRideObj && activeRideObj.status === 'ongoing') {
-                    if (!window.clientKalmanFilter) {
-                        window.clientKalmanFilter = new LatLngKalmanFilter(4.0); // 4.0 process noise matches optimized backend
-                    }
-                    
-                    const smoothed = window.clientKalmanFilter.process(lat, lng, acc, Date.now());
-                    
-                    if (window.lastOdoCalcTime) {
-                        const dtSeconds = Math.max(0.1, (Date.now() - window.lastOdoCalcTime) / 1000.0);
-                        let incrementalDistanceKm = 0;
-
-                        // Primary Method: Doppler Speed Integration (Extremely accurate, mirrors physical odometer)
-                        // Uses the GPS chip's native speed to calculate distance precisely via Speed * Time
-                        if (pos.coords.speed !== null && !isNaN(pos.coords.speed) && pos.coords.speed >= 0) {
-                            // Filter out completely stationary micro-vibrations (e.g. speed < 0.2 m/s or ~0.7 km/h)
-                            if (pos.coords.speed >= 0.2) {
-                                incrementalDistanceKm = (pos.coords.speed * dtSeconds) / 1000.0;
-                            }
-                        } 
-                        // Fallback Method: Kalman-Smoothed Coordinates
-                        else if (window.lastSmoothedCoords) {
-                            const segmentDist = getDistance(window.lastSmoothedCoords.lat, window.lastSmoothedCoords.lng, smoothed.lat, smoothed.lng);
-                            const calculatedSpeedMPS = (segmentDist * 1000.0) / dtSeconds;
-
-                            // 1. Reject teleportation jumps (> 45 m/s)
-                            // 2. Ignore stationary micro-jitter (movement < 1m or speed < 0.05 m/s)
-                            if (acc <= 200 && calculatedSpeedMPS <= 45.0 && segmentDist >= 0.001 && calculatedSpeedMPS >= 0.05) {
-                                incrementalDistanceKm = segmentDist;
-                            }
-                        }
-
-                        // Accumulate distance (UI will be smoothly updated by the generic interpolator)
-                        if (incrementalDistanceKm > 0 && incrementalDistanceKm < 5.0) {
-                            window.localDistanceCovered = (window.localDistanceCovered || 0) + incrementalDistanceKm;
-                        }
-                    }
-                    
-                    window.lastSmoothedCoords = { lat: smoothed.lat, lng: smoothed.lng };
-                    window.lastOdoCalcTime = Date.now();
-
-                    // LOSSLESS OFFLINE CACHING: Aggressively cache every valid point (max 1 per second)
-                    // This ensures no curves or turns are lost even if internet goes down for 5+ minutes.
                     const offlineKey = `offline_gps_${acceptedOpportunityId}`;
                     const offlineLogs = JSON.parse(localStorage.getItem(offlineKey)) || [];
                     const lastLog = offlineLogs.length > 0 ? offlineLogs[offlineLogs.length - 1] : null;
@@ -2601,8 +2618,12 @@
 
             try {
                 // 1. Check current assigned/ongoing jobs
-                const resJobs = await fetch(`${API_BASE_URL}/api/driver/my-jobs/${driverData.id}?t=${Date.now()}`);
-                if (resJobs.ok) {
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), 6000);
+                const resJobs = await fetch(`${API_BASE_URL}/api/driver/my-jobs/${driverData.id}?t=${Date.now()}`, { signal: controller.signal }).catch(() => null);
+                clearTimeout(timeoutId);
+                
+                if (resJobs && resJobs.ok) {
                     const activeJobs = await resJobs.json();
                     const ongoing = activeJobs.find(j => ['assigned', 'ongoing', 'finished', 'cancel_requested'].includes(j.status));
                     
@@ -2616,8 +2637,6 @@
                         return;
                     } else {
                         document.getElementById('active-mission-panel').classList.add('hidden');
-                        const statsWidget = document.getElementById('ride-stats-floating');
-                        if (statsWidget) statsWidget.style.display = 'none';
                         window.localDistanceCovered = 0;
                         window.lastOdometerCoords = null;
                         acceptedOpportunityId = null;
@@ -2633,8 +2652,11 @@
                 if (gpsCoords && gpsCoords.lat && gpsCoords.lng) {
                     jobsUrl += `?lat=${gpsCoords.lat}&lng=${gpsCoords.lng}`;
                 }
-                const resOpps = await fetch(jobsUrl);
-                if (!resOpps.ok) return;
+                const oppController = new AbortController();
+                const oppTimeoutId = setTimeout(() => oppController.abort(), 6000);
+                const resOpps = await fetch(jobsUrl, { signal: oppController.signal }).catch(() => null);
+                clearTimeout(oppTimeoutId);
+                if (!resOpps || !resOpps.ok) return;
                 const jobs = await resOpps.json();
                 
                 if (Array.isArray(jobs)) {
@@ -2945,11 +2967,26 @@
                     if (routeRes.ok) {
                         const routeData = await routeRes.json();
                         if (routeData.routes && routeData.routes[0]) {
-                            activeRouteLine = L.polyline([[pCoords[1], pCoords[0]], [dCoords[1], dCoords[0]]], {
-                                color: '#B71C1C',
-                                weight: 5,
-                                opacity: 0.8
-                            }).addTo(driverMap);
+                            const geom = routeData.routes[0].geometry;
+                            if (geom && geom.coordinates) {
+                                // OSRM returns GeoJSON coordinates as [lng, lat], Leaflet polyline needs [lat, lng]
+                                const coords = geom.coordinates.map(c => [c[1], c[0]]);
+                                activeRouteLine = L.polyline(coords, {
+                                    color: '#2196F3', // Bright blue for Google Maps style path
+                                    weight: 6,
+                                    opacity: 0.9,
+                                    lineCap: 'round',
+                                    lineJoin: 'round'
+                                }).addTo(driverMap);
+                            } else {
+                                // Fallback to straight line
+                                activeRouteLine = L.polyline([[pCoords[1], pCoords[0]], [dCoords[1], dCoords[0]]], {
+                                    color: '#2196F3',
+                                    weight: 5,
+                                    opacity: 0.8,
+                                    dashArray: '10, 10'
+                                }).addTo(driverMap);
+                            }
                         }
                     }
 
@@ -2985,10 +3022,11 @@
                 const packageVal = ride.rental_package || '2-20';
                 const [pMaxHrs] = packageVal.split('-').map(Number);
                 allowedMins = pMaxHrs * 60;
+            } else if (ride.trip_type === 'outstation') {
+                allowedMins = Infinity;
             } else {
-                const distStr = ride.estimated_distance || ride.distance || '0';
-                const distanceKm = parseFloat(String(distStr).replace(/[^\d.]/g, '')) || 0;
-                allowedMins = distanceKm * 2; // 2 minutes per km
+                // Local ride allowed minutes will be dynamically computed based on travelled KM inside updateTimer()
+                allowedMins = (window.localDistanceCovered || 0) * 2;
             }
 
             // Show the timer panel
@@ -3021,6 +3059,17 @@
             function updateTimer() {
                 const elapsedSecs = currentElapsedSecs;
                 const elapsedMins = elapsedSecs / 60;
+
+                if (ride.trip_type === 'local') {
+                    // Dynamically update allowed waiting time based on actual travelled distance!
+                    allowedMins = (window.localDistanceCovered || 0) * 2;
+                    const allowedH = Math.floor(allowedMins / 60);
+                    const allowedM = Math.floor(allowedMins % 60);
+                    const allowedTimeEl = document.getElementById('timer-allowed-time');
+                    if (allowedTimeEl) {
+                        allowedTimeEl.textContent = allowedH > 0 ? `${allowedH}h ${allowedM}m` : `${allowedM}m`;
+                    }
+                }
 
                 // Format elapsed as HH:MM:SS
                 const eH = Math.floor(elapsedSecs / 3600);
@@ -3202,19 +3251,14 @@
 
         // Render active ride widget
         function renderActiveRideWidget(ride) {
-            // Toggle Speed/Distance floating stats widgets
-            const statsWidget = document.getElementById('ride-stats-floating');
-            if (statsWidget) {
-                if (ride.status === 'ongoing' && ride.trip_type === 'local') {
-                    statsWidget.style.display = 'flex';
-                    if (window.localDistanceCovered === undefined || window.localDistanceCovered === 0) {
-                        window.localDistanceCovered = parseFloat(ride.actual_distance) || 0;
-                    }
-                } else {
-                    statsWidget.style.display = 'none';
-                    window.localDistanceCovered = 0;
-                    window.lastOdometerCoords = null;
+            // Speed/Distance floating stats widgets are now permanently visible on the map
+            if (ride.status === 'ongoing') {
+                if (window.localDistanceCovered === undefined || window.localDistanceCovered === 0) {
+                    window.localDistanceCovered = parseFloat(ride.actual_distance) || 0;
                 }
+            } else {
+                window.localDistanceCovered = 0;
+                window.lastOdometerCoords = null;
             }
 
             // Show/Hide map and navigation based on trip_type
@@ -4048,12 +4092,20 @@
         // Sync statistics details
         async function syncDashboardStats() {
             try {
-                // Cache tariffs periodically
-                await cacheTariffs();
+                // Cache tariffs periodically (non-blocking)
+                cacheTariffs().catch(() => {});
 
-                // Sync Profile details & wallet
-                const resProfile = await fetch(`${API_BASE_URL}/api/driver/info/${driverData.id}`);
-                if (resProfile.ok) {
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), 8000);
+
+                // Sync Profile details & wallet IN PARALLEL
+                const [resProfile, resStats] = await Promise.all([
+                    fetch(`${API_BASE_URL}/api/driver/info/${driverData.id}`, { signal: controller.signal }).catch(() => null),
+                    fetch(`${API_BASE_URL}/api/driver/dashboard-stats/${driverData.id}`, { signal: controller.signal }).catch(() => null)
+                ]);
+                clearTimeout(timeoutId);
+
+                if (resProfile && resProfile.ok) {
                     const dataProfile = await resProfile.json();
                     if (dataProfile.success) {
                         driverData.wallet_balance = dataProfile.driver.wallet_balance;
@@ -4062,9 +4114,7 @@
                     }
                 }
 
-                // Sync dashboard stats
-                const resStats = await fetch(`${API_BASE_URL}/api/driver/dashboard-stats/${driverData.id}`);
-                if (resStats.ok) {
+                if (resStats && resStats.ok) {
                     const stats = await resStats.json();
                     
                     document.getElementById('earn-today').textContent = `₹${Math.round(stats.today.today_earnings).toLocaleString('en-IN')}`;
@@ -4599,7 +4649,11 @@
 
         // Logout
         function logoutUser() {
-            fetch('/api/auth/logout', { method: 'POST' }).catch(() => {});
+            fetch('/api/auth/logout', { 
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ role: 'driver' })
+            }).catch(() => {});
             localStorage.removeItem('cityride_pilot');
             window.location.href = 'driver-login.html';
         }

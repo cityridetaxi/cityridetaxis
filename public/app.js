@@ -369,6 +369,28 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
 
+        // Inject Distance & Duration Indicator for Local and Outstation rides
+        if (distance > 0 && currentCategory !== 'rental') {
+            const distInfo = document.createElement('div');
+            distInfo.style.textAlign = 'center';
+            distInfo.style.marginBottom = '1.5rem';
+            distInfo.style.padding = '12px';
+            distInfo.style.background = 'rgba(183, 28, 28, 0.05)';
+            distInfo.style.borderRadius = '12px';
+            distInfo.style.border = '1px solid rgba(183, 28, 28, 0.1)';
+            
+            const durText = duration > 60 ? `${Math.floor(duration/60)}h ${duration%60}m` : `${duration}m`;
+            distInfo.innerHTML = `
+                <div style="font-weight:800; font-size:1.2rem; color:var(--primary-red); margin-bottom: 4px;">
+                    🏁 Total Distance: ${distance} KM
+                </div>
+                <div style="font-size:0.9rem; font-weight:600; color:var(--text-main);">
+                    ⏱️ Estimated Travel Time: ${durText}
+                </div>
+            `;
+            container.appendChild(distInfo);
+        }
+
         const allTripTypes = [
             { id: 'local', label: 'Local City Ride', category: 'local' },
             { id: 'oneway', label: 'One-Way Outstation', category: 'outstation' },
@@ -1010,10 +1032,12 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     window.logoutUser = function () {
-        fetch('/api/auth/logout', { method: 'POST' }).catch(() => {});
+        fetch('/api/auth/logout', { 
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ role: 'user' })
+        }).catch(() => {});
         localStorage.removeItem('cityride_member');
-        localStorage.removeItem('cityride_pilot');
-        localStorage.removeItem('cityride_master');
         window.location.reload();
     }
 
