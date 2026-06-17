@@ -69,7 +69,13 @@ app.use(cors({
             // Allow requests with no origin (like mobile apps or curl requests)
             return callback(null, true);
         }
-        if (allowedOrigins.includes(origin) || (isDev && origin === 'http://localhost:3000')) {
+        
+        // Allow Capacitor/Cordova webview local origins
+        const isLocalWebView = origin.includes('localhost') || 
+                               origin.startsWith('capacitor://') || 
+                               origin.startsWith('http://127.0.0.1');
+
+        if (allowedOrigins.includes(origin) || isLocalWebView || (isDev && origin === 'http://localhost:3000')) {
             return callback(null, true);
         }
         return callback(new Error('CORS Policy: Origin not allowed.'));
