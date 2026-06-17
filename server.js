@@ -32,10 +32,11 @@ app.use(helmet({
         directives: {
             defaultSrc: ["'self'"],
             scriptSrc: ["'self'", "'unsafe-inline'", "'unsafe-eval'", "https://unpkg.com", "https://cdn.jsdelivr.net", "https://cdnjs.cloudflare.com"],
+            scriptSrcAttr: ["'unsafe-inline'"],
             styleSrc: ["'self'", "'unsafe-inline'", "https://unpkg.com", "https://fonts.googleapis.com"],
             fontSrc: ["'self'", "https://fonts.gstatic.com"],
             imgSrc: ["'self'", "data:", "blob:", "https://*", "http://*"],
-            connectSrc: ["'self'", "https://photon.komoot.io"],
+            connectSrc: ["'self'", "https://photon.komoot.io", "https://unpkg.com", "https://cdn.jsdelivr.net"],
             objectSrc: ["'none'"],
             upgradeInsecureRequests: [],
         },
@@ -974,6 +975,7 @@ async function initDB() {
                 insurance LONGTEXT,
                 pollution LONGTEXT,
                 permit LONGTEXT,
+                payment_qr LONGTEXT,
 
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
@@ -984,9 +986,10 @@ async function initDB() {
         try { await db.query('ALTER TABLE taxi_drivers ADD COLUMN approval_status VARCHAR(20) DEFAULT "approved"'); } catch (e) { }
         try { await db.query('ALTER TABLE taxi_drivers ADD UNIQUE (phone)'); } catch (e) { }
         try { await db.query('ALTER TABLE taxi_driver_applications ADD UNIQUE (phone)'); } catch (e) { }
+        try { await db.query('ALTER TABLE taxi_driver_applications ADD COLUMN payment_qr LONGTEXT'); } catch (e) { }
 
         // Add Document Columns to Drivers if missing
-        const docCols = ['dl_front', 'dl_back', 'pvc', 'aadhar_front', 'aadhar_back', 'rc_book', 'insurance', 'pollution', 'permit'];
+        const docCols = ['dl_front', 'dl_back', 'pvc', 'aadhar_front', 'aadhar_back', 'rc_book', 'insurance', 'pollution', 'permit', 'payment_qr'];
         for (const col of docCols) {
             try { await db.query(`ALTER TABLE taxi_drivers ADD COLUMN ${col} LONGTEXT`); } catch (e) { }
         }
@@ -1015,6 +1018,7 @@ async function initDB() {
                 insurance LONGTEXT,
                 pollution LONGTEXT,
                 permit LONGTEXT,
+                payment_qr LONGTEXT,
                 
                 status VARCHAR(20) DEFAULT 'pending', -- pending, approved, rejected
                 admin_note TEXT,
@@ -1023,7 +1027,7 @@ async function initDB() {
         `);
 
         // Migration: Modify document columns to LONGTEXT to support Base64 images
-        const docColsToMigrate = ['dl_front', 'dl_back', 'pvc', 'aadhar_front', 'aadhar_back', 'rc_book', 'insurance', 'pollution', 'permit'];
+        const docColsToMigrate = ['dl_front', 'dl_back', 'pvc', 'aadhar_front', 'aadhar_back', 'rc_book', 'insurance', 'pollution', 'permit', 'payment_qr'];
         for (const col of docColsToMigrate) {
             try { await db.query(`ALTER TABLE taxi_drivers MODIFY COLUMN ${col} LONGTEXT`); } catch (e) { }
             try { await db.query(`ALTER TABLE taxi_driver_applications MODIFY COLUMN ${col} LONGTEXT`); } catch (e) { }
