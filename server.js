@@ -62,26 +62,38 @@ app.use(express.urlencoded({ limit: '2mb', extended: true }));
 
 // Restrict CORS to approved domains
 const allowedOrigins = (process.env.ALLOWED_ORIGINS || '').split(',').map(o => o.trim()).filter(Boolean);
-app.use(cors({
-    origin: (origin, callback) => {
-        const isDev = process.env.NODE_ENV !== 'production';
-        if (!origin) {
-            // Allow requests with no origin (like mobile apps or curl requests)
-            return callback(null, true);
-        }
-        
-        // Allow Capacitor/Cordova webview local origins
-        const isLocalWebView = origin.includes('localhost') || 
-                               origin.startsWith('capacitor://') || 
-                               origin.startsWith('http://127.0.0.1');
+app.use((req, res, next) => {
+    cors({
+        origin: (origin, callback) => {
+            const isDev = process.env.NODE_ENV !== 'production';
+            if (!origin) {
+                // Allow requests with no origin (like mobile apps or curl requests)
+                return callback(null, true);
+            }
+            
+            // Allow same-origin requests dynamically (where origin host matches request host)
+            let originHost = '';
+            try {
+                originHost = new URL(origin).host;
+            } catch (e) {
+                originHost = origin;
+            }
+            const requestHost = req.headers.host;
+            const isSameOrigin = originHost === requestHost;
 
-        if (allowedOrigins.includes(origin) || isLocalWebView || (isDev && origin === 'http://localhost:3000')) {
-            return callback(null, true);
-        }
-        return callback(new Error('CORS Policy: Origin not allowed.'));
-    },
-    credentials: true
-}));
+            // Allow Capacitor/Cordova webview local origins
+            const isLocalWebView = origin.includes('localhost') || 
+                                   origin.startsWith('capacitor://') || 
+                                   origin.startsWith('http://127.0.0.1');
+
+            if (isSameOrigin || allowedOrigins.includes(origin) || isLocalWebView || (isDev && origin === 'http://localhost:3000')) {
+                return callback(null, true);
+            }
+            return callback(new Error('CORS Policy: Origin not allowed.'));
+        },
+        credentials: true
+    })(req, res, next);
+});
 
 // Browser caching for static assets (no-cache for HTML so changes deploy instantly)
 app.use(express.static(path.join(__dirname, 'public'), {
