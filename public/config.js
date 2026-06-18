@@ -13,7 +13,7 @@ const API_BASE_URL = "";
 
 console.log("🚀 CityRide Engine - Standalone Mode (same-origin API)");
 
-// Reusable Password Visibility Toggle Helper
+// Reusable Passcode Visibility Toggle Helper
 window.togglePasswordVisibility = function(inputId, button) {
     const input = document.getElementById(inputId);
     if (!input) return;

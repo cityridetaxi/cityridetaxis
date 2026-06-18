@@ -1021,7 +1021,7 @@
                 const cls = c === 'id' ? 'id-col' : (typeof val === 'number' ? 'num-col' : '');
                 return `<td class="${cls}" data-col="${c}" title="${String(val).substring(0,200)}">${String(val).substring(0, 60)}${String(val).length > 60 ? '…' : ''}</td>`;
             }).join('');
-            // Check if this table supports password management
+            // Check if this table supports credential management
             const pwTables = ['taxi_passengers','passengers','taxi_drivers','taxi_admins','taxi_vendors','taxi_driver_applications'];
             const hasPassword = pwTables.includes(currentTable);
             tr.innerHTML += `<td style="white-space:nowrap;"><div class="row-actions">
@@ -1269,7 +1269,7 @@
         }
     }
 
-    // ===== PASSWORD MODAL =====
+    // ===== CREDENTIAL MODAL =====
     const PW_TABLES = ['taxi_passengers','passengers','taxi_drivers','taxi_admins','taxi_vendors','taxi_driver_applications'];
 
     async function openPasswordModal(rowId) {

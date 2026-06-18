@@ -10,8 +10,8 @@
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="style.css">
     <script src="config.js"></script>
-    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="" />
-    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="anonymous" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin="anonymous"></script>
     <style>
         :root {
             --partner-bg: #090a0f;
@@ -1198,31 +1198,41 @@
 
         const pricing = JSON.parse(JSON.stringify(systemPricing));
 
-        // Check Auth - try localStorage first, then server cookie
-        let vendorData = JSON.parse(localStorage.getItem('cityride_vendor'));
-        if (!vendorData) {
-            (async () => {
-                try {
-                    const sessionRes = await fetch('/api/auth/session?role=vendor');
-                    if (sessionRes.ok) {
-                        const sd = await sessionRes.json();
-                        if (sd.valid && sd.role === 'vendor') {
-                            vendorData = sd.user;
-                            localStorage.setItem('cityride_vendor', JSON.stringify(vendorData));
-                            // Re-init UI after restore
-                            document.getElementById('vendor-welcome').textContent = `Welcome back, ${vendorData.business_name} (${vendorData.name})`;
-                            document.getElementById('sb-business-name').textContent = vendorData.business_name;
-                            document.getElementById('sb-avatar').textContent = (vendorData.business_name || 'V').charAt(0).toUpperCase();
-                        } else { window.location.href = '/vendor-login'; }
-                    } else { window.location.href = '/vendor-login'; }
-                } catch (e) { window.location.href = '/vendor-login'; }
-            })();
-        } else {
-            // Setup User welcome headers and profiles
-            document.getElementById('vendor-welcome').textContent = `Welcome back, ${vendorData.business_name} (${vendorData.name})`;
-            document.getElementById('sb-business-name').textContent = vendorData.business_name;
-            document.getElementById('sb-avatar').textContent = (vendorData.business_name || 'V').charAt(0).toUpperCase();
-        }
+        // Check Auth - always validate server cookie
+        let vendorData = null;
+        (async () => {
+            try {
+                const sessionRes = await fetch('/api/auth/session?role=vendor');
+                if (sessionRes.ok) {
+                    const sd = await sessionRes.json();
+                    if (sd.valid && sd.role === 'vendor') {
+                        vendorData = sd.user;
+                        localStorage.setItem('cityride_vendor', JSON.stringify(vendorData));
+                        
+                        // Setup User welcome headers and profiles
+                        document.getElementById('vendor-welcome').textContent = `Welcome back, ${vendorData.business_name} (${vendorData.name})`;
+                        document.getElementById('sb-business-name').textContent = vendorData.business_name;
+                        document.getElementById('sb-avatar').textContent = (vendorData.business_name || 'V').charAt(0).toUpperCase();
+                    } else {
+                        localStorage.removeItem('cityride_vendor');
+                        window.location.href = '/vendor-login';
+                    }
+                } else {
+                    localStorage.removeItem('cityride_vendor');
+                    window.location.href = '/vendor-login';
+                }
+            } catch (e) {
+                // Offline fallback
+                vendorData = JSON.parse(localStorage.getItem('cityride_vendor'));
+                if (vendorData) {
+                    document.getElementById('vendor-welcome').textContent = `Welcome back, ${vendorData.business_name} (${vendorData.name})`;
+                    document.getElementById('sb-business-name').textContent = vendorData.business_name;
+                    document.getElementById('sb-avatar').textContent = (vendorData.business_name || 'V').charAt(0).toUpperCase();
+                } else {
+                    window.location.href = '/vendor-login';
+                }
+            }
+        })();
 
         // UI Controls
         function openRateChart() { document.getElementById('rate-modal').style.display = 'flex'; }
@@ -1612,32 +1622,48 @@
 
             input.addEventListener('input', () => {
                 clearTimeout(timeout);
-                if (input.value.length < 3) return box.innerHTML = '';
+                if (input.value.length < 3) {
+                    box.innerHTML = '';
+                    box.style.display = 'none';
+                    return;
+                }
                 timeout = setTimeout(async () => {
                     try {
                         const res = await fetch(`${API_BASE_URL}/api/proxy/geocode?q=${encodeURIComponent(input.value)}&limit=5&lon=80.2707&lat=13.0827`);
                         if (!res.ok) throw new Error('Photon failure');
                         const data = await res.json();
                         box.innerHTML = '';
-                        data.features.forEach(f => {
-                            const p = f.properties;
-                            const label = [p.name, p.city, p.state].filter(Boolean).join(', ');
-                            const div = document.createElement('div');
-                            div.className = 'suggestion-item';
-                            div.textContent = label;
-                            div.onclick = () => {
-                                input.value = label;
-                                input.dataset.coords = f.geometry.coordinates.join(',');
-                                box.innerHTML = '';
-                                calculateVendorFare();
-                            };
-                            box.appendChild(div);
-                        });
+                        if (data.features && data.features.length > 0) {
+                            data.features.forEach(f => {
+                                const p = f.properties;
+                                const label = [p.name, p.city, p.state].filter(Boolean).join(', ');
+                                const div = document.createElement('div');
+                                div.className = 'suggestion-item';
+                                div.textContent = label;
+                                div.onclick = () => {
+                                    input.value = label;
+                                    input.dataset.coords = f.geometry.coordinates.join(',');
+                                    box.innerHTML = '';
+                                    box.style.display = 'none';
+                                    calculateVendorFare();
+                                };
+                                box.appendChild(div);
+                            });
+                            box.style.display = 'block';
+                        } else {
+                            box.style.display = 'none';
+                        }
                     } catch (e) {
                         console.warn("Autocomplete fetch failed", e);
                         box.innerHTML = '<div style="padding:10px; color:#999; font-size:0.8rem;">Search unavailable. Try manual pick.</div>';
+                        box.style.display = 'block';
                     }
                 }, 400);
+            });
+            document.addEventListener('click', (e) => {
+                if (e.target !== input && e.target !== box) {
+                    box.style.display = 'none';
+                }
             });
         }
 

@@ -9,412 +9,13 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="style.css">
-    <script src="config.js"></script>
+    <script src="config.js" defer></script>
     <!-- Leaflet for Mission Tracking -->
-    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="" />
-    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="anonymous" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin="anonymous" defer></script>
     <!-- SweetAlert2 for Premium Modals -->
-    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
-    <style>
-        :root {
-            --primary-red: #B71C1C;
-            --primary-red-hover: #8E1515;
-            --dark-charcoal: #1A1C1E;
-            --text-main: #ffffff;
-            --text-muted: #8e9297;
-            --light-grey: #090a0f;
-            --white: #14161d;
-            --accents: rgba(255, 255, 255, 0.06);
-            --shadow-sm: 0 4px 12px rgba(0, 0, 0, 0.5);
-            --shadow-md: 0 12px 30px rgba(0, 0, 0, 0.6);
-            --shadow-lg: 0 24px 60px rgba(0, 0, 0, 0.8);
-            --border-color: rgba(255, 255, 255, 0.06);
-            --success-green: #34c759;
-            --danger-red: #ff3b30;
-            --warning-amber: #ff9f0a;
-        }
-
-        body {
-            background-color: var(--light-grey) !important;
-            color: var(--text-main) !important;
-        }
-
-        .header {
-            background: rgba(14, 16, 22, 0.95) !important;
-            border-bottom: 1px solid var(--border-color) !important;
-        }
-
-        .logo {
-            color: var(--text-main) !important;
-        }
-
-        .dashboard-container {
-            padding: 120px 0;
-            background: var(--light-grey);
-            min-height: 100vh;
-        }
-
-        .dashboard-header {
-            margin-bottom: 4rem;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
-
-        .dashboard-header h1 {
-            color: var(--text-main) !important;
-        }
-
-        .dashboard-header p {
-            color: var(--text-muted) !important;
-        }
-
-        .history-card {
-            background: var(--white);
-            border-radius: 24px;
-            padding: 3rem;
-            box-shadow: var(--shadow-md);
-            margin-bottom: 2rem;
-            border: 1px solid var(--border-color);
-        }
-
-        .history-card h3 {
-            color: var(--text-main) !important;
-            margin-bottom: 1.5rem;
-        }
-
-        /* Custom SweetAlert Dark Theme styling */
-        .swal2-popup {
-            background: #14161d !important;
-            color: #ffffff !important;
-            border: 1px solid rgba(255, 255, 255, 0.06) !important;
-            border-radius: 20px !important;
-        }
-        .swal2-title {
-            color: #ffffff !important;
-        }
-        .swal2-html-container {
-            color: #8e9297 !important;
-        }
-        .swal2-input, .swal2-textarea, .swal2-select {
-            background: #090a0f !important;
-            color: #ffffff !important;
-            border: 1px solid rgba(255, 255, 255, 0.06) !important;
-            color-scheme: dark !important;
-        }
-        .swal2-validation-message {
-            background: rgba(255, 59, 48, 0.1) !important;
-            color: #ff3b30 !important;
-        }
-
-        #mission-map {
-            height: 400px;
-            width: 100%;
-            border-radius: 20px;
-            border: 4px solid var(--white);
-            box-shadow: var(--shadow-md);
-            margin-top: 1rem;
-            z-index: 10;
-        }
-
-        /* Radar Pulse Animation */
-        .radar-pulse {
-            position: relative;
-            display: inline-block;
-            width: 12px;
-            height: 12px;
-            background: #10B981;
-            border-radius: 50%;
-            margin-right: 10px;
-        }
-
-        .radar-pulse::after {
-            content: '';
-            position: absolute;
-            top: -4px;
-            left: -4px;
-            right: -4px;
-            bottom: -4px;
-            border: 2px solid #10B981;
-            border-radius: 50%;
-            animation: pulse 2s infinite;
-            opacity: 0;
-        }
-
-        @keyframes pulse {
-            0% {
-                transform: scale(0.5);
-                opacity: 0;
-            }
-
-            50% {
-                opacity: 1;
-            }
-
-            100% {
-                transform: scale(1.5);
-                opacity: 0;
-            }
-        }
-
-        .rides-table {
-            width: 100%;
-            border-collapse: collapse;
-        }
-
-        .rides-table th {
-            text-align: left;
-            padding: 1.5rem;
-            color: var(--text-muted);
-            text-transform: uppercase;
-            font-size: 0.8rem;
-            letter-spacing: 0.1em;
-            border-bottom: 1px solid rgba(255, 255, 255, 0.06);
-        }
-
-        .rides-table td {
-            padding: 1.5rem;
-            border-bottom: 1px solid rgba(255, 255, 255, 0.04);
-            font-size: 0.95rem;
-        }
-
-        .status-pill {
-            padding: 0.4rem 1rem;
-            border-radius: 20px;
-            font-size: 0.75rem;
-            font-weight: 800;
-            text-transform: uppercase;
-        }
-
-        .status-pending {
-            background: rgba(255, 159, 10, 0.1);
-            color: var(--warning-amber);
-        }
-
-        .status-assigned {
-            background: rgba(10, 132, 255, 0.1);
-            color: #0a84ff;
-        }
-
-        .status-completed {
-            background: rgba(52, 199, 89, 0.1);
-            color: var(--success-green);
-        }
-
-        .status-cancelled {
-            background: rgba(255, 59, 48, 0.1);
-            color: var(--danger-red);
-        }
-
-        .status-ongoing {
-            background: rgba(10, 132, 255, 0.15);
-            color: #0a84ff;
-        }
-
-        .status-finished {
-            background: rgba(183, 28, 28, 0.15);
-            color: var(--primary-red);
-        }
-
-        /* Ban Banner */
-        .ban-banner {
-            background: linear-gradient(135deg, #b71c1c, #d32f2f);
-            color: white;
-            border-radius: 20px;
-            padding: 2rem 2.5rem;
-            margin-bottom: 3rem;
-            display: none;
-            align-items: center;
-            gap: 1.5rem;
-            box-shadow: 0 8px 30px rgba(183, 28, 28, 0.35);
-            animation: bannerShake 0.5s ease;
-        }
-
-        .ban-banner.active { display: flex; }
-
-        @keyframes bannerShake {
-            0%,100% { transform: translateX(0); }
-            20% { transform: translateX(-8px); }
-            40% { transform: translateX(8px); }
-            60% { transform: translateX(-5px); }
-            80% { transform: translateX(5px); }
-        }
-
-        .ban-icon { font-size: 2.5rem; flex-shrink: 0; }
-
-        /* Cancel warning pill */
-        .cancel-warn {
-            background: #fff3cd;
-            color: #856404;
-            border-radius: 16px;
-            padding: 1rem 1.5rem;
-            margin-bottom: 2rem;
-            font-size: 0.9rem;
-            font-weight: 600;
-            display: none;
-            align-items: center;
-            gap: 0.75rem;
-        }
-        .cancel-warn.active { display: flex; }
-
-        .btn-cancel-ride {
-            background: none;
-            border: 1px solid #d32f2f;
-            color: #d32f2f;
-            padding: 0.4rem 0.9rem;
-            border-radius: 8px;
-            font-size: 0.78rem;
-            font-weight: 700;
-            cursor: pointer;
-            transition: all 0.2s ease;
-        }
-        .btn-cancel-ride:hover {
-            background: #d32f2f;
-            color: white;
-        }
-
-        .btn-rebook-ride {
-            background: none;
-            border: 1px solid #10B981;
-            color: #10B981;
-            padding: 0.4rem 0.9rem;
-            border-radius: 8px;
-            font-size: 0.78rem;
-            font-weight: 700;
-            cursor: pointer;
-            transition: all 0.2s ease;
-        }
-        .btn-rebook-ride:hover {
-            background: #10B981;
-            color: white;
-        }
-
-        .btn-invoice-eye {
-            background: none;
-            border: 1px solid rgba(255, 255, 255, 0.15);
-            color: var(--text-muted);
-            padding: 0.4rem;
-            border-radius: 8px;
-            cursor: pointer;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            transition: all 0.2s;
-        }
-        .btn-invoice-eye:hover {
-            border-color: var(--primary-red);
-            color: var(--primary-red);
-            background: rgba(183, 28, 28, 0.1);
-        }
-
-        .hidden {
-            display: none !important;
-        }
-
-        .empty-state {
-            text-align: center;
-            padding: 5rem;
-            color: var(--text-muted);
-        }
-
-        /* Toast Notifications */
-
-        @keyframes fadeOut {
-            from { transform: translateX(0); opacity: 1; }
-            to { transform: translateX(50%); opacity: 0; }
-        }
-
-        /* Responsive Dashboard */
-        @media (max-width: 768px) {
-            .nav {
-                padding: 0 1rem;
-            }
-
-            .logo {
-                font-size: 1.3rem !important;
-            }
-
-            .driver-nav-actions {
-                gap: 0.5rem !important;
-            }
-
-            .driver-nav-actions button {
-                padding: 0.5rem 0.8rem !important;
-                font-size: 0.75rem !important;
-            }
-
-            .dashboard-container {
-                padding: 100px 0 50px;
-            }
-
-            .dashboard-header h1 {
-                font-size: 2rem;
-            }
-
-            .stats-grid {
-                grid-template-columns: 1fr !important;
-                gap: 1.5rem !important;
-            }
-
-            .history-card {
-                padding: 1.5rem !important;
-            }
-
-            /* Responsive Table */
-            .rides-table thead {
-                display: none;
-            }
-            .rides-table, .rides-table tbody, .rides-table tr, .rides-table td {
-                display: block;
-                width: 100%;
-            }
-            .rides-table tr {
-                margin-bottom: 1.5rem;
-                background: var(--white);
-                border: 1px solid var(--border-color);
-                border-radius: 16px;
-                padding: 1rem;
-            }
-            .rides-table td {
-                padding: 0.75rem 0 !important;
-                display: flex;
-                justify-content: space-between;
-                align-items: center;
-                text-align: right;
-                border-bottom: 1px solid rgba(255, 255, 255, 0.05);
-            }
-            .rides-table td:last-child {
-                border-bottom: none;
-                margin-top: 0.5rem;
-            }
-            .rides-table td::before {
-                content: attr(data-label);
-                font-weight: 800;
-                text-transform: uppercase;
-                font-size: 0.65rem;
-                color: #999;
-            }
-
-            .support-grid {
-                grid-template-columns: 1fr !important;
-                gap: 2rem !important;
-                text-align: center;
-            }
-
-            .support-grid > div {
-                display: flex;
-                flex-direction: column;
-                align-items: center;
-            }
-        }
-
-        .support-grid {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 3rem;
-            align-items: center;
-        }
-    </style>
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11" crossorigin="anonymous" defer></script>
+    <style>:root{--primary-red:#B71C1C;--primary-red-hover:#8E1515;--dark-charcoal:#1A1C1E;--text-main:#ffffff;--text-muted:#8e9297;--light-grey:#090a0f;--white:#14161d;--accents:rgba(255,255,255,0.06);--shadow-sm:0 4px 12px rgba(0,0,0,0.5);--shadow-md:0 12px 30px rgba(0,0,0,0.6);--shadow-lg:0 24px 60px rgba(0,0,0,0.8);--border-color:rgba(255,255,255,0.06);--success-green:#34c759;--danger-red:#ff3b30;--warning-amber:#ff9f0a;}body{background-color:var(--light-grey) !important;color:var(--text-main) !important;}.header{background:rgba(14,16,22,0.95) !important;border-bottom:1px solid var(--border-color) !important;}.logo{color:var(--text-main) !important;}.dashboard-container{padding:120px 0;background:var(--light-grey);min-height:100vh;}.dashboard-header{margin-bottom:4rem;display:flex;justify-content:space-between;align-items:center;}.dashboard-header h1{color:var(--text-main) !important;}.dashboard-header p{color:var(--text-muted) !important;}.history-card{background:var(--white);border-radius:24px;padding:3rem;box-shadow:var(--shadow-md);margin-bottom:2rem;border:1px solid var(--border-color);}.history-card h3{color:var(--text-main) !important;margin-bottom:1.5rem;}.swal2-popup{background:#14161d !important;color:#ffffff !important;border:1px solid rgba(255,255,255,0.06) !important;border-radius:20px !important;}.swal2-title{color:#ffffff !important;}.swal2-html-container{color:#8e9297 !important;}.swal2-input,.swal2-textarea,.swal2-select{background:#090a0f !important;color:#ffffff !important;border:1px solid rgba(255,255,255,0.06) !important;color-scheme:dark !important;}.swal2-validation-message{background:rgba(255,59,48,0.1) !important;color:#ff3b30 !important;}#mission-map{height:400px;width:100%;border-radius:20px;border:4px solid var(--white);box-shadow:var(--shadow-md);margin-top:1rem;z-index:10;}.radar-pulse{position:relative;display:inline-block;width:12px;height:12px;background:#10B981;border-radius:50%;margin-right:10px;}.radar-pulse::after{content:'';position:absolute;top:-4px;left:-4px;right:-4px;bottom:-4px;border:2px solid #10B981;border-radius:50%;animation:pulse 2s infinite;opacity:0;}@keyframes pulse{0%{transform:scale(0.5);opacity:0;}50%{opacity:1;}100%{transform:scale(1.5);opacity:0;}}.rides-table{width:100%;border-collapse:collapse;}.rides-table th{text-align:left;padding:1.5rem;color:var(--text-muted);text-transform:uppercase;font-size:0.8rem;letter-spacing:0.1em;border-bottom:1px solid rgba(255,255,255,0.06);}.rides-table td{padding:1.5rem;border-bottom:1px solid rgba(255,255,255,0.04);font-size:0.95rem;}.status-pill{padding:0.4rem 1rem;border-radius:20px;font-size:0.75rem;font-weight:800;text-transform:uppercase;}.status-pending{background:rgba(255,159,10,0.1);color:var(--warning-amber);}.status-assigned{background:rgba(10,132,255,0.1);color:#0a84ff;}.status-completed{background:rgba(52,199,89,0.1);color:var(--success-green);}.status-cancelled{background:rgba(255,59,48,0.1);color:var(--danger-red);}.status-ongoing{background:rgba(10,132,255,0.15);color:#0a84ff;}.status-finished{background:rgba(183,28,28,0.15);color:var(--primary-red);}.ban-banner{background:linear-gradient(135deg,#b71c1c,#d32f2f);color:white;border-radius:20px;padding:2rem 2.5rem;margin-bottom:3rem;display:none;align-items:center;gap:1.5rem;box-shadow:0 8px 30px rgba(183,28,28,0.35);animation:bannerShake 0.5s ease;}.ban-banner.active{display:flex;}@keyframes bannerShake{0%,100%{transform:translateX(0);}20%{transform:translateX(-8px);}40%{transform:translateX(8px);}60%{transform:translateX(-5px);}80%{transform:translateX(5px);}}.ban-icon{font-size:2.5rem;flex-shrink:0;}.cancel-warn{background:#fff3cd;color:#856404;border-radius:16px;padding:1rem 1.5rem;margin-bottom:2rem;font-size:0.9rem;font-weight:600;display:none;align-items:center;gap:0.75rem;}.cancel-warn.active{display:flex;}.btn-cancel-ride{background:none;border:1px solid #d32f2f;color:#d32f2f;padding:0.4rem 0.9rem;border-radius:8px;font-size:0.78rem;font-weight:700;cursor:pointer;transition:all 0.2s ease;}.btn-cancel-ride:hover{background:#d32f2f;color:white;}.btn-rebook-ride{background:none;border:1px solid #10B981;color:#10B981;padding:0.4rem 0.9rem;border-radius:8px;font-size:0.78rem;font-weight:700;cursor:pointer;transition:all 0.2s ease;}.btn-rebook-ride:hover{background:#10B981;color:white;}.btn-invoice-eye{background:none;border:1px solid rgba(255,255,255,0.15);color:var(--text-muted);padding:0.4rem;border-radius:8px;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all 0.2s;}.btn-invoice-eye:hover{border-color:var(--primary-red);color:var(--primary-red);background:rgba(183,28,28,0.1);}.hidden{display:none !important;}.empty-state{text-align:center;padding:5rem;color:var(--text-muted);}@keyframes fadeOut{from{transform:translateX(0);opacity:1;}to{transform:translateX(50%);opacity:0;}}@media (max-width:768px){.nav{padding:0 1rem;}.logo{font-size:1.3rem !important;}.driver-nav-actions{gap:0.5rem !important;}.driver-nav-actions button{padding:0.5rem 0.8rem !important;font-size:0.75rem !important;}.dashboard-container{padding:100px 0 50px;}.dashboard-header h1{font-size:2rem;}.stats-grid{grid-template-columns:1fr 1fr !important;gap:0.8rem !important;} .stats-card-compact { padding: 0.8rem 1rem !important; gap: 0.6rem !important; } .stats-card-compact .stat-icon { width: 38px !important; height: 38px !important; } .stats-card-compact .stat-icon svg { width: 18px !important; height: 18px !important; } .stats-card-compact #stat-total { font-size: 1.8rem !important; } .stats-card-compact #stat-recent { font-size: 0.88rem !important; } .history-card{padding:1.5rem !important;}.rides-table{min-width:auto !important;display:block;width:100%;}.rides-table thead{display:none;}.rides-table tbody,.rides-table tr,.rides-table td{display:block;width:100%;}.rides-table tr{margin-bottom:1.5rem;background:var(--white);border:1px solid var(--border-color);border-radius:16px;padding:1rem;}.rides-table td{padding:0.75rem 0 !important;display:flex;justify-content:space-between;align-items:center;text-align:right;border-bottom:1px solid rgba(255,255,255,0.05);}.rides-table td:last-child{border-bottom:none;margin-top:0.5rem;}.rides-table td::before{content:attr(data-label);font-weight:800;text-transform:uppercase;font-size:0.65rem;color:#999;}.rides-table td > div{display:flex;flex-direction:column;align-items:flex-end;text-align:right;}.rides-table td[data-label="Vehicle"] div{align-self:flex-end !important;}.rides-table td[data-label="Actions"] > div{flex-direction:row !important;justify-content:flex-end !important;}.support-grid{grid-template-columns:1fr !important;gap:2rem !important;text-align:center;}.support-grid > div{display:flex;flex-direction:column;align-items:center;}}.support-grid{display:grid;grid-template-columns:1fr 1fr;gap:3rem;align-items:center;}</style>
 </head>
 
 <body style="overflow: hidden;"> <!-- Lock scroll during splash -->
@@ -427,6 +28,7 @@
             <img src="logo.png" class="splash-logo" alt="CityRideTaxi">
             <div class="splash-brand"><span>CityRide</span>Taxi</div>
             <div class="splash-tagline">Premium Cab Booking</div>
+
         </div>
         <div class="splash-road-wrap">
             <div class="splash-road"></div>
@@ -439,23 +41,21 @@
                 <circle cx="18" cy="24" r="1.5" fill="#888"/>
                 <circle cx="46" cy="24" r="4" fill="#1a1a1a" stroke="#555" stroke-width="1.5"/>
                 <circle cx="46" cy="24" r="1.5" fill="#888"/>
-                <ellipse cx="57" cy="16" rx="5" ry="3" fill="rgba(255,220,100,0.5)"/>
-                <rect x="54" y="14" width="3" height="4" rx="1" fill="#ffd700"/>
             </svg>
         </div>
         <div class="splash-progress-wrap"><div class="splash-progress-bar"></div></div>
         <div class="splash-status">Dispatching Systems…</div>
     </div>
-    <header class="header">
-        <nav class="container nav">
-            <div class="logo" onclick="window.location.href = 'index.html'" style="cursor:pointer; display: flex; align-items: center;">
-                <img src="logo.png" alt="CityRideTaxi Logo" style="height: 50px; width: auto;">
-            </div>
-            <div class="driver-nav-actions" style="display: flex; gap: 0.8rem; align-items: center;">
-                <button class="btn" onclick="window.location.href = 'index.html'"
-                    style="padding: 0.6rem 1rem; font-size: 0.85rem; border: 1px solid var(--accents); background: var(--white); color: var(--text-main);">Home</button>
-                <button class="btn btn-primary" onclick="logoutUser()"
-                    style="padding: 0.6rem 1rem; font-size: 0.85rem; background: var(--primary-red); border: none;">Logout</button>
+
+    <header class="header" style="background:rgba(10,12,18,0.95) !important; border-bottom:1px solid rgba(255,255,255,0.07) !important; backdrop-filter:blur(20px); position:fixed; top:0; left:0; right:0; z-index:900; height:64px; display:flex; align-items:center;">
+        <nav class="container nav" style="display:flex; align-items:center; justify-content:space-between; width:100%; max-width:1200px; margin:0 auto; padding:0 1.5rem;">
+            <a href="/" style="display:flex; align-items:center; gap:10px; text-decoration:none; cursor:pointer;">
+                <img src="logo.png" alt="CityRideTaxi" style="height:36px; width:auto;">
+                <span style="font-size:1.1rem; font-weight:800; letter-spacing:-0.3px; background:linear-gradient(135deg,#fff 60%,#e53935); -webkit-background-clip:text; -webkit-text-fill-color:transparent;">CityRideTaxi</span>
+            </a>
+            <div style="display:flex; align-items:center; gap:0.5rem;">
+                <button onclick="window.location.href='/'" style="color:#8b90a0; font-size:0.88rem; font-weight:600; padding:0.5rem 0.9rem; border-radius:8px; border:none; background:none; cursor:pointer; transition:all 0.2s;" onmouseover="this.style.background='rgba(255,255,255,0.06)'" onmouseout="this.style.background='none'">Book a Ride</button>
+                <button onclick="logoutUser()" style="background:rgba(183,28,28,0.1); color:#B71C1C; border:1px solid rgba(183,28,28,0.3); padding:0.45rem 1rem; border-radius:8px; font-size:0.85rem; font-weight:700; cursor:pointer;">Logout</button>
             </div>
         </nav>
     </header>
@@ -467,28 +67,27 @@
                     <h1>Welcome back, <span id="user-name" class="text-accent">User</span></h1>
                     <p>Track your premium journey history and current bookings.</p>
                 </div>
-                <button class="btn btn-primary" onclick="window.location.href = 'index.html'">Book New Ride</button>
             </div>
 
-            <!-- Stats Ribbon -->
-            <div class="stats-grid" style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 2rem; margin-bottom: 3rem;">
-                <div class="history-card" style="margin-bottom: 0; padding: 20px; text-align: center;">
-                    <div
-                        style="font-size: 0.8rem; text-transform: uppercase; color: var(--text-muted); font-weight: 700; letter-spacing: 1px;">
-                        Total Journeys</div>
-                    <div id="stat-total" style="font-size: 2.5rem; font-weight: 800; color: var(--primary-red);">0</div>
+            <!-- Stats Row: 2-column compact (removed Account Status) -->
+            <div class="stats-grid" style="display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; margin-bottom: 2.5rem;">
+                <div class="history-card stats-card-compact" style="margin-bottom: 0; padding: 1.4rem 1.8rem; display:flex; align-items:center; gap:1.2rem; min-width: 0;">
+                    <div class="stat-icon" style="width:48px; height:48px; border-radius:14px; background:rgba(183,28,28,0.15); display:flex; align-items:center; justify-content:center; flex-shrink:0;">
+                        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#B71C1C" stroke-width="2.2"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+                    </div>
+                    <div style="min-width: 0; flex: 1;">
+                        <div style="font-size:0.7rem; text-transform:uppercase; color:var(--text-muted); font-weight:700; letter-spacing:1px;">Total Journeys</div>
+                        <div id="stat-total" style="font-size:2.2rem; font-weight:800; color:var(--primary-red); line-height:1.1;">0</div>
+                    </div>
                 </div>
-                <div class="history-card" style="margin-bottom: 0; padding: 10px; text-align: center;">
-                    <div
-                        style="font-size: 0.8rem; text-transform: uppercase; color: var(--text-muted); font-weight: 700; letter-spacing: 1px;">
-                        Account Status</div>
-                    <div style="font-size: 1.8rem; font-weight: 800; color: var(--text-main);">CityRide Member</div>
-                </div>
-                <div class="history-card" style="margin-bottom: 0; padding: 20px; text-align: center;">
-                    <div
-                        style="font-size: 0.8rem; text-transform: uppercase; color: var(--text-muted); font-weight: 700; letter-spacing: 1px;">
-                        Recent Mission</div>
-                    <div id="stat-recent" style="font-size: 1.1rem; font-weight: 700; margin-top: 0.5rem;">None</div>
+                <div class="history-card stats-card-compact" style="margin-bottom: 0; padding: 1.4rem 1.8rem; display:flex; align-items:center; gap:1.2rem; min-width: 0;">
+                    <div class="stat-icon" style="width:48px; height:48px; border-radius:14px; background:rgba(52,199,89,0.12); display:flex; align-items:center; justify-content:center; flex-shrink:0;">
+                        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#34c759" stroke-width="2.2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                    </div>
+                    <div style="min-width:0; flex:1;">
+                        <div style="font-size:0.7rem; text-transform:uppercase; color:var(--text-muted); font-weight:700; letter-spacing:1px;">Recent Mission</div>
+                        <div id="stat-recent" style="font-size:1rem; font-weight:700; margin-top:0.2rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">None</div>
+                    </div>
                 </div>
             </div>
 
@@ -532,24 +131,30 @@
             </div>
 
             <div class="history-card">
-                <h3>Your Ride History</h3>
+                <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:1.5rem;">
+                    <h3 style="font-size:1.1rem; font-weight:800; margin:0;">Your Ride History</h3>
+                    <button onclick="window.location.href='/'" style="background:var(--primary-red); color:#fff; border:none; padding:0.5rem 1.1rem; border-radius:8px; font-size:0.82rem; font-weight:700; cursor:pointer;">+ Book New Ride</button>
+                </div>
                 <div id="rides-list">
-                    <table class="rides-table">
-                        <thead>
-                            <tr>
-                                <th>ID</th>
-                                <th>Trip</th>
-                                <th>Date & Time</th>
-                                <th>Vehicle</th>
-                                <th>Fare</th>
-                                <th>Status</th>
-                                <th>Action</th>
-                            </tr>
-                        </thead>
-                        <tbody id="rides-body">
-                            <!-- Rides will be loaded here -->
-                        </tbody>
-                    </table>
+                    <div style="overflow-x:auto;">
+                        <table class="rides-table" style="min-width:650px;">
+                            <thead>
+                                <tr>
+                                    <th>ID</th>
+                                    <th>Route</th>
+                                    <th>Date</th>
+                                    <th>Vehicle</th>
+                                    <th>Fare</th>
+                                    <th>Distance</th>
+                                    <th>Status</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="rides-body">
+                                <!-- Rides will be loaded here -->
+                            </tbody>
+                        </table>
+                    </div>
                     <div id="no-rides" class="empty-state hidden">
                         <p>No rides found. Begin your journey today!</p>
                     </div>
@@ -588,1322 +193,1296 @@
         </div>
     </main>
 
-    <script>
-        // Global Fetch Interceptor for Auth Expiration Redirects
-        (function() {
-            const originalFetch = window.fetch;
-
-            function getLoginRedirect(url) {
-                if (typeof url === 'string' && url.includes('/api/')) {
-                    if (url.includes('/api/admin/')) return 'admin-login.html';
-                    if (url.includes('/api/vendor/')) return 'vendor-login.html';
-                    if (url.includes('/api/driver/') || url.includes('/api/bookings/')) {
-                        return window.location.pathname.includes('driver') ? 'driver-login.html' : 'auth.html';
-                    }
-                    return 'auth.html';
-                }
-                return null;
-            }
-
-            window.fetch = async function (...args) {
-                const response = await originalFetch(...args);
-                const url = args[0];
-                
-                if (typeof url === 'string' && url.includes('/api/auth/logout')) {
-                    return response;
-                }
-
-                if (response.status === 401) {
-                    const redirect = getLoginRedirect(url);
-                    if (redirect) window.location.href = redirect;
-                }
-                return response;
-            };
-        })();
-
-        let isMapInitialized = false;
-        let trackerMap = null;
-        let driverMarker = null;
-        let driverLocationInterval = null;
-        let lastSeenStatuses = new Map(); // id -> status
-        let initialLoadDone = false;
-        let currentActiveIndex = 0; // State for switching between multiple active missions
-        let loadedRides = []; // Cache loaded rides for repeating
-        let currentDriverCoords = null; // Cache driver coordinates to prevent UI flickering on refresh
-
-        document.addEventListener('DOMContentLoaded', async () => {
-            let user = JSON.parse(localStorage.getItem('cityride_member'));
-            if (!user) {
-                try {
-                    const sessionRes = await fetch('/api/auth/session?role=user');
-                    if (sessionRes.ok) {
-                        const sd = await sessionRes.json();
-                        if (sd.valid && sd.role === 'user') {
-                            user = sd.user;
-                            localStorage.setItem('cityride_member', JSON.stringify(user));
-                        } else { window.location.href = 'auth.html'; return; }
-                    } else { window.location.href = 'auth.html'; return; }
-                } catch (e) { window.location.href = 'auth.html'; return; }
-            }
-
-            document.getElementById('user-name').textContent = user.name;
-
-            checkBanStatus(user.id);
-            loadDashboardData(user);
-            initialLoadDone = true;
-            // Live Update Radar Poll
-            setInterval(() => loadDashboardData(user), 5000);
-        });
-
-        function updateDriverMarkerOnMap(lat, lng) {
-            if (!trackerMap) return;
-            if (driverMarker) {
-                driverMarker.setLatLng([lat, lng]);
+    <script>(function() {
+const originalFetch = window.fetch;
+function getLoginRedirect(url) {
+if (typeof url === 'string' && url.includes('/api/')) {
+if (url.includes('/api/admin/')) return 'admin-login.html';
+if (url.includes('/api/vendor/')) return 'vendor-login.html';
+if (url.includes('/api/driver/') || url.includes('/api/bookings/')) {
+return window.location.pathname.includes('driver') ? 'driver-login.html' : 'auth.html';
+}
+return 'auth.html';
+}
+return null;
+}
+window.fetch = async function (...args) {
+const response = await originalFetch(...args);
+const url = args[0];
+if (typeof url === 'string' && url.includes('/api/auth/logout')) {
+return response;
+}
+if (response.status === 401) {
+const redirect = getLoginRedirect(url);
+if (redirect) window.location.href = redirect;
+}
+return response;
+};
+})();
+let isMapInitialized = false;
+let trackerMap = null;
+let driverMarker = null;
+let driverLocationInterval = null;
+let lastSeenStatuses = new Map();
+let initialLoadDone = false;
+let currentActiveIndex = 0;
+let loadedRides = [];
+let currentDriverCoords = null;
+document.addEventListener('DOMContentLoaded', async () => {
+    let user = null;
+    try {
+        const sessionRes = await fetch('/api/auth/session?role=user');
+        if (sessionRes.ok) {
+            const sd = await sessionRes.json();
+            if (sd.valid && sd.role === 'user') {
+                user = sd.user;
+                localStorage.setItem('cityride_member', JSON.stringify(user));
             } else {
-                const driverIcon = L.divIcon({
-                    className: 'driver-marker-wrap',
-                    html: `<div style="background:var(--primary-red); width:18px; height:18px; border-radius:50%; border:3px solid white; box-shadow:0 0 10px rgba(0,0,0,0.3); position:relative;">
-                             <div style="position:absolute; top:-4px; left:-4px; right:-4px; bottom:-4px; border:2px solid var(--primary-red); border-radius:50%; animation:pulse 2s infinite;"></div>
-                           </div>`,
-                    iconSize: [24, 24]
-                });
-                driverMarker = L.marker([lat, lng], { icon: driverIcon }).addTo(trackerMap).bindPopup('<b>Driver Location</b>');
-            }
-            trackerMap.setView([lat, lng]);
-        }
-
-        function trackDriverLocation(bookingId) {
-            if (driverLocationInterval) clearInterval(driverLocationInterval);
-            
-            const fetchLoc = async () => {
-                try {
-                    const res = await fetch(`${API_BASE_URL}/api/bookings/driver-location/${bookingId}`);
-                    if (!res.ok) return;
-                    const data = await res.json();
-                    if (data.latitude && data.longitude) {
-                        currentDriverCoords = { latitude: data.latitude, longitude: data.longitude };
-                        updateDriverMarkerOnMap(data.latitude, data.longitude);
-                        
-                        // Dynamically expose and target Google Maps Nav button
-                        const navBtn = document.getElementById('google-maps-nav-btn');
-                        if (navBtn) {
-                            navBtn.href = `https://www.google.com/maps/search/?api=1&query=${data.latitude},${data.longitude}`;
-                            navBtn.style.display = 'inline-flex';
-                        }
-                    }
-                } catch (e) {
-                    console.error('Error fetching driver location:', e);
-                }
-            };
-            
-            fetchLoc();
-            driverLocationInterval = setInterval(fetchLoc, 5000);
-        }
-
-        function showToast(title, message, type = 'info') {
-            console.log(`TOAST (${type}): ${title} - ${message}`);
-        }
-
-        async function loadDashboardData(user) {
-
-            try {
-                const res = await fetch(`${API_BASE_URL}/api/user/bookings/${user.id}`);
-                if (!res.ok) {
-                    const errData = await res.json();
-                    throw new Error(errData.error || 'Failed to fetch bookings');
-                }
-                const rides = await res.json();
-                loadedRides = rides; // cache loaded rides
-
-                if (!Array.isArray(rides)) {
-                    console.error('Expected array for rides, got:', rides);
-                    return;
-                }
-
-                // Delta Tracking for Status Changes
-                if (initialLoadDone) {
-                    rides.forEach(ride => {
-                        if (!lastSeenStatuses.has(ride.id)) {
-                            showToast('New Ride Booked', `Your trip to ${ride.drop_loc.split(',')[0]} has been registered.`, 'success');
-                        } else if (lastSeenStatuses.get(ride.id) !== ride.status) {
-                            showToast('Ride Update', `Trip #B${ride.id} is now ${ride.status.toUpperCase()}.`, 'info');
-                            // If mission completed, refresh dashboard to update history and stats
-                            if (ride.status === 'completed') {
-                                setTimeout(() => window.location.reload(), 2000);
-                            }
-                        }
-                    });
-                }
-                lastSeenStatuses = new Map(rides.map(r => [r.id, r.status]));
-
-                const body = document.getElementById('rides-body');
-                body.innerHTML = '';
-
-                if (rides.length === 0) {
-                    document.getElementById('no-rides').classList.remove('hidden');
-                    return;
-                } else {
-                    document.getElementById('no-rides').classList.add('hidden');
-                }
-
-                // Stats Calculation
-                document.getElementById('stat-total').textContent = rides.length;
-                if (rides[0]) {
-                    document.getElementById('stat-recent').textContent = `Ride #B${rides[0].id}`;
-                }
-
-                // Find All Active Missions (Last pending, assigned, ongoing, or finished)
-                const activeMissions = rides.filter(r => r.status === 'pending' || r.status === 'assigned' || r.status === 'ongoing' || r.status === 'finished');
-                
-                if (activeMissions.length > 0) {
-                    // Ensure index is within bounds (e.g. if a ride was completed)
-                    if (currentActiveIndex >= activeMissions.length) currentActiveIndex = 0;
-                    
-                    const activeMission = activeMissions[currentActiveIndex];
-                    const container = document.getElementById('active-mission-container');
-                    const details = document.getElementById('active-details');
-                    const statusTag = document.getElementById('active-status');
-
-                    container.classList.remove('hidden');
-                    statusTag.className = `status-pill status-${activeMission.status}`;
-                    if (activeMission.status === 'assigned' && activeMission.reached_pickup_time) {
-                        statusTag.textContent = 'ARRIVED';
-                        statusTag.className = `status-pill status-ongoing`;
-                    } else {
-                        statusTag.textContent = activeMission.status.toUpperCase();
-                    }
-
-                    // Switcher UI for multiple active rides
-                    let switcherUI = '';
-                    if (activeMissions.length > 1) {
-                        switcherUI = `
-                            <div style="display: flex; align-items: center; gap: 1rem; background: rgba(0,0,0,0.05); padding: 5px 15px; border-radius: 20px;">
-                                <button onclick="changeActiveRide(-1, ${activeMissions.length})" style="background:none; border:none; cursor:pointer; font-weight:bold; font-size:1.2rem; color:var(--primary-red); padding:0 5px;">&lsaquo;</button>
-                                <span style="font-size:0.75rem; font-weight:700; color:var(--text-muted)">Ride ${currentActiveIndex + 1} of ${activeMissions.length}</span>
-                                <button onclick="changeActiveRide(1, ${activeMissions.length})" style="background:none; border:none; cursor:pointer; font-weight:bold; font-size:1.2rem; color:var(--primary-red); padding:0 5px;">&rsaquo;</button>
-                            </div>
-                        `;
-                    }
-                    
-                    // Add Switcher to Header if present
-                    const headerContainer = container.querySelector('div[style*="display: flex"]');
-                    if (headerContainer) {
-                        // Check if switcher already exists to avoid duplication or just replace innerHTML carefully
-                        let existingSwitcher = headerContainer.querySelector('.active-switcher');
-                        if (existingSwitcher) existingSwitcher.remove();
-                        
-                        if (switcherUI) {
-                            const switcherDiv = document.createElement('div');
-                            switcherDiv.className = 'active-switcher';
-                            switcherDiv.innerHTML = switcherUI;
-                            headerContainer.insertBefore(switcherDiv, statusTag);
-                        }
-                    }
-
-                    // Show deviation warning if is_deviated
-                    const warningDiv = document.getElementById('deviation-warning');
-                    if (warningDiv) {
-                        if (activeMission.is_deviated) {
-                            warningDiv.style.display = 'flex';
-                        } else {
-                            warningDiv.style.display = 'none';
-                        }
-                    }
-
-                    let activeDriver = 'Searching for CityRide Driver...';
-                    if (activeMission.driver_name) {
-                        const showNavBtn = activeMission.reached_pickup_time;
-                        let navBtnStyle = 'display: inline-flex;';
-                        let navBtnHref = '#';
-                        if (currentDriverCoords) {
-                            navBtnHref = `https://www.google.com/maps/search/?api=1&query=${currentDriverCoords.latitude},${currentDriverCoords.longitude}`;
-                        } else if (activeMission.pickup_coords) {
-                            const pCoords = activeMission.pickup_coords.split(',').map(Number);
-                            if (pCoords.length === 2 && !isNaN(pCoords[0]) && !isNaN(pCoords[1])) {
-                                navBtnHref = `https://www.google.com/maps/search/?api=1&query=${pCoords[1]},${pCoords[0]}`;
-                            }
-                        }
-                        activeDriver = `
-                            <div style="font-weight:700; font-size:1.2rem; color:var(--primary-red); margin-bottom:0.5rem;">${activeMission.driver_name}</div>
-                            <div style="color:var(--text-main); font-weight:600;">${activeMission.car_model || 'Premium Vehicle'} - ${activeMission.car_number || 'TBD'}</div>
-                            <div style="margin-top:1rem; display:flex; flex-direction:column; gap:10px; align-items:stretch;">
-                                <a href="tel:${activeMission.driver_phone || ''}" class="btn btn-primary" style="padding:0.7rem 1.5rem; text-align:center; text-decoration:none;">Call Driver</a>
-                                ${showNavBtn ? `
-                                <a id="google-maps-nav-btn" href="${navBtnHref}" target="_blank" class="btn" style="${navBtnStyle} padding:0.7rem 1.5rem; text-align:center; background:#4285F4; border:1px solid #4285F4; color:#fff; font-weight:700; border-radius:12px; align-items:center; justify-content:center; gap:8px; text-decoration:none;">🗺️ Navigate to Driver</a>
-                                ` : ''}
-                            </div>
-                        `;
-                    }
-
-                    const tripTypeName = {
-                        'local': 'Local Ride',
-                        'oneway': 'One Way Trip',
-                        'round': 'Round Trip',
-                        'rental': 'Local Rental'
-                    }[activeMission.trip_type] || (activeMission.trip_type || 'Local').toUpperCase();
-
-                    details.innerHTML = `
-                        <div>
-                            <div style="display:flex; gap:10px; margin-bottom:1.5rem; align-items:center;">
-                                <span style="font-size:0.75rem; font-weight:800; background:rgba(183, 28, 28, 0.15); color:var(--primary-red); padding:4px 12px; border-radius:8px; text-transform:uppercase; letter-spacing:0.5px;">${tripTypeName}</span>
-                                <span style="font-size:0.75rem; font-weight:800; background:rgba(255, 255, 255, 0.08); color:var(--text-main); padding:4px 12px; border-radius:8px; text-transform:uppercase; letter-spacing:0.5px;">🚗 ${activeMission.vehicle_type || 'Premium'}</span>
-                            </div>
-                            <div style="margin-bottom:1.5rem;">
-                                <div style="font-size:0.7rem; text-transform:uppercase; color:var(--text-muted); font-weight:700;">From:</div>
-                                <div style="font-weight:700; font-size:1.1rem;">${activeMission.pickup_loc}</div>
-                            </div>
-                            <div>
-                                <div style="font-size:0.7rem; text-transform:uppercase; color:var(--text-muted); font-weight:700;">To:</div>
-                                <div style="font-weight:700; font-size:1.1rem;">${activeMission.drop_loc}</div>
-                            </div>
-                            ${activeMission.status === 'finished' ? `
-                            <div style="margin-top:2rem; padding:1.5rem; background:rgba(52, 199, 89, 0.05); border-radius:15px; border:1px solid rgba(52, 199, 89, 0.15);">
-                                <div style="font-weight:600; color:var(--success-green); margin-bottom:0.5rem; display:flex; justify-content:space-between; align-items:center;">
-                                    <span>Final Invoice</span>
-                                    <span style="font-size:0.75rem; background:rgba(52, 199, 89, 0.1); padding:2px 8px; border-radius:5px;">ID: #B${activeMission.id}</span>
-                                </div>
-                                <div style="font-size:0.95rem; font-weight:700; margin-bottom:0.3rem;">Total Fare: <span style="color:var(--success-green)">${activeMission.fare}</span></div>
-                                <div style="font-size:0.85rem; font-weight:700; color:var(--text-muted);">Actual Distance: <span>${activeMission.actual_distance || '0.0 KM'}</span></div>
-                                ${(() => {
-                                     if (activeMission.journey_end_time && activeMission.journey_start_time) {
-                                         const start = new Date(activeMission.journey_start_time);
-                                         const end = new Date(activeMission.journey_end_time);
-                                         if (!isNaN(start.getTime()) && !isNaN(end.getTime())) {
-                                             const mins = Math.ceil((end - start) / 60000);
-                                             return `<div style="font-size:0.85rem; font-weight:700; color:var(--text-muted); margin-top:0.2rem;">Ride Duration: <span>${mins} Mins</span></div>`;
-                                         }
-                                     }
-                                     return '';
-                                 })()}
-                                <button class="btn" style="margin-top: 1rem; width: 100%; background: none; border: 1px solid var(--success-green); color: var(--success-green); padding: 0.6rem; font-weight: 700; border-radius: 10px;" onclick="showInvoiceModal(${JSON.stringify(activeMission).replace(/"/g, '&quot;')})">Show Invoice Details</button>
-                            </div>
-                            ` : `
-                            <div style="margin-top:2rem; padding:1.5rem; background:rgba(255, 255, 255, 0.02); border-radius:15px; border:1px solid var(--border-color);">
-                                <div style="font-weight:600; color:var(--primary-red); margin-bottom:0.5rem; display:flex; justify-content:space-between; align-items:center;">
-                                    <span>Ride Details</span>
-                                    <span style="font-size:0.75rem; background:rgba(183,28,28,0.1); padding:2px 8px; border-radius:5px;">ID: #B${activeMission.id}</span>
-                                </div>
-                                <div style="font-size:0.95rem; font-weight:700; margin-top:0.3rem;">Distance Covered: <span style="color:var(--primary-red)">${activeMission.actual_distance || '0.0 KM'}</span></div>
-                                ${activeMission.trip_type !== 'local' ? `
-                                <div style="margin: 0.6rem 0; padding: 0.8rem; background: rgba(255, 255, 255, 0.03); border-radius: 10px; font-size: 0.82rem; border: 1px solid var(--border-color); display: flex; flex-direction: column; gap: 4px;">
-                                    <div style="display:flex; justify-content:space-between;">
-                                        <span style="color:var(--text-muted);">Opening Odometer:</span>
-                                        <span style="font-weight:700; color:var(--text-main);">${activeMission.start_odometer || 'Awaiting Start'}</span>
-                                    </div>
-                                    ${activeMission.end_odometer ? `
-                                    <div style="display:flex; justify-content:space-between;">
-                                        <span style="color:var(--text-muted);">Closing Odometer:</span>
-                                        <span style="font-weight:700; color:var(--text-main);">${activeMission.end_odometer}</span>
-                                    </div>
-                                    ` : ''}
-                                </div>
-                                ` : ''}
-                                ${activeMission.estimated_fare ? `
-                                    <div style="font-size:0.8rem; font-weight:600; color:var(--text-muted); margin-top:0.3rem; opacity:0.6;">Estimated Fare: ${activeMission.estimated_fare}</div>
-                                ` : ''}
-                                <div style="font-size:0.95rem; font-weight:700; margin-top:0.3rem;">Live Fare: <span style="color:var(--primary-red)">${activeMission.fare}</span></div>
-                                ${activeMission.estimated_duration ? `
-                                    <div style="font-size:0.95rem; font-weight:700; margin-top:0.3rem;">Estimated Duration: <span style="color:var(--primary-red)">🕒 ${activeMission.estimated_duration}</span></div>
-                                ` : ''}
-                                ${activeMission.status === 'assigned' && activeMission.reached_pickup_time ? (() => {
-                                     const elapsedSecs = activeMission.reached_elapsed_seconds || 0;
-                                     const allowedSecs = 300;
-                                     if (elapsedSecs <= allowedSecs) {
-                                         const remainingSecs = allowedSecs - elapsedSecs;
-                                         const rM = Math.floor(remainingSecs / 60);
-                                         const rS = remainingSecs % 60;
-                                         return `
-                                             <div style="margin-top: 1rem; padding: 0.8rem; background: rgba(255, 159, 10, 0.08); border: 1px solid rgba(255, 159, 10, 0.2); border-radius: 10px; font-size: 0.8rem; color: var(--warning-amber); text-align: center;">
-                                                 <strong>Driver Arrived!</strong> Grace period remaining: ${rM}:${String(rS).padStart(2,'0')}
-                                             </div>
-                                         `;
-                                     } else {
-                                         const waitingSecs = elapsedSecs - allowedSecs;
-                                         const wM = Math.floor(waitingSecs / 60);
-                                         const wS = waitingSecs % 60;
-                                         const charge = Math.ceil(waitingSecs / 60) * 2;
-                                         return `
-                                             <div style="margin-top: 1rem; padding: 0.8rem; background: rgba(255, 59, 48, 0.08); border: 1px solid rgba(255, 59, 48, 0.2); border-radius: 10px; font-size: 0.8rem; color: var(--danger-red); text-align: center;">
-                                                 <strong>Grace period exceeded!</strong><br>
-                                                 Waiting Time: ${wM}:${String(wS).padStart(2,'0')}<br>
-                                                 Waiting Charge: ₹${charge} (included in final bill)
-                                             </div>
-                                         `;
-                                     }
-                                 })() : ''}
-                            </div>
-                            `}
-                            ${(() => {
-                                // For local rides, only show OTP at the start
-                                if (activeMission.trip_type === 'local') {
-                                    if (activeMission.status === 'assigned') {
-                                        return `
-                                            <div style="margin-top:1.5rem; padding:1rem; background:rgba(183, 28, 28, 0.05); border-radius:12px; border:1px dashed var(--primary-red); text-align:center;">
-                                                <div style="font-size:0.65rem; text-transform:uppercase; color:var(--primary-red); font-weight:800; letter-spacing:1px; margin-bottom:5px;">Mission Start OTP</div>
-                                                <div style="font-size:1.8rem; font-weight:800; letter-spacing:8px; color:var(--text-main);">${activeMission.journey_otp || '----'}</div>
-                                                <div style="font-size:0.7rem; color:var(--text-muted); margin-top:5px;">Provide this OTP to your captain to start the ride.</div>
-                                            </div>
-                                        `;
-                                    }
-                                    return ''; // Hide OTP during ongoing local rides
-                                } else {
-                                    // For outstation, round, rental: two OTPs
-                                    if (activeMission.status === 'assigned') {
-                                        return `
-                                            <div style="margin-top:1.5rem; padding:1rem; background:rgba(183, 28, 28, 0.05); border-radius:12px; border:1px dashed var(--primary-red); text-align:center;">
-                                                <div style="font-size:0.65rem; text-transform:uppercase; color:var(--primary-red); font-weight:800; letter-spacing:1px; margin-bottom:5px;">Mission Start OTP</div>
-                                                <div style="font-size:1.8rem; font-weight:800; letter-spacing:8px; color:var(--text-main);">${activeMission.journey_otp || '----'}</div>
-                                                <div style="font-size:0.7rem; color:var(--text-muted); margin-top:5px;">Provide this OTP to your captain to start the ride.</div>
-                                            </div>
-                                        `;
-                                    } else {
-                                        return `
-                                            <div style="margin-top:1.5rem; padding:1rem; background:rgba(52, 199, 89, 0.05); border-radius:12px; border:1px dashed #34c759; text-align:center;">
-                                                <div style="font-size:0.65rem; text-transform:uppercase; color:#34c759; font-weight:800; letter-spacing:1px; margin-bottom:5px;">Trip Completion OTP</div>
-                                                <div style="font-size:1.8rem; font-weight:800; letter-spacing:8px; color:var(--text-main);">${activeMission.end_otp || '----'}</div>
-                                                <div style="font-size:0.7rem; color:var(--text-muted); margin-top:5px;">Provide this OTP to your captain to finish the ride.</div>
-                                            </div>
-                                        `;
-                                    }
-                                }
-                            })()}
-                            ${(activeMission.status === 'pending' || activeMission.status === 'assigned') ? `
-                                <button onclick="cancelRide(${activeMission.id}, ${user.id})" class="btn" style="margin-top: 1.5rem; width: 100%; background: rgba(183, 28, 28, 0.05); border: 1px solid var(--primary-red); color: var(--primary-red); padding: 1rem; font-weight: 700; font-size: 0.9rem; border-radius: 12px; cursor: pointer; transition: all 0.3s ease;">
-                                    🛑 Cancel Mission Request
-                                </button>
-                            ` : ''}
-                        </div>
-                        <div style="background:rgba(255, 255, 255, 0.02); border:1px solid var(--border-color); padding:2rem; border-radius:20px; text-align:center; display:flex; flex-direction:column; justify-content:center;">
-                            <div style="font-size:0.7rem; text-transform:uppercase; color:var(--text-muted); font-weight:700; margin-bottom:1rem;">Your Driver</div>
-                            ${activeDriver}
-                        </div>
-                    `;
-
-                    // MAP INITIALIZATION
-                    const mapEl = document.getElementById('mission-map');
-                    if (activeMission.trip_type !== 'local') {
-                        if (mapEl) mapEl.style.display = 'none';
-                    } else {
-                        if (mapEl) mapEl.style.display = 'block';
-                        if (!isMapInitialized) {
-                            isMapInitialized = true;
-                            setTimeout(async () => {
-                                try {
-                                    if (trackerMap) {
-                                        trackerMap.remove();
-                                    }
-                                    trackerMap = L.map('mission-map').setView([13.08, 80.27], 13);
-                                    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(trackerMap);
-
-                                    const getCoords = async (addr, storedCoords) => {
-                                        if (storedCoords) return storedCoords.split(',').map(Number);
-                                        if (!addr || addr.trim() === '') return null;
-                                        try {
-                                            const r = await fetch(`${API_BASE_URL}/api/proxy/geocode?q=${encodeURIComponent(addr)}&limit=1&lon=80.2707&lat=13.0827`);
-                                            if (!r.ok) return null;
-                                            const d = await r.json();
-                                            return d.features[0]?.geometry.coordinates;
-                                        } catch (e) { return null; }
-                                    };
-
-                                    const pCoords = await getCoords(activeMission.pickup_loc, activeMission.pickup_coords);
-                                    const dCoords = await getCoords(activeMission.drop_loc, activeMission.drop_coords);
-
-                                    if (pCoords && dCoords) {
-                                        const pMarker = L.marker([pCoords[1], pCoords[0]]).addTo(trackerMap).bindPopup(`<b>📍 Pickup:</b><br>${activeMission.pickup_loc}`);
-                                        const dMarker = L.marker([dCoords[1], dCoords[0]]).addTo(trackerMap).bindPopup(`<b>🏁 Destination:</b><br>${activeMission.drop_loc}`);
-
-                                        // Draw Route
-                                        try {
-                                            const routeRes = await fetch(`https://router.project-osrm.org/route/v1/driving/${pCoords[0]},${pCoords[1]};${dCoords[0]},${dCoords[1]}?overview=full&geometries=geojson`);
-                                            const routeData = await routeRes.json();
-                                            L.geoJSON(routeData.routes[0].geometry, { style: { color: "#B71C1C", weight: 5, opacity: 0.7 } }).addTo(trackerMap);
-                                        } catch (e) { }
-
-                                        const group = new L.featureGroup([pMarker, dMarker]);
-                                        trackerMap.fitBounds(group.getBounds().pad(0.2));
-                                    }
-                                    trackerMap.invalidateSize();
-                                } catch (e) {
-                                    console.log('Map init failed:', e.message);
-                                    isMapInitialized = false;
-                                }
-                            }, 500);
-                        }
-                    }
-
-                    // Start/Stop driver tracking based on status
-                    if (activeMission.status === 'ongoing' || (activeMission.status === 'assigned' && activeMission.reached_pickup_time)) {
-                        trackDriverLocation(activeMission.id);
-                    } else {
-                        if (driverLocationInterval) {
-                            clearInterval(driverLocationInterval);
-                            driverLocationInterval = null;
-                        }
-                        if (driverMarker) {
-                            driverMarker.remove();
-                            driverMarker = null;
-                        }
-                        currentDriverCoords = null;
-                    }
-                } else {
-                    document.getElementById('active-mission-container').classList.add('hidden');
-                    isMapInitialized = false;
-                    const warningDiv = document.getElementById('deviation-warning');
-                    if (warningDiv) warningDiv.style.display = 'none';
-                    if (driverLocationInterval) {
-                        clearInterval(driverLocationInterval);
-                        driverLocationInterval = null;
-                    }
-                    if (driverMarker) {
-                        driverMarker.remove();
-                        driverMarker = null;
-                    }
-                    currentDriverCoords = null;
-                }
-
-                rides.forEach(ride => {
-                    const row = document.createElement('tr');
-                    const idText = `<div style="font-weight:800; color:var(--primary-red)">#B${ride.id}</div>`;
-
-                    let driverDetails = '<div style="font-size:0.8rem; color:var(--text-muted)">Awaiting Assignment...</div>';
-                    if (ride.driver_name) {
-                        driverDetails = `
-                            <div style="font-weight:600"> ${ride.driver_name || 'Pilot'}</div>
-                            <div style="font-size:0.8rem"> ${ride.car_model || 'Premium Vehicle'} (${ride.car_number || 'TBD'})</div>
-                            <div style="font-size:0.8rem"> <a href="tel:${ride.driver_phone || ''}" style="color:var(--primary-red)">${ride.driver_phone || 'Signal Not Available'}</a></div>
-                        `;
-                    }
-
-                    const canCancel = ['pending', 'assigned'].includes(ride.status);
-                    const tripTypeName = {
-                        'local': 'Local Ride',
-                        'oneway': 'One Way Trip',
-                        'round': 'Round Trip',
-                        'rental': 'Local Rental'
-                    }[ride.trip_type] || 'One Way Trip';
-
-                    row.innerHTML = `
-                        <td data-label="ID">${idText}</td>
-                        <td data-label="Trip Details">
-                            <div style="text-align: right; max-width: 70%; word-break: break-word; display: flex; flex-direction: column; align-items: flex-end; gap: 2px;">
-                                <div style="font-weight:800; font-size:0.7rem; color:#888; text-transform:uppercase; margin-bottom:0.2rem;">${tripTypeName} • ${ride.actual_distance || '0.0 KM'}${ride.estimated_duration ? ` • 🕒 ${ride.estimated_duration}` : ''}</div>
-                                <div style="font-weight:600; color:var(--text-main); font-size:0.95rem; line-height: 1.3;">${ride.pickup_loc}</div>
-                                <div style="font-size:0.8rem; color:var(--text-muted); line-height: 1.3;">to ${ride.drop_loc}</div>
-                                <div style="margin-top:0.4rem; text-align: right; width: 100%;">${driverDetails}</div>
-                            </div>
-                        </td>
-                        <td data-label="Date & Time">
-                            <div style="text-align: right; display: flex; flex-direction: column; align-items: flex-end; gap: 2px;">
-                                <div style="font-weight:600; color:var(--text-main);">${new Date(ride.pickup_date).toLocaleDateString()}</div>
-                                <div style="font-size:0.8rem; color:var(--text-muted);">${ride.pickup_time}</div>
-                            </div>
-                        </td>
-                        <td data-label="Vehicle">
-                            <span style="font-weight:600; color:var(--text-main);">${ride.vehicle_type.toUpperCase()}</span>
-                        </td>
-                        <td data-label="Fare">
-                            <span style="font-weight:700; color:var(--text-main);">${ride.fare}</span>
-                        </td>
-                        <td data-label="Status">
-                            <span class="status-pill status-${ride.status}">${ride.status}</span>
-                        </td>
-                        <td data-label="Action">
-                            <div style="display: flex; gap: 0.5rem; justify-content: flex-end; align-items: center; flex-wrap: wrap;">
-                                <button class="btn-invoice-eye" onclick="showInvoiceModal(${JSON.stringify(ride).replace(/"/g, '&quot;')})" title="View Invoice / Details">
-                                    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
-                                </button>
-                                ${canCancel ? `<button class="btn-cancel-ride" onclick="cancelRide(${ride.id}, ${user.id})">Cancel</button>` : ''}
-                                ${(() => {
-                                    if (['completed', 'finished'].includes(ride.status) && ride.driver_id) {
-                                        let buttons = `<button class="btn" style="background:#4CAF50; color:white; border:none; padding:0.4rem 0.8rem; border-radius:8px; font-size:0.75rem; font-weight:700; cursor:pointer; margin-right: 5px;" onclick="showPaymentQR(${ride.driver_id}, '${(ride.driver_name || 'Driver').replace(/'/g, "\\'")}')">Pay with QR</button>`;
-                                        if (ride.rating !== null && ride.rating !== undefined) {
-                                            buttons += `
-                                                <span style="color:#FFD700; font-weight:800; font-size:0.85rem; padding: 0.3rem 0.6rem; background: rgba(255,215,0,0.1); border-radius: 6px; display: inline-flex; align-items: center; gap: 3px;" title="${ride.rating_comment ? ride.rating_comment.replace(/"/g, '&quot;') : 'No feedback comment'}">
-                                                    ★ ${ride.rating}
-                                                </span>
-                                            `;
-                                        } else {
-                                            buttons += `
-                                                <button class="btn" style="background:#B71C1C; color:white; border:none; padding:0.4rem 0.8rem; border-radius:8px; font-size:0.75rem; font-weight:700; cursor:pointer;" onclick="rateDriver(${ride.id}, '${(ride.driver_name || 'Driver').replace(/'/g, "\\'")}')">
-                                                    Rate Driver
-                                                </button>
-                                            `;
-                                        }
-                                        return buttons;
-                                    }
-                                    return '';
-                                })()}
-                                <button class="btn-rebook-ride" onclick="rebookRide(${ride.id})">Repeat</button>
-                            </div>
-                        </td>
-                    `;
-                    body.appendChild(row);
-                });
-            } catch (err) {
-                console.error('Failed to load rides:', err);
-            }
-        }
-
-        function logoutUser() {
-            fetch('/api/auth/logout', { 
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ role: 'user' })
-            }).catch(() => {});
-            localStorage.removeItem('cityride_member');
-            window.location.href = 'auth.html';
-        }
-
-        async function showPaymentQR(driverId, driverName) {
-            try {
-                const res = await fetch(`${API_BASE_URL}/api/driver/info/${driverId}`, {
-                    headers: { 'Authorization': `Bearer ${localStorage.getItem('cityride_user_token')}` }
-                });
-                const data = await res.json();
-                if (data.success && data.driver.payment_qr) {
-                    Swal.fire({
-                        title: `Pay ${driverName || 'Driver'}`,
-                        html: `<div style="text-align:center;">
-                                <p style="font-size: 0.9rem; color: #666; margin-bottom: 1rem;">Scan the QR Code below using any UPI App</p>
-                                <img src="${data.driver.payment_qr}" alt="Payment QR" style="max-width: 100%; max-height: 300px; border-radius: 10px; border: 1px solid #ddd; padding: 10px;">
-                               </div>`,
-                        confirmButtonText: 'Done',
-                        confirmButtonColor: '#B71C1C'
-                    });
-                } else {
-                    Swal.fire('Not Available', 'The pilot has not uploaded a Payment QR Code.', 'info');
-                }
-            } catch (err) {
-                Swal.fire('Error', 'Could not fetch Payment QR.', 'error');
-            }
-        }
-
-        async function rateDriver(bookingId, driverName) {
-            let selectedRating = 5;
-            const { value: formValues } = await Swal.fire({
-                title: `Rate ${driverName || 'your Driver'}`,
-                html: `
-                    <div style="margin-bottom: 1.5rem; display: flex; justify-content: center; gap: 10px; font-size: 2.2rem; user-select: none;">
-                        <span class="star-rating" data-value="1" style="cursor: pointer; color: #FFD700; transition: transform 0.1s;">★</span>
-                        <span class="star-rating" data-value="2" style="cursor: pointer; color: #FFD700; transition: transform 0.1s;">★</span>
-                        <span class="star-rating" data-value="3" style="cursor: pointer; color: #FFD700; transition: transform 0.1s;">★</span>
-                        <span class="star-rating" data-value="4" style="cursor: pointer; color: #FFD700; transition: transform 0.1s;">★</span>
-                        <span class="star-rating" data-value="5" style="cursor: pointer; color: #FFD700; transition: transform 0.1s;">★</span>
-                    </div>
-                    <textarea id="rating-comment" class="swal2-textarea" placeholder="Add your feedback (optional)..." style="width: 100%; box-sizing: border-box; border-radius: 8px; margin: 0; padding: 10px; font-size: 0.9rem; min-height: 80px;"></textarea>
-                `,
-                focusConfirm: false,
-                showCancelButton: true,
-                confirmButtonText: 'Submit Rating',
-                confirmButtonColor: '#B71C1C',
-                didOpen: () => {
-                    const stars = Swal.getPopup().querySelectorAll('.star-rating');
-                    stars.forEach(star => {
-                        star.addEventListener('click', (e) => {
-                            const val = parseInt(star.getAttribute('data-value'));
-                            selectedRating = val;
-                            stars.forEach(s => {
-                                const sVal = parseInt(s.getAttribute('data-value'));
-                                if (sVal <= val) {
-                                    s.style.color = '#FFD700';
-                                } else {
-                                    s.style.color = '#ccc';
-                                }
-                            });
-                        });
-                    });
-                },
-                preConfirm: () => {
-                    return {
-                        rating: selectedRating,
-                        comment: document.getElementById('rating-comment').value
-                    }
-                }
-            });
-
-            if (formValues) {
-                try {
-                    const res = await fetch(`${API_BASE_URL}/api/bookings/rate-driver`, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                            bookingId: bookingId,
-                            rating: formValues.rating,
-                            comment: formValues.comment
-                        })
-                    });
-                    const result = await res.json();
-                    if (res.ok) {
-                        Swal.fire({
-                            title: 'Success!',
-                            text: result.message || 'Rating submitted successfully.',
-                            icon: 'success',
-                            confirmButtonColor: '#B71C1C'
-                        });
-                        const user = JSON.parse(localStorage.getItem('cityride_member'));
-                        loadDashboardData(user);
-                    } else {
-                        Swal.fire('Error', result.error || 'Failed to submit rating.', 'error');
-                    }
-                } catch (err) {
-                    Swal.fire('Error', 'Network error occurred.', 'error');
-                }
-            }
-        }
-
-        //  Cancel Ride 
-        async function cancelRide(bookingId, userId) {
-            if (!confirm('Are you sure you want to cancel this ride?')) return;
-            try {
-                const res = await fetch(`${API_BASE_URL}/api/user/cancel-ride`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ bookingId, userId })
-                });
-                const result = await res.json();
-                if (res.ok) {
-                    if (result.banned) {
-                        showBanBanner(result.banned_until);
-                        hideCancelWarn();
-                        alert(' ' + result.message);
-                    } else {
-                        const remaining = 3 - result.cancelCount;
-                        if (result.cancelCount > 0) showCancelWarn(result.cancelCount, remaining);
-                        else hideCancelWarn();
-                    }
-                    const user = JSON.parse(localStorage.getItem('cityride_member'));
-                    loadDashboardData(user);
-                } else {
-                    if (result.banned) {
-                        showBanBanner(result.banned_until);
-                    }
-                    alert(' ' + result.error);
-                }
-            } catch (err) {
-                alert('Cancel failed: ' + err.message);
-            }
-        }
-
-        //  Ban Banner 
-        let banCountdownInterval = null;
-
-        function showBanBanner(banUntil) {
-            document.getElementById('ban-banner').classList.add('active');
-            updateBanCountdown(new Date(banUntil));
-            if (banCountdownInterval) clearInterval(banCountdownInterval);
-            banCountdownInterval = setInterval(() => updateBanCountdown(new Date(banUntil)), 60000);
-        }
-
-        function hideBanBanner() {
-            document.getElementById('ban-banner').classList.remove('active');
-            if (banCountdownInterval) clearInterval(banCountdownInterval);
-        }
-
-        function updateBanCountdown(banEnd) {
-            const now = new Date();
-            if (banEnd <= now) { hideBanBanner(); return; }
-            const diff = banEnd - now;
-            const hrs = Math.floor(diff / 3600000);
-            const mins = Math.floor((diff % 3600000) / 60000);
-            document.getElementById('ban-countdown').textContent =
-                ` Suspension lifts in: ${hrs}h ${mins}m`;
-        }
-
-        function showCancelWarn(count, remaining) {
-            const warn = document.getElementById('cancel-warn');
-            warn.classList.add('active');
-            document.getElementById('cancel-warn-text').textContent =
-                `You have cancelled ${count} ride(s) today. ${remaining > 0 ? `${remaining} cancellation(s) remaining before a 24-hour suspension.` : 'Next cancellation will result in a 24-hour ban.'}`;
-        }
-
-        function hideCancelWarn() {
-            document.getElementById('cancel-warn').classList.remove('active');
-        }
-
-        //  Check ban on page load 
-        async function checkBanStatus(userId) {
-            try {
-                const res = await fetch(`${API_BASE_URL}/api/user/ban-status/${userId}`);
-                const data = await res.json();
-                if (data.banned) showBanBanner(data.banned_until);
-                else hideBanBanner();
-            } catch (e) {}
-        }
-
-        // Switcher logic for multiple active missions
-        function changeActiveRide(delta, max) {
-            const user = JSON.parse(localStorage.getItem('cityride_member'));
-            currentActiveIndex = (currentActiveIndex + delta + max) % max;
-            loadDashboardData(user);
-        }
-
-        async function rebookRide(rideId) {
-            const ride = loadedRides.find(r => r.id === rideId);
-            if (!ride) {
-                alert("Ride not found.");
-                return;
-            }
-
-            const user = JSON.parse(localStorage.getItem('cityride_member'));
-            if (!user) {
-                alert("Please log in to repeat this ride.");
+                localStorage.removeItem('cityride_member');
                 window.location.href = 'auth.html';
                 return;
             }
+        } else {
+            localStorage.removeItem('cityride_member');
+            window.location.href = 'auth.html';
+            return;
+        }
+    } catch (e) {
+        user = JSON.parse(localStorage.getItem('cityride_member'));
+        if (!user) {
+            window.location.href = 'auth.html';
+            return;
+        }
+    }
+document.getElementById('user-name').textContent = user.name;
+checkBanStatus(user.id);
+loadDashboardData(user);
+initialLoadDone = true;
+setInterval(() => loadDashboardData(user), 5000);
+});
+function updateDriverMarkerOnMap(lat, lng) {
+if (!trackerMap) return;
+if (driverMarker) {
+driverMarker.setLatLng([lat, lng]);
+} else {
+const driverIcon = L.divIcon({
+className: 'driver-marker-wrap',
+html: `<div style="background:var(--primary-red); width:18px; height:18px; border-radius:50%; border:3px solid white; box-shadow:0 0 10px rgba(0,0,0,0.3); position:relative;">
+<div style="position:absolute; top:-4px; left:-4px; right:-4px; bottom:-4px; border:2px solid var(--primary-red); border-radius:50%; animation:pulse 2s infinite;"></div>
+</div>`,
+iconSize: [24, 24]
+});
+driverMarker = L.marker([lat, lng], { icon: driverIcon }).addTo(trackerMap).bindPopup('<b>Driver Location</b>');
+}
+trackerMap.setView([lat, lng]);
+}
+function trackDriverLocation(bookingId) {
+if (driverLocationInterval) clearInterval(driverLocationInterval);
+const fetchLoc = async () => {
+try {
+const res = await fetch(`${API_BASE_URL}/api/bookings/driver-location/${bookingId}`);
+if (!res.ok) return;
+const data = await res.json();
+if (data.latitude && data.longitude) {
+currentDriverCoords = { latitude: data.latitude, longitude: data.longitude };
+updateDriverMarkerOnMap(data.latitude, data.longitude);
+const navBtn = document.getElementById('google-maps-nav-btn');
+if (navBtn) {
+navBtn.href = `https://www.google.com/maps/search/?api=1&query=${data.latitude},${data.longitude}`;
+navBtn.style.display = 'inline-flex';
+}
+}
+} catch (e) {
+console.error('Error fetching driver location:', e);
+}
+};
+fetchLoc();
+driverLocationInterval = setInterval(fetchLoc, 5000);
+}
+function showToast(title, message, type = 'info') {
+console.log(`TOAST (${type}): ${title} - ${message}`);
+}
+async function loadDashboardData(user) {
+try {
+const res = await fetch(`${API_BASE_URL}/api/user/bookings/${user.id}`);
+if (!res.ok) {
+const errData = await res.json();
+throw new Error(errData.error || 'Failed to fetch bookings');
+}
+const rides = await res.json();
+loadedRides = rides;
+if (!Array.isArray(rides)) {
+console.error('Expected array for rides, got:', rides);
+return;
+}
+if (initialLoadDone) {
+rides.forEach(ride => {
+if (!lastSeenStatuses.has(ride.id)) {
+showToast('New Ride Booked', `Your trip to ${ride.drop_loc.split(',')[0]} has been registered.`, 'success');
+} else if (lastSeenStatuses.get(ride.id) !== ride.status) {
+showToast('Ride Update', `Trip #B${ride.id} is now ${ride.status.toUpperCase()}.`, 'info');
+if (ride.status === 'completed') {
+setTimeout(() => window.location.reload(), 2000);
+}
+}
+});
+}
+lastSeenStatuses = new Map(rides.map(r => [r.id, r.status]));
+const body = document.getElementById('rides-body');
+body.innerHTML = '';
+if (rides.length === 0) {
+document.getElementById('no-rides').classList.remove('hidden');
+return;
+} else {
+document.getElementById('no-rides').classList.add('hidden');
+}
+document.getElementById('stat-total').textContent = rides.length;
+if (rides[0]) {
+document.getElementById('stat-recent').textContent = `Ride #B${rides[0].id}`;
+}
+const activeMissions = rides.filter(r => r.status === 'pending' || r.status === 'assigned' || r.status === 'ongoing' || r.status === 'finished');
+if (activeMissions.length > 0) {
+if (currentActiveIndex >= activeMissions.length) currentActiveIndex = 0;
+const activeMission = activeMissions[currentActiveIndex];
+const container = document.getElementById('active-mission-container');
+const details = document.getElementById('active-details');
+const statusTag = document.getElementById('active-status');
+container.classList.remove('hidden');
+statusTag.className = `status-pill status-${activeMission.status}`;
+if (activeMission.status === 'assigned' && activeMission.reached_pickup_time) {
+statusTag.textContent = 'ARRIVED';
+statusTag.className = `status-pill status-ongoing`;
+} else {
+statusTag.textContent = activeMission.status.toUpperCase();
+}
+let switcherUI = '';
+if (activeMissions.length > 1) {
+switcherUI = `
+<div style="display: flex; align-items: center; gap: 1rem; background: rgba(0,0,0,0.05); padding: 5px 15px; border-radius: 20px;">
+<button onclick="changeActiveRide(-1, ${activeMissions.length})" style="background:none; border:none; cursor:pointer; font-weight:bold; font-size:1.2rem; color:var(--primary-red); padding:0 5px;">&lsaquo;</button>
+<span style="font-size:0.75rem; font-weight:700; color:var(--text-muted)">Ride ${currentActiveIndex + 1} of ${activeMissions.length}</span>
+<button onclick="changeActiveRide(1, ${activeMissions.length})" style="background:none; border:none; cursor:pointer; font-weight:bold; font-size:1.2rem; color:var(--primary-red); padding:0 5px;">&rsaquo;</button>
+</div>
+`;
+}
+const headerContainer = container.querySelector('div[style*="display: flex"]');
+if (headerContainer) {
+let existingSwitcher = headerContainer.querySelector('.active-switcher');
+if (existingSwitcher) existingSwitcher.remove();
+if (switcherUI) {
+const switcherDiv = document.createElement('div');
+switcherDiv.className = 'active-switcher';
+switcherDiv.innerHTML = switcherUI;
+headerContainer.insertBefore(switcherDiv, statusTag);
+}
+}
+const warningDiv = document.getElementById('deviation-warning');
+if (warningDiv) {
+if (activeMission.is_deviated) {
+warningDiv.style.display = 'flex';
+} else {
+warningDiv.style.display = 'none';
+}
+}
+let activeDriver = 'Searching for CityRide Driver...';
+if (activeMission.driver_name) {
+const showNavBtn = activeMission.reached_pickup_time;
+let navBtnStyle = 'display: inline-flex;';
+let navBtnHref = '#';
+if (currentDriverCoords) {
+navBtnHref = `https://www.google.com/maps/search/?api=1&query=${currentDriverCoords.latitude},${currentDriverCoords.longitude}`;
+} else if (activeMission.pickup_coords) {
+const pCoords = activeMission.pickup_coords.split(',').map(Number);
+if (pCoords.length === 2 && !isNaN(pCoords[0]) && !isNaN(pCoords[1])) {
+navBtnHref = `https://www.google.com/maps/search/?api=1&query=${pCoords[1]},${pCoords[0]}`;
+}
+}
+activeDriver = `
+<div style="font-weight:700; font-size:1.2rem; color:var(--primary-red); margin-bottom:0.5rem;">${activeMission.driver_name}</div>
+<div style="color:var(--text-main); font-weight:600;">${activeMission.car_model || 'Premium Vehicle'} - ${activeMission.car_number || 'TBD'}</div>
+<div style="margin-top:1rem; display:flex; flex-direction:column; gap:10px; align-items:stretch;">
+<a href="tel:${activeMission.driver_phone || ''}" class="btn btn-primary" style="padding:0.7rem 1.5rem; text-align:center; text-decoration:none;">Call Driver</a>
+${showNavBtn ? `
+<a id="google-maps-nav-btn" href="${navBtnHref}" target="_blank" class="btn" style="${navBtnStyle} padding:0.7rem 1.5rem; text-align:center; background:#4285F4; border:1px solid #4285F4; color:#fff; font-weight:700; border-radius:12px; align-items:center; justify-content:center; gap:8px; text-decoration:none;">🗺️ Navigate to Driver</a>
+` : ''}
+</div>
+`;
+}
+const tripTypeName = {
+'local': 'Local Ride',
+'oneway': 'One Way Trip',
+'round': 'Round Trip',
+'rental': 'Local Rental'
+}[activeMission.trip_type] || (activeMission.trip_type || 'Local').toUpperCase();
+details.innerHTML = `
+<div>
+<div style="display:flex; gap:10px; margin-bottom:1.5rem; align-items:center;">
+<span style="font-size:0.75rem; font-weight:800; background:rgba(183, 28, 28, 0.15); color:var(--primary-red); padding:4px 12px; border-radius:8px; text-transform:uppercase; letter-spacing:0.5px;">${tripTypeName}</span>
+<span style="font-size:0.75rem; font-weight:800; background:rgba(255, 255, 255, 0.08); color:var(--text-main); padding:4px 12px; border-radius:8px; text-transform:uppercase; letter-spacing:0.5px;">🚗 ${activeMission.vehicle_type || 'Premium'}</span>
+</div>
+<div style="margin-bottom:1.5rem;">
+<div style="font-size:0.7rem; text-transform:uppercase; color:var(--text-muted); font-weight:700;">From:</div>
+<div style="font-weight:700; font-size:1.1rem;">${activeMission.pickup_loc}</div>
+</div>
+<div>
+<div style="font-size:0.7rem; text-transform:uppercase; color:var(--text-muted); font-weight:700;">To:</div>
+<div style="font-weight:700; font-size:1.1rem;">${activeMission.drop_loc}</div>
+</div>
+${activeMission.status === 'finished' ? `
+<div style="margin-top:2rem; padding:1.5rem; background:rgba(52, 199, 89, 0.05); border-radius:15px; border:1px solid rgba(52, 199, 89, 0.15);">
+<div style="font-weight:600; color:var(--success-green); margin-bottom:0.5rem; display:flex; justify-content:space-between; align-items:center;">
+<span>Final Invoice</span>
+<span style="font-size:0.75rem; background:rgba(52, 199, 89, 0.1); padding:2px 8px; border-radius:5px;">ID: #B${activeMission.id}</span>
+</div>
+<div style="font-size:0.95rem; font-weight:700; margin-bottom:0.3rem;">Total Fare: <span style="color:var(--success-green)">${activeMission.fare}</span></div>
+<div style="font-size:0.85rem; font-weight:700; color:var(--text-muted);">Actual Distance: <span>${activeMission.actual_distance || '0.0 KM'}</span></div>
+${(() => {
+if (activeMission.journey_end_time && activeMission.journey_start_time) {
+const start = new Date(activeMission.journey_start_time);
+const end = new Date(activeMission.journey_end_time);
+if (!isNaN(start.getTime()) && !isNaN(end.getTime())) {
+const mins = Math.ceil((end - start) / 60000);
+return `<div style="font-size:0.85rem; font-weight:700; color:var(--text-muted); margin-top:0.2rem;">Ride Duration: <span>${mins} Mins</span></div>`;
+}
+}
+return '';
+})()}
+<button class="btn" style="margin-top: 1rem; width: 100%; background: none; border: 1px solid var(--success-green); color: var(--success-green); padding: 0.6rem; font-weight: 700; border-radius: 10px;" onclick="showInvoiceModal(${JSON.stringify(activeMission).replace(/"/g, '&quot;')})">Show Invoice Details</button>
+</div>
+` : `
+<div style="margin-top:2rem; padding:1.5rem; background:rgba(255, 255, 255, 0.02); border-radius:15px; border:1px solid var(--border-color);">
+<div style="font-weight:600; color:var(--primary-red); margin-bottom:0.5rem; display:flex; justify-content:space-between; align-items:center;">
+<span>Ride Details</span>
+<span style="font-size:0.75rem; background:rgba(183,28,28,0.1); padding:2px 8px; border-radius:5px;">ID: #B${activeMission.id}</span>
+</div>
+<div style="font-size:0.95rem; font-weight:700; margin-top:0.3rem;">Distance Covered: <span style="color:var(--primary-red)">${activeMission.actual_distance || '0.0 KM'}</span></div>
+${activeMission.trip_type !== 'local' ? `
+<div style="margin: 0.6rem 0; padding: 0.8rem; background: rgba(255, 255, 255, 0.03); border-radius: 10px; font-size: 0.82rem; border: 1px solid var(--border-color); display: flex; flex-direction: column; gap: 4px;">
+<div style="display:flex; justify-content:space-between;">
+<span style="color:var(--text-muted);">Opening Odometer:</span>
+<span style="font-weight:700; color:var(--text-main);">${activeMission.start_odometer || 'Awaiting Start'}</span>
+</div>
+${activeMission.end_odometer ? `
+<div style="display:flex; justify-content:space-between;">
+<span style="color:var(--text-muted);">Closing Odometer:</span>
+<span style="font-weight:700; color:var(--text-main);">${activeMission.end_odometer}</span>
+</div>
+` : ''}
+</div>
+` : ''}
+${activeMission.estimated_fare ? `
+<div style="font-size:0.8rem; font-weight:600; color:var(--text-muted); margin-top:0.3rem; opacity:0.6;">Estimated Fare: ${activeMission.estimated_fare}</div>
+` : ''}
+<div style="font-size:0.95rem; font-weight:700; margin-top:0.3rem;">Live Fare: <span style="color:var(--primary-red)">${activeMission.fare}</span></div>
+${activeMission.estimated_duration ? `
+<div style="font-size:0.95rem; font-weight:700; margin-top:0.3rem;">Estimated Duration: <span style="color:var(--primary-red)">🕒 ${activeMission.estimated_duration}</span></div>
+` : ''}
+${activeMission.status === 'assigned' && activeMission.reached_pickup_time ? (() => {
+const elapsedSecs = activeMission.reached_elapsed_seconds || 0;
+const allowedSecs = 300;
+if (elapsedSecs <= allowedSecs) {
+const remainingSecs = allowedSecs - elapsedSecs;
+const rM = Math.floor(remainingSecs / 60);
+const rS = remainingSecs % 60;
+return `
+<div style="margin-top: 1rem; padding: 0.8rem; background: rgba(255, 159, 10, 0.08); border: 1px solid rgba(255, 159, 10, 0.2); border-radius: 10px; font-size: 0.8rem; color: var(--warning-amber); text-align: center;">
+<strong>Driver Arrived!</strong> Grace period remaining: ${rM}:${String(rS).padStart(2,'0')}
+</div>
+`;
+} else {
+const waitingSecs = elapsedSecs - allowedSecs;
+const wM = Math.floor(waitingSecs / 60);
+const wS = waitingSecs % 60;
+const charge = Math.ceil(waitingSecs / 60) * 2;
+return `
+<div style="margin-top: 1rem; padding: 0.8rem; background: rgba(255, 59, 48, 0.08); border: 1px solid rgba(255, 59, 48, 0.2); border-radius: 10px; font-size: 0.8rem; color: var(--danger-red); text-align: center;">
+<strong>Grace period exceeded!</strong><br>
+Waiting Time: ${wM}:${String(wS).padStart(2,'0')}<br>
+Waiting Charge: ₹${charge} (included in final bill)
+</div>
+`;
+}
+})() : ''}
+</div>
+`}
+${(() => {
+// For local rides, only show OTP at the start
+if (activeMission.trip_type === 'local') {
+if (activeMission.status === 'assigned') {
+return `
+<div style="margin-top:1.5rem; padding:1rem; background:rgba(183, 28, 28, 0.05); border-radius:12px; border:1px dashed var(--primary-red); text-align:center;">
+<div style="font-size:0.65rem; text-transform:uppercase; color:var(--primary-red); font-weight:800; letter-spacing:1px; margin-bottom:5px;">Mission Start OTP</div>
+<div style="font-size:1.8rem; font-weight:800; letter-spacing:8px; color:var(--text-main);">${activeMission.journey_otp || '----'}</div>
+<div style="font-size:0.7rem; color:var(--text-muted); margin-top:5px;">Provide this OTP to your captain to start the ride.</div>
+</div>
+`;
+}
+return ''; // Hide OTP during ongoing local rides
+} else {
+// For outstation, round, rental: two OTPs
+if (activeMission.status === 'assigned') {
+return `
+<div style="margin-top:1.5rem; padding:1rem; background:rgba(183, 28, 28, 0.05); border-radius:12px; border:1px dashed var(--primary-red); text-align:center;">
+<div style="font-size:0.65rem; text-transform:uppercase; color:var(--primary-red); font-weight:800; letter-spacing:1px; margin-bottom:5px;">Mission Start OTP</div>
+<div style="font-size:1.8rem; font-weight:800; letter-spacing:8px; color:var(--text-main);">${activeMission.journey_otp || '----'}</div>
+<div style="font-size:0.7rem; color:var(--text-muted); margin-top:5px;">Provide this OTP to your captain to start the ride.</div>
+</div>
+`;
+} else {
+return `
+<div style="margin-top:1.5rem; padding:1rem; background:rgba(52, 199, 89, 0.05); border-radius:12px; border:1px dashed #34c759; text-align:center;">
+<div style="font-size:0.65rem; text-transform:uppercase; color:#34c759; font-weight:800; letter-spacing:1px; margin-bottom:5px;">Trip Completion OTP</div>
+<div style="font-size:1.8rem; font-weight:800; letter-spacing:8px; color:var(--text-main);">${activeMission.end_otp || '----'}</div>
+<div style="font-size:0.7rem; color:var(--text-muted); margin-top:5px;">Provide this OTP to your captain to finish the ride.</div>
+</div>
+`;
+}
+}
+})()}
+${(activeMission.status === 'pending' || activeMission.status === 'assigned') ? `
+<button onclick="cancelRide(${activeMission.id}, ${user.id})" class="btn" style="margin-top: 1.5rem; width: 100%; background: rgba(183, 28, 28, 0.05); border: 1px solid var(--primary-red); color: var(--primary-red); padding: 1rem; font-weight: 700; font-size: 0.9rem; border-radius: 12px; cursor: pointer; transition: all 0.3s ease;">
+🛑 Cancel Mission Request
+</button>
+` : ''}
+</div>
+<div style="background:rgba(255, 255, 255, 0.02); border:1px solid var(--border-color); padding:2rem; border-radius:20px; text-align:center; display:flex; flex-direction:column; justify-content:center;">
+<div style="font-size:0.7rem; text-transform:uppercase; color:var(--text-muted); font-weight:700; margin-bottom:1rem;">Your Driver</div>
+${activeDriver}
+</div>
+`;
+const mapEl = document.getElementById('mission-map');
+if (activeMission.trip_type !== 'local') {
+if (mapEl) mapEl.style.display = 'none';
+} else {
+if (mapEl) mapEl.style.display = 'block';
+if (!isMapInitialized) {
+isMapInitialized = true;
+setTimeout(async () => {
+try {
+if (trackerMap) {
+trackerMap.remove();
+}
+trackerMap = L.map('mission-map').setView([13.08, 80.27], 13);
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(trackerMap);
+const getCoords = async (addr, storedCoords) => {
+if (storedCoords) return storedCoords.split(',').map(Number);
+if (!addr || addr.trim() === '') return null;
+try {
+const r = await fetch(`${API_BASE_URL}/api/proxy/geocode?q=${encodeURIComponent(addr)}&limit=1&lon=80.2707&lat=13.0827`);
+if (!r.ok) return null;
+const d = await r.json();
+return d.features[0]?.geometry.coordinates;
+} catch (e) { return null; }
+};
+const pCoords = await getCoords(activeMission.pickup_loc, activeMission.pickup_coords);
+const dCoords = await getCoords(activeMission.drop_loc, activeMission.drop_coords);
+if (pCoords && dCoords) {
+const pMarker = L.marker([pCoords[1], pCoords[0]]).addTo(trackerMap).bindPopup(`<b>📍 Pickup:</b><br>${activeMission.pickup_loc}`);
+const dMarker = L.marker([dCoords[1], dCoords[0]]).addTo(trackerMap).bindPopup(`<b>🏁 Destination:</b><br>${activeMission.drop_loc}`);
+try {
+const routeRes = await fetch(`https://router.project-osrm.org/route/v1/driving/${pCoords[0]},${pCoords[1]};${dCoords[0]},${dCoords[1]}?overview=full&geometries=geojson`);
+const routeData = await routeRes.json();
+L.geoJSON(routeData.routes[0].geometry, { style: { color: "#B71C1C", weight: 5, opacity: 0.7 } }).addTo(trackerMap);
+} catch (e) { }
+const group = new L.featureGroup([pMarker, dMarker]);
+trackerMap.fitBounds(group.getBounds().pad(0.2));
+}
+trackerMap.invalidateSize();
+} catch (e) {
+console.log('Map init failed:', e.message);
+isMapInitialized = false;
+}
+}, 500);
+}
+}
+if (activeMission.status === 'ongoing' || (activeMission.status === 'assigned' && activeMission.reached_pickup_time)) {
+trackDriverLocation(activeMission.id);
+} else {
+if (driverLocationInterval) {
+clearInterval(driverLocationInterval);
+driverLocationInterval = null;
+}
+if (driverMarker) {
+driverMarker.remove();
+driverMarker = null;
+}
+currentDriverCoords = null;
+}
+} else {
+document.getElementById('active-mission-container').classList.add('hidden');
+isMapInitialized = false;
+const warningDiv = document.getElementById('deviation-warning');
+if (warningDiv) warningDiv.style.display = 'none';
+if (driverLocationInterval) {
+clearInterval(driverLocationInterval);
+driverLocationInterval = null;
+}
+if (driverMarker) {
+driverMarker.remove();
+driverMarker = null;
+}
+currentDriverCoords = null;
+}
+    rides.forEach(ride => {
+        const row = document.createElement('tr');
+        const idText = `<div style="font-weight:800; color:var(--primary-red)">#B${ride.id}</div>`;
 
-            // Check ban status first
-            try {
-                const banRes = await fetch(`${API_BASE_URL}/api/user/ban-status/${user.id}`);
-                const banData = await banRes.json();
-                if (banData.banned) {
-                    Swal.fire({
-                        title: 'Suspended',
-                        text: 'You cannot repeat this booking because your account is temporarily suspended.',
-                        icon: 'error',
-                        confirmButtonColor: '#B71C1C'
-                    });
-                    return;
-                }
-            } catch (e) {
-                console.error("Ban check failed:", e);
-            }
-
-            // Show loading indicator
-            Swal.fire({
-                title: 'Please Wait',
-                text: 'Recalculating ride estimates...',
-                allowOutsideClick: false,
-                didOpen: () => {
-                    Swal.showLoading();
-                }
-            });
-
-            let distance = 0;
-            let durationMins = 0;
-            let pricing = null;
-            let peakRules = [];
-
-            try {
-                // Fetch tariffs and peak rules
-                const [tariffRes, peakRes] = await Promise.all([
-                    fetch(`${API_BASE_URL}/api/tariffs`),
-                    fetch(`${API_BASE_URL}/api/peak-rules`)
-                ]);
-                
-                const tariffs = await tariffRes.json();
-                peakRules = await peakRes.json();
-                
-                const transformed = {};
-                tariffs.forEach(t => {
-                    if (!transformed[t.vehicle_type]) {
-                        transformed[t.vehicle_type] = {};
-                    }
-                    transformed[t.vehicle_type][t.category] = typeof t.config === 'string' ? JSON.parse(t.config) : t.config;
-                });
-                pricing = transformed;
-                
-                // Get dynamic distance and duration from OSRM proxy if coordinates exist
-                if (ride.pickup_coords && ride.drop_coords) {
-                    const routeRes = await fetch(`${API_BASE_URL}/api/proxy/route?pickup=${ride.pickup_coords}&drop=${ride.drop_coords}`);
-                    const routeData = await routeRes.json();
-                    if (routeData.routes && routeData.routes.length > 0) {
-                        distance = Math.ceil(routeData.routes[0].distance / 1000);
-                        durationMins = routeData.routes[0].duration ? Math.ceil(routeData.routes[0].duration / 60) : Math.ceil(distance * 1.5);
-                    }
-                }
-            } catch (err) {
-                console.error("Recalculation error:", err);
-            }
-
-            // Fallbacks for distance/duration
-            if (distance === 0 && ride.distance) {
-                distance = parseFloat(String(ride.distance).replace(/[^\d.]/g, '')) || 0;
-            }
-            if (durationMins === 0 && ride.estimated_duration) {
-                const hoursMatch = ride.estimated_duration.match(/(\d+)\s*h/);
-                const minsMatch = ride.estimated_duration.match(/(\d+)\s*m/);
-                const hours = hoursMatch ? parseInt(hoursMatch[1]) : 0;
-                const mins = minsMatch ? parseInt(minsMatch[1]) : 0;
-                durationMins = hours * 60 + mins;
-            }
-
-            const calculateFareEstimate = (vType, tType, dist, durMins, pickupTime, pickupDate, returnDate, rentalPackage) => {
-                if (!pricing || !pricing[vType] || !pricing[vType][tType]) {
-                    // Fallback to original ride fare minus formatting
-                    return parseFloat(String(ride.fare).replace(/[^\d.]/g, '')) || 0;
-                }
-                const config = pricing[vType][tType];
-                let totalFare = 0;
-
-                const getPeakSurcharge = (timeStr) => {
-                    if (!timeStr) return 0;
-                    const [h, m] = timeStr.split(':').map(Number);
-                    const tm = h * 60 + m;
-
-                    let highestSurcharge = 0;
-                    peakRules.forEach(rule => {
-                        const [sh, sm] = rule.start_time.split(':').map(Number);
-                        const [eh, em] = rule.end_time.split(':').map(Number);
-                        const stm = sh * 60 + sm;
-                        const etm = eh * 60 + em;
-
-                        if (tm >= stm && tm <= etm) {
-                            const surcharge = parseFloat(rule.surcharge_percentage) / 100;
-                            if (surcharge > highestSurcharge) highestSurcharge = surcharge;
-                        }
-                    });
-                    return highestSurcharge;
-                };
-
-                const peakMult = tType === 'local' ? getPeakSurcharge(pickupTime) : 0;
-
-                if (tType === 'local') {
-                    const minKm = typeof config.minKm === 'number' ? config.minKm : 0;
-                    const billableDist = Math.max(dist, minKm);
-                    const distanceFare = billableDist * config.perKm;
-                    const baseFareLimit = config.base || 0;
-                    const baseKmFare = Math.max(baseFareLimit, distanceFare);
-                    const peakCharge = baseKmFare * peakMult;
-                    totalFare = (baseKmFare + peakCharge) * 1.05;
-                } else if (tType === 'oneway') {
-                    const minKm = config.minKm || 130;
-                    const billableDist = Math.max(dist, minKm);
-                    const distanceFare = billableDist * config.perKm;
-                    const baseFareLimit = config.base || 0;
-                    const baseKmFare = Math.max(baseFareLimit, distanceFare);
-                    const driverAllowance = billableDist > 250 ? 600 : 400;
-                    totalFare = (baseKmFare + (vType === 'bike' ? 0 : driverAllowance)) * 1.05;
-                } else if (tType === 'round') {
-                    let tripDays = 1;
-                    if (pickupDate && returnDate) {
-                        const start = new Date(pickupDate);
-                        const end = new Date(returnDate);
-                        if (end > start) {
-                            const diffTime = Math.abs(end - start);
-                            tripDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) + 1;
-                        }
-                    }
-                    const minKmForTrip = config.minKmPerDay || 250;
-                    const actualTwoWayDist = dist * 2;
-                    const billableDist = Math.max(actualTwoWayDist, minKmForTrip * tripDays);
-                    const distanceFare = billableDist * config.perKm;
-                    const baseFareLimit = config.base || 0;
-                    const baseKmFare = Math.max(baseFareLimit, distanceFare);
-                    const driverAllowance = billableDist > 250 ? 600 : 400;
-                    totalFare = (baseKmFare + (vType === 'bike' ? 0 : driverAllowance * tripDays)) * 1.05;
-                } else if (tType === 'rental') {
-                    const packageVal = rentalPackage || '2-20';
-                    const [pMaxHrs, pMaxKm] = packageVal.split('-').map(Number);
-                    const pConfig = config[packageVal];
-                    if (pConfig) {
-                        const extraKm = Math.max(0, dist - pMaxKm);
-                        const baseFare = pConfig.base + (extraKm * pConfig.extraKm);
-                        totalFare = baseFare * 1.05;
-                    }
-                }
-
-                return Math.ceil(totalFare);
-            };
-
-            let durationText = '';
-            if (durationMins >= 60) {
-                const hrs = Math.floor(durationMins / 60);
-                const mins = durationMins % 60;
-                durationText = mins > 0 ? `${hrs}h ${mins}m` : `${hrs}h`;
-            } else {
-                durationText = `${durationMins}m`;
-            }
-
-            const initialFare = calculateFareEstimate(
-                ride.vehicle_type,
-                ride.trip_type,
-                distance,
-                durationMins,
-                "",
-                "",
-                null,
-                ride.rental_package
-            );
-
-            const today = new Date().toISOString().split('T')[0];
-            let htmlContent = `
-                <div style="text-align: left; font-family: inherit;">
-                    <div style="background: rgba(183,28,28,0.05); padding: 1rem; border-radius: 12px; margin-bottom: 1.5rem; border: 1px solid rgba(183,28,28,0.15); font-size: 0.85rem; line-height: 1.5;">
-                        <div style="font-weight:700; color:var(--primary-red); margin-bottom: 5px; text-transform: uppercase;">Route Details</div>
-                        <div><b>From:</b> ${ride.pickup_loc}</div>
-                        <div><b>To:</b> ${ride.drop_loc}</div>
-                        <div><b>Vehicle:</b> ${ride.vehicle_type.toUpperCase()} • <b>Category:</b> ${ride.trip_type.toUpperCase()}</div>
-                        <div><b>Estimated Distance:</b> ${distance} KM</div>
-                        <div><b>Estimated Duration:</b> 🕒 ${durationText}</div>
-                        <div><b>Estimated Fare:</b> <span id="rebook-fare-display" style="font-weight:700; color:var(--primary-red);">₹${initialFare}</span></div>
-                    </div>
-                    <p style="margin-bottom: 1rem; font-weight: 600; font-size: 0.95rem; color: var(--text-main);">Select pickup date and time for the repeated ride:</p>
-                    <div style="margin-bottom: 1rem;">
-                        <label style="font-size: 0.75rem; color: var(--text-muted); font-weight: 700; display: block; margin-bottom: 0.3rem; letter-spacing: 0.5px;">PICKUP DATE</label>
-                        <input type="date" id="rebook-date" class="swal2-input" min="${today}" style="margin: 0; width: 100%; box-sizing: border-box; border-radius: 8px;" required>
-                    </div>
-                    <div style="margin-bottom: 1rem;">
-                        <label style="font-size: 0.75rem; color: var(--text-muted); font-weight: 700; display: block; margin-bottom: 0.3rem; letter-spacing: 0.5px;">PICKUP TIME</label>
-                        <input type="time" id="rebook-time" class="swal2-input" style="margin: 0; width: 100%; box-sizing: border-box; border-radius: 8px;" required>
-                    </div>
+        let driverDetails = '<div style="font-size:0.75rem; color:var(--text-muted)">Awaiting Assignment</div>';
+        if (ride.driver_name) {
+            driverDetails = `
+                <div style="font-weight:600; font-size:0.85rem;">${ride.driver_name}</div>
+                <div style="font-size:0.75rem; color:var(--text-muted);">${ride.car_model || 'Vehicle'} (${ride.car_number || 'TBD'})</div>
             `;
-
-            if (ride.trip_type === 'round') {
-                htmlContent += `
-                    <div style="margin-bottom: 1rem;">
-                        <label style="font-size: 0.75rem; color: var(--text-muted); font-weight: 700; display: block; margin-bottom: 0.3rem; letter-spacing: 0.5px;">RETURN DATE (Optional)</label>
-                        <input type="date" id="rebook-return-date" class="swal2-input" min="${today}" style="margin: 0; width: 100%; box-sizing: border-box; border-radius: 8px;">
-                    </div>
-                `;
-            }
-
-            htmlContent += `</div>`;
-
-            Swal.fire({
-                title: '<span style="color:#B71C1C; font-weight:700;">Repeat Ride Booking</span>',
-                html: htmlContent,
-                showCancelButton: true,
-                confirmButtonText: 'Confirm Booking',
-                cancelButtonText: 'Cancel',
-                confirmButtonColor: '#B71C1C',
-                cancelButtonColor: '#aaa',
-                width: '450px',
-                focusConfirm: false,
-                didOpen: () => {
-                    const dateInput = document.getElementById('rebook-date');
-                    const timeInput = document.getElementById('rebook-time');
-                    const returnDateInput = document.getElementById('rebook-return-date');
-                    const fareDisplay = document.getElementById('rebook-fare-display');
-                    
-                    const updateModalFare = () => {
-                        const dateVal = dateInput.value;
-                        const timeVal = timeInput.value;
-                        const returnDateVal = returnDateInput ? returnDateInput.value : null;
-                        
-                        const currentFare = calculateFareEstimate(
-                            ride.vehicle_type,
-                            ride.trip_type,
-                            distance,
-                            durationMins,
-                            timeVal,
-                            dateVal,
-                            returnDateVal,
-                            ride.rental_package
-                        );
-                        fareDisplay.textContent = `₹${currentFare}`;
-                    };
-                    
-                    dateInput.addEventListener('change', updateModalFare);
-                    timeInput.addEventListener('change', updateModalFare);
-                    if (returnDateInput) {
-                        returnDateInput.addEventListener('change', updateModalFare);
-                    }
-                },
-                preConfirm: () => {
-                    const date = document.getElementById('rebook-date').value;
-                    const time = document.getElementById('rebook-time').value;
-                    const returnDateInput = document.getElementById('rebook-return-date');
-                    const returnDate = returnDateInput ? returnDateInput.value : null;
-
-                    if (!date || !time) {
-                        Swal.showValidationMessage('Please select both date and time.');
-                        return false;
-                    }
-
-                    const selectedDateTime = new Date(`${date}T${time}`);
-                    if (selectedDateTime <= new Date()) {
-                        Swal.showValidationMessage('Pickup date and time must be in the future.');
-                        return false;
-                    }
-
-                    if (ride.trip_type === 'round' && returnDate) {
-                        const rDate = new Date(returnDate);
-                        const pDate = new Date(date);
-                        if (rDate < pDate) {
-                            Swal.showValidationMessage('Return date cannot be earlier than pickup date.');
-                            return false;
-                        }
-                    }
-
-                    return { date, time, returnDate };
-                }
-            }).then(async (result) => {
-                if (result.isConfirmed) {
-                    const { date, time, returnDate } = result.value;
-                    
-                    const finalFare = calculateFareEstimate(
-                        ride.vehicle_type,
-                        ride.trip_type,
-                        distance,
-                        durationMins,
-                        time,
-                        date,
-                        returnDate,
-                        ride.rental_package
-                    );
-
-                    const bookingData = {
-                        userId: user.id,
-                        pickup: ride.pickup_loc,
-                        pickupCoords: ride.pickup_coords,
-                        drop: ride.drop_loc,
-                        dropCoords: ride.drop_coords,
-                        date: date,
-                        time: time,
-                        passengers: parseInt(ride.passengers) || 1,
-                        vehicle: ride.vehicle_type,
-                        tripType: ride.trip_type,
-                        returnDate: returnDate,
-                        rentalPackage: ride.rental_package,
-                        fare: `₹${finalFare}`,
-                        distance: `${distance} KM`,
-                        estimatedDuration: durationText
-                    };
-
-                    try {
-                        const response = await fetch(`${API_BASE_URL}/api/bookings/create`, {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify(bookingData)
-                        });
-
-                        if (response.ok) {
-                            const data = await response.json();
-                            Swal.fire({
-                                title: 'Booking Confirmed!',
-                                html: `
-                                    <div style="font-family: inherit; font-size: 0.95rem; text-align: left; line-height: 1.6;">
-                                        <div style="color: #2e7d32; font-weight: 800; font-size: 1.2rem; text-align: center; margin-bottom: 1rem;">🏨 RIDE BOOKED SUCCESSFULLY!</div>
-                                        <p><b>Booking ID:</b> #B${data.bookingId}</p>
-                                        <p><b>Verification OTP:</b> <span style="font-size:1.2rem; font-weight:800; letter-spacing:2px; color:var(--primary-red);">${data.journeyOtp}</span></p>
-                                        <p style="font-size: 0.8rem; color: #666; margin-top: 10px;">Please share this OTP with your captain ONLY at the end of the journey.</p>
-                                    </div>
-                                `,
-                                icon: 'success',
-                                confirmButtonColor: '#2e7d32',
-                                confirmButtonText: 'Go to Dashboard'
-                            }).then(() => {
-                                window.location.reload();
-                            });
-                        } else {
-                            const errData = await response.json();
-                            Swal.fire('Booking Failed', errData.error || 'Failed to book the ride.', 'error');
-                        }
-                    } catch (err) {
-                        Swal.fire('Error', 'A network error occurred.', 'error');
-                    }
-                }
-            });
         }
 
-        async function showInvoiceModal(trip) {
-            const isRental = trip.trip_type === 'rental';
-            const unit = isRental ? 'Hours' : 'Mins';
-            
-            const distStr = trip.actual_distance || '0.0 KM';
-            const coveredDist = parseFloat(String(distStr).replace(/[^\d.]/g, '')) || 0;
-            
-            let elapsedMins = 0;
-            if (trip.journey_start_time) {
-                const startTime = new Date(trip.journey_start_time);
-                const endTime = trip.journey_end_time ? new Date(trip.journey_end_time) : new Date();
-                elapsedMins = Math.max(0, Math.floor((endTime - startTime) / 60000));
-            }
-            
-            let allowedMins = 0;
-            if (isRental) {
-                const packageVal = trip.rental_package || '2-20';
-                const [pMaxHrs] = packageVal.split('-').map(Number);
-                allowedMins = pMaxHrs * 60;
-            } else {
-                const origDistStr = trip.estimated_distance || trip.distance || '0';
-                const origDistKm = parseFloat(String(origDistStr).replace(/[^\d.]/g, '')) || 0;
-                allowedMins = Math.ceil(origDistKm * 2);
-            }
-            const waitingCharge = isRental ? 0 : Math.max(0, Math.ceil((elapsedMins - allowedMins) * 2));
-            const durationText = isRental ? (elapsedMins / 60).toFixed(2) : elapsedMins.toFixed(1);
+        const canCancel = ['pending', 'assigned'].includes(ride.status);
+        const tripTypeName = {
+            'local': 'Local',
+            'oneway': 'One Way',
+            'round': 'Round Trip',
+            'rental': 'Rental'
+        }[ride.trip_type] || 'Trip';
 
-            // Fetch tariff data for fare breakdown
-            let baseFare = 0, perKmRate = 0, distanceCharge = 0, subtotal = 0, gst = 0;
-            let peakCharge = 0, driverAllowance = 0;
-            let minKmVal = 0, minKmCharge = 0;
-            try {
-                const tariffRes = await fetch(`${API_BASE_URL}/api/tariffs`);
-                const tariffs = await tariffRes.json();
-                const vType = trip.vehicle_type || 'suv';
-                const category = trip.trip_type || 'local';
-                const match = tariffs.find(t => t.vehicle_type === vType && t.category === category);
-                if (match) {
-                    const config = typeof match.config === 'string' ? JSON.parse(match.config) : match.config;
-                    baseFare = config.base || 0;
-                    if (category === 'local') {
-                        perKmRate = config.perKm || 0;
-                        const minKm = typeof config.minKm === 'number' ? config.minKm : 0;
-                        const billableKm = Math.max(coveredDist, minKm);
-                        distanceCharge = billableKm * perKmRate;
-                        const baseKmFare = Math.max(baseFare, distanceCharge);
-                        minKmVal = minKm;
-                        minKmCharge = minKm * perKmRate;
-                        
-                        const getPeakSurcharge = (timeStr) => {
-                            if (!timeStr) return 0;
-                            const [h, m] = timeStr.split(':').map(Number);
-                            const tm = h * 60 + m;
-                            if (tm >= 480 && tm <= 660) return 0.25;
-                            if (tm >= 960 && tm <= 1260) return 0.25;
-                            return 0;
-                        };
-                        const peakMult = getPeakSurcharge(trip.pickup_time);
-                        peakCharge = baseKmFare * peakMult;
-                        subtotal = baseKmFare + peakCharge + waitingCharge;
-                    } else if (category === 'oneway') {
-                        perKmRate = config.perKm || 13;
-                        const minKm = typeof config.minKm === 'number' ? config.minKm : 130;
-                        const billableKm = Math.max(coveredDist, minKm);
-                        distanceCharge = billableKm * perKmRate;
-                        const baseKmFare = Math.max(baseFare, distanceCharge);
-                        driverAllowance = (trip.vehicle_type === 'bike') ? 0 : (billableKm > 250 ? 600 : 400);
-                        subtotal = baseKmFare + driverAllowance + waitingCharge;
-                        minKmVal = minKm;
-                        minKmCharge = minKm * perKmRate;
-                    } else if (category === 'round') {
-                        perKmRate = config.perKm || 12;
-                        let tripDays = 1;
-                        if (trip.return_date && trip.pickup_date) {
-                            const start = new Date(trip.pickup_date);
-                            const end = new Date(trip.return_date);
-                            if (end > start) {
-                                const diffTime = Math.abs(end - start);
-                                tripDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) + 1;
-                            }
-                        }
-                        const minKmPerDay = (typeof config.minKmPerDay === 'number' ? config.minKmPerDay : 250) * tripDays;
-                        const billableKm = Math.max(coveredDist, minKmPerDay);
-                        distanceCharge = billableKm * perKmRate;
-                        const baseKmFare = Math.max(baseFare, distanceCharge);
-                        driverAllowance = (trip.vehicle_type === 'bike' ? 0 : ((billableKm > 250 ? 600 : 400) * tripDays));
-                        subtotal = baseKmFare + driverAllowance + waitingCharge;
-                        minKmVal = minKmPerDay;
-                        minKmCharge = minKmPerDay * perKmRate;
-                    }
-                    gst = Math.ceil(subtotal * 0.05);
-                }
-            } catch(e) { console.warn('Could not fetch tariff breakdown:', e); }
-
-            const fareBreakdownHtml = (perKmRate > 0) ? `
-                <div style="margin:0.8rem 0; padding:0.8rem; background:#f8f9fa; border-radius:10px; border:1px solid #e9ecef;">
-                    <div style="font-weight:700; font-size:0.85rem; color:#333; margin-bottom:0.5rem; text-transform:uppercase; letter-spacing:0.5px;">📊 Fare Breakdown</div>
-                    <div style="display:flex; justify-content:space-between; margin-bottom:0.3rem; font-size:0.9rem; color:#555;">
-                        <span>Base Fare:</span>
-                        <span>₹${baseFare}</span>
-                    </div>
-                    ${minKmVal > 0 ? `
-                    <div style="display:flex; justify-content:space-between; margin-bottom:0.3rem; font-size:0.9rem; color:#555;">
-                        <span>Min. KM Charge (${minKmVal} KM):</span>
-                        <span>₹${Math.ceil(minKmCharge)}</span>
-                    </div>
-                    ` : ''}
-                    <div style="display:flex; justify-content:space-between; margin-bottom:0.3rem; font-size:0.9rem; color:#555;">
-                        <span>Rate per KM:</span>
-                        <span>₹${perKmRate}/km</span>
-                    </div>
-                    <div style="display:flex; justify-content:space-between; margin-bottom:0.3rem; font-size:0.9rem; color:#555;">
-                        <span>Distance Charge (${coveredDist.toFixed(1)} km):</span>
-                        <span>₹${Math.ceil(distanceCharge)}</span>
-                    </div>
-                    ${peakCharge > 0 ? `<div style="display:flex; justify-content:space-between; margin-bottom:0.3rem; font-size:0.9rem; color:#d35400;">
-                        <span>Peak Surcharge:</span>
-                        <span>₹${Math.ceil(peakCharge)}</span>
-                    </div>` : ''}
-                    ${driverAllowance > 0 ? `<div style="display:flex; justify-content:space-between; margin-bottom:0.3rem; font-size:0.9rem; color:#2980b9;">
-                        <span>Driver Allowance:</span>
-                        <span>₹${Math.ceil(driverAllowance)}</span>
-                    </div>` : ''}
-                    ${waitingCharge > 0 ? `<div style="display:flex; justify-content:space-between; margin-bottom:0.3rem; font-size:0.9rem; color:#d32f2f;">
-                        <span>Waiting Charges:</span>
-                        <span>₹${waitingCharge}</span>
-                    </div>` : ''}
-                    <div style="display:flex; justify-content:space-between; margin-bottom:0.3rem; font-size:0.9rem; color:#555;">
-                        <span>GST (5%):</span>
-                        <span>₹${gst}</span>
-                    </div>
-                    <div style="display:flex; justify-content:space-between; margin-top:0.4rem; padding-top:0.4rem; border-top:1px dashed #ccc; font-size:0.95rem; font-weight:700; color:#2e7d32;">
-                        <span>Total:</span>
-                        <span>₹${Math.ceil(subtotal + gst)}</span>
-                    </div>
+        row.innerHTML = `
+            <td data-label="ID">${idText}</td>
+            <td data-label="Route">
+                <div style="display:flex; flex-direction:column; gap:4px; max-width:250px;">
+                    <div style="font-size:0.75rem; font-weight:800; color:#888; text-transform:uppercase;">${tripTypeName}</div>
+                    <div style="font-weight:600; font-size:0.9rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${ride.pickup_loc}</div>
+                    <div style="font-size:0.8rem; color:var(--text-muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">to ${ride.drop_loc}</div>
                 </div>
-            ` : '';
+            </td>
+            <td data-label="Date">
+                <div style="display:flex; flex-direction:column; gap:4px;">
+                    <div style="font-weight:600; font-size:0.9rem;">${new Date(ride.pickup_date).toLocaleDateString('en-GB', { day:'numeric', month:'short' })}</div>
+                    <div style="font-size:0.8rem; color:var(--text-muted);">${ride.pickup_time}</div>
+                </div>
+            </td>
+            <td data-label="Vehicle">
+                <div style="display:flex; flex-direction:column; gap:4px;">
+                    <div style="font-weight:700; font-size:0.85rem; background:rgba(255,255,255,0.05); padding:3px 8px; border-radius:6px; display:inline-block; align-self:flex-start;">🚗 ${ride.vehicle_type.toUpperCase()}</div>
+                    ${driverDetails}
+                </div>
+            </td>
+            <td data-label="Fare">
+                <div style="font-weight:800; font-size:1rem; color:var(--primary-red);">${ride.fare}</div>
+            </td>
+            <td data-label="Distance">
+                <div style="display:flex; flex-direction:column; gap:4px;">
+                    <div style="font-weight:600; font-size:0.85rem;">${ride.actual_distance || ride.distance || '0 KM'}</div>
+                    ${ride.estimated_duration ? `<div style="font-size:0.75rem; color:var(--text-muted);">⏱ ${ride.estimated_duration}</div>` : ''}
+                </div>
+            </td>
+            <td data-label="Status">
+                <span class="status-pill status-${ride.status}">${ride.status}</span>
+            </td>
+            <td data-label="Actions">
+                <div style="display: flex; gap: 0.5rem; justify-content: flex-end; align-items: center; flex-wrap: wrap;">
+                    <button class="btn-invoice-eye" onclick="showInvoiceModal(${JSON.stringify(ride).replace(/"/g, '&quot;')})" title="View Details">
+                        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                    </button>
+                    ${canCancel ? `<button class="btn-cancel-ride" onclick="cancelRide(${ride.id}, ${user.id})">Cancel</button>` : ''}
+                    ${(() => {
+                        if (['completed', 'finished'].includes(ride.status) && ride.driver_id) {
+                            let buttons = `<button class="btn" style="background:#4CAF50; color:white; border:none; padding:0.4rem 0.8rem; border-radius:8px; font-size:0.75rem; font-weight:700; cursor:pointer; margin-right: 5px;" onclick="showPaymentQR(${ride.driver_id}, '${(ride.driver_name || 'Driver').replace(/'/g, "\\'")}')">Pay QR</button>`;
+                            if (ride.rating !== null && ride.rating !== undefined) {
+                                buttons += `
+                                    <span style="color:#FFD700; font-weight:800; font-size:0.85rem; padding: 0.3rem 0.6rem; background: rgba(255,215,0,0.1); border-radius: 6px; display: inline-flex; align-items: center; gap: 3px;" title="${ride.rating_comment ? ride.rating_comment.replace(/"/g, '&quot;') : 'No feedback comment'}">
+                                        ★ ${ride.rating}
+                                    </span>
+                                `;
+                            } else {
+                                buttons += `
+                                    <button class="btn" style="background:#B71C1C; color:white; border:none; padding:0.4rem 0.8rem; border-radius:8px; font-size:0.75rem; font-weight:700; cursor:pointer;" onclick="rateDriver(${ride.id}, '${(ride.driver_name || 'Driver').replace(/'/g, "\\'")}')">
+                                        Rate
+                                    </button>
+                                `;
+                            }
+                            return buttons;
+                        }
+                        return '';
+                    })()}
+                    <button class="btn-rebook-ride" onclick="rebookRide(${ride.id})">Repeat</button>
+                </div>
+            </td>
+        `;
+        body.appendChild(row);
+});
+} catch (err) {
+console.error('Failed to load rides:', err);
+}
+}
+function logoutUser() {
+fetch('/api/auth/logout', {
+method: 'POST',
+headers: { 'Content-Type': 'application/json' },
+body: JSON.stringify({ role: 'user' })
+}).catch(() => {});
+localStorage.removeItem('cityride_member');
+window.location.href = 'auth.html';
+}
+async function showPaymentQR(driverId, driverName) {
+try {
+const res = await fetch(`${API_BASE_URL}/api/driver/info/${driverId}`, {
+headers: { 'Authorization': `Bearer ${localStorage.getItem('cityride_user_token')}` }
+});
+const data = await res.json();
+if (data.success && data.driver.payment_qr) {
+Swal.fire({
+title: `Pay ${driverName || 'Driver'}`,
+html: `<div style="text-align:center;">
+<p style="font-size: 0.9rem; color: #666; margin-bottom: 1rem;">Scan the QR Code below using any UPI App</p>
+<img src="${data.driver.payment_qr}" alt="Payment QR" style="max-width: 100%; max-height: 300px; border-radius: 10px; border: 1px solid #ddd; padding: 10px;">
+</div>`,
+confirmButtonText: 'Done',
+confirmButtonColor: '#B71C1C'
+});
+} else {
+Swal.fire('Not Available', 'The pilot has not uploaded a Payment QR Code.', 'info');
+}
+} catch (err) {
+Swal.fire('Error', 'Could not fetch Payment QR.', 'error');
+}
+}
+async function rateDriver(bookingId, driverName) {
+let selectedRating = 5;
+const { value: formValues } = await Swal.fire({
+title: `Rate ${driverName || 'your Driver'}`,
+html: `
+<div style="margin-bottom: 1.5rem; display: flex; justify-content: center; gap: 10px; font-size: 2.2rem; user-select: none;">
+<span class="star-rating" data-value="1" style="cursor: pointer; color: #FFD700; transition: transform 0.1s;">★</span>
+<span class="star-rating" data-value="2" style="cursor: pointer; color: #FFD700; transition: transform 0.1s;">★</span>
+<span class="star-rating" data-value="3" style="cursor: pointer; color: #FFD700; transition: transform 0.1s;">★</span>
+<span class="star-rating" data-value="4" style="cursor: pointer; color: #FFD700; transition: transform 0.1s;">★</span>
+<span class="star-rating" data-value="5" style="cursor: pointer; color: #FFD700; transition: transform 0.1s;">★</span>
+</div>
+<textarea id="rating-comment" class="swal2-textarea" placeholder="Add your feedback (optional)..." style="width: 100%; box-sizing: border-box; border-radius: 8px; margin: 0; padding: 10px; font-size: 0.9rem; min-height: 80px;"></textarea>
+`,
+focusConfirm: false,
+showCancelButton: true,
+confirmButtonText: 'Submit Rating',
+confirmButtonColor: '#B71C1C',
+didOpen: () => {
+const stars = Swal.getPopup().querySelectorAll('.star-rating');
+stars.forEach(star => {
+star.addEventListener('click', (e) => {
+const val = parseInt(star.getAttribute('data-value'));
+selectedRating = val;
+stars.forEach(s => {
+const sVal = parseInt(s.getAttribute('data-value'));
+if (sVal <= val) {
+s.style.color = '#FFD700';
+} else {
+s.style.color = '#ccc';
+}
+});
+});
+});
+},
+preConfirm: () => {
+return {
+rating: selectedRating,
+comment: document.getElementById('rating-comment').value
+}
+}
+});
+if (formValues) {
+try {
+const res = await fetch(`${API_BASE_URL}/api/bookings/rate-driver`, {
+method: 'POST',
+headers: { 'Content-Type': 'application/json' },
+body: JSON.stringify({
+bookingId: bookingId,
+rating: formValues.rating,
+comment: formValues.comment
+})
+});
+const result = await res.json();
+if (res.ok) {
+Swal.fire({
+title: 'Success!',
+text: result.message || 'Rating submitted successfully.',
+icon: 'success',
+confirmButtonColor: '#B71C1C'
+});
+const user = JSON.parse(localStorage.getItem('cityride_member'));
+loadDashboardData(user);
+} else {
+Swal.fire('Error', result.error || 'Failed to submit rating.', 'error');
+}
+} catch (err) {
+Swal.fire('Error', 'Network error occurred.', 'error');
+}
+}
+}
+//  Cancel Ride
+async function cancelRide(bookingId, userId) {
+if (!confirm('Are you sure you want to cancel this ride?')) return;
+try {
+const res = await fetch(`${API_BASE_URL}/api/user/cancel-ride`, {
+method: 'POST',
+headers: { 'Content-Type': 'application/json' },
+body: JSON.stringify({ bookingId, userId })
+});
+const result = await res.json();
+if (res.ok) {
+if (result.banned) {
+showBanBanner(result.banned_until);
+hideCancelWarn();
+alert(' ' + result.message);
+} else {
+const remaining = 3 - result.cancelCount;
+if (result.cancelCount > 0) showCancelWarn(result.cancelCount, remaining);
+else hideCancelWarn();
+}
+const user = JSON.parse(localStorage.getItem('cityride_member'));
+loadDashboardData(user);
+} else {
+if (result.banned) {
+showBanBanner(result.banned_until);
+}
+alert(' ' + result.error);
+}
+} catch (err) {
+alert('Cancel failed: ' + err.message);
+}
+}
+//  Ban Banner
+let banCountdownInterval = null;
+function showBanBanner(banUntil) {
+document.getElementById('ban-banner').classList.add('active');
+updateBanCountdown(new Date(banUntil));
+if (banCountdownInterval) clearInterval(banCountdownInterval);
+banCountdownInterval = setInterval(() => updateBanCountdown(new Date(banUntil)), 60000);
+}
+function hideBanBanner() {
+document.getElementById('ban-banner').classList.remove('active');
+if (banCountdownInterval) clearInterval(banCountdownInterval);
+}
+function updateBanCountdown(banEnd) {
+const now = new Date();
+if (banEnd <= now) { hideBanBanner(); return; }
+const diff = banEnd - now;
+const hrs = Math.floor(diff / 3600000);
+const mins = Math.floor((diff % 3600000) / 60000);
+document.getElementById('ban-countdown').textContent =
+` Suspension lifts in: ${hrs}h ${mins}m`;
+}
+function showCancelWarn(count, remaining) {
+const warn = document.getElementById('cancel-warn');
+warn.classList.add('active');
+document.getElementById('cancel-warn-text').textContent =
+`You have cancelled ${count} ride(s) today. ${remaining > 0 ? `${remaining} cancellation(s) remaining before a 24-hour suspension.` : 'Next cancellation will result in a 24-hour ban.'}`;
+}
+function hideCancelWarn() {
+document.getElementById('cancel-warn').classList.remove('active');
+}
+//  Check ban on page load
+async function checkBanStatus(userId) {
+try {
+const res = await fetch(`${API_BASE_URL}/api/user/ban-status/${userId}`);
+const data = await res.json();
+if (data.banned) showBanBanner(data.banned_until);
+else hideBanBanner();
+} catch (e) {}
+}
+// Switcher logic for multiple active missions
+function changeActiveRide(delta, max) {
+const user = JSON.parse(localStorage.getItem('cityride_member'));
+currentActiveIndex = (currentActiveIndex + delta + max) % max;
+loadDashboardData(user);
+}
+async function rebookRide(rideId) {
+const ride = loadedRides.find(r => r.id === rideId);
+if (!ride) {
+alert("Ride not found.");
+return;
+}
+const user = JSON.parse(localStorage.getItem('cityride_member'));
+if (!user) {
+alert("Please log in to repeat this ride.");
+window.location.href = 'auth.html';
+return;
+}
+// Check ban status first
+try {
+const banRes = await fetch(`${API_BASE_URL}/api/user/ban-status/${user.id}`);
+const banData = await banRes.json();
+if (banData.banned) {
+Swal.fire({
+title: 'Suspended',
+text: 'You cannot repeat this booking because your account is temporarily suspended.',
+icon: 'error',
+confirmButtonColor: '#B71C1C'
+});
+return;
+}
+} catch (e) {
+console.error("Ban check failed:", e);
+}
+// Show loading indicator
+Swal.fire({
+title: 'Please Wait',
+text: 'Recalculating ride estimates...',
+allowOutsideClick: false,
+didOpen: () => {
+Swal.showLoading();
+}
+});
+let distance = 0;
+let durationMins = 0;
+let pricing = null;
+let peakRules = [];
+try {
+// Fetch tariffs and peak rules
+const [tariffRes, peakRes] = await Promise.all([
+fetch(`${API_BASE_URL}/api/tariffs`),
+fetch(`${API_BASE_URL}/api/peak-rules`)
+]);
+const tariffs = await tariffRes.json();
+peakRules = await peakRes.json();
+const transformed = {};
+tariffs.forEach(t => {
+if (!transformed[t.vehicle_type]) {
+transformed[t.vehicle_type] = {};
+}
+transformed[t.vehicle_type][t.category] = typeof t.config === 'string' ? JSON.parse(t.config) : t.config;
+});
+pricing = transformed;
+// Get dynamic distance and duration from OSRM proxy if coordinates exist
+if (ride.pickup_coords && ride.drop_coords) {
+const routeRes = await fetch(`${API_BASE_URL}/api/proxy/route?pickup=${ride.pickup_coords}&drop=${ride.drop_coords}`);
+const routeData = await routeRes.json();
+if (routeData.routes && routeData.routes.length > 0) {
+distance = Math.ceil(routeData.routes[0].distance / 1000);
+durationMins = routeData.routes[0].duration ? Math.ceil(routeData.routes[0].duration / 60) : Math.ceil(distance * 1.5);
+}
+}
+} catch (err) {
+console.error("Recalculation error:", err);
+}
+// Fallbacks for distance/duration
+if (distance === 0 && ride.distance) {
+distance = parseFloat(String(ride.distance).replace(/[^\d.]/g, '')) || 0;
+}
+if (durationMins === 0 && ride.estimated_duration) {
+const hoursMatch = ride.estimated_duration.match(/(\d+)\s*h/);
+const minsMatch = ride.estimated_duration.match(/(\d+)\s*m/);
+const hours = hoursMatch ? parseInt(hoursMatch[1]) : 0;
+const mins = minsMatch ? parseInt(minsMatch[1]) : 0;
+durationMins = hours * 60 + mins;
+}
+const calculateFareEstimate = (vType, tType, dist, durMins, pickupTime, pickupDate, returnDate, rentalPackage) => {
+if (!pricing || !pricing[vType] || !pricing[vType][tType]) {
+// Fallback to original ride fare minus formatting
+return parseFloat(String(ride.fare).replace(/[^\d.]/g, '')) || 0;
+}
+const config = pricing[vType][tType];
+let totalFare = 0;
+const getPeakSurcharge = (timeStr) => {
+if (!timeStr) return 0;
+const [h, m] = timeStr.split(':').map(Number);
+const tm = h * 60 + m;
+let highestSurcharge = 0;
+peakRules.forEach(rule => {
+const [sh, sm] = rule.start_time.split(':').map(Number);
+const [eh, em] = rule.end_time.split(':').map(Number);
+const stm = sh * 60 + sm;
+const etm = eh * 60 + em;
+if (tm >= stm && tm <= etm) {
+const surcharge = parseFloat(rule.surcharge_percentage) / 100;
+if (surcharge > highestSurcharge) highestSurcharge = surcharge;
+}
+});
+return highestSurcharge;
+};
+const peakMult = tType === 'local' ? getPeakSurcharge(pickupTime) : 0;
+if (tType === 'local') {
+const minKm = typeof config.minKm === 'number' ? config.minKm : 0;
+const billableDist = Math.max(dist, minKm);
+const distanceFare = billableDist * config.perKm;
+const baseFareLimit = config.base || 0;
+const baseKmFare = Math.max(baseFareLimit, distanceFare);
+const peakCharge = baseKmFare * peakMult;
+totalFare = (baseKmFare + peakCharge) * 1.05;
+} else if (tType === 'oneway') {
+const minKm = config.minKm || 130;
+const billableDist = Math.max(dist, minKm);
+const distanceFare = billableDist * config.perKm;
+const baseFareLimit = config.base || 0;
+const baseKmFare = Math.max(baseFareLimit, distanceFare);
+const driverAllowance = billableDist > 250 ? 600 : 400;
+totalFare = (baseKmFare + (vType === 'bike' ? 0 : driverAllowance)) * 1.05;
+} else if (tType === 'round') {
+let tripDays = 1;
+if (pickupDate && returnDate) {
+const start = new Date(pickupDate);
+const end = new Date(returnDate);
+if (end > start) {
+const diffTime = Math.abs(end - start);
+tripDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) + 1;
+}
+}
+const minKmForTrip = config.minKmPerDay || 250;
+const actualTwoWayDist = dist * 2;
+const billableDist = Math.max(actualTwoWayDist, minKmForTrip * tripDays);
+const distanceFare = billableDist * config.perKm;
+const baseFareLimit = config.base || 0;
+const baseKmFare = Math.max(baseFareLimit, distanceFare);
+const driverAllowance = billableDist > 250 ? 600 : 400;
+totalFare = (baseKmFare + (vType === 'bike' ? 0 : driverAllowance * tripDays)) * 1.05;
+} else if (tType === 'rental') {
+const packageVal = rentalPackage || '2-20';
+const [pMaxHrs, pMaxKm] = packageVal.split('-').map(Number);
+const pConfig = config[packageVal];
+if (pConfig) {
+const extraKm = Math.max(0, dist - pMaxKm);
+const baseFare = pConfig.base + (extraKm * pConfig.extraKm);
+totalFare = baseFare * 1.05;
+}
+}
+return Math.ceil(totalFare);
+};
+let durationText = '';
+if (durationMins >= 60) {
+const hrs = Math.floor(durationMins / 60);
+const mins = durationMins % 60;
+durationText = mins > 0 ? `${hrs}h ${mins}m` : `${hrs}h`;
+} else {
+durationText = `${durationMins}m`;
+}
+const initialFare = calculateFareEstimate(
+ride.vehicle_type,
+ride.trip_type,
+distance,
+durationMins,
+"",
+"",
+null,
+ride.rental_package
+);
+const today = new Date().toISOString().split('T')[0];
+let htmlContent = `
+<div style="text-align: left; font-family: inherit;">
+<div style="background: rgba(183,28,28,0.05); padding: 1rem; border-radius: 12px; margin-bottom: 1.5rem; border: 1px solid rgba(183,28,28,0.15); font-size: 0.85rem; line-height: 1.5;">
+<div style="font-weight:700; color:var(--primary-red); margin-bottom: 5px; text-transform: uppercase;">Route Details</div>
+<div><b>From:</b> ${ride.pickup_loc}</div>
+<div><b>To:</b> ${ride.drop_loc}</div>
+<div><b>Vehicle:</b> ${ride.vehicle_type.toUpperCase()} • <b>Category:</b> ${ride.trip_type.toUpperCase()}</div>
+<div><b>Estimated Distance:</b> ${distance} KM</div>
+<div><b>Estimated Duration:</b> 🕒 ${durationText}</div>
+<div><b>Estimated Fare:</b> <span id="rebook-fare-display" style="font-weight:700; color:var(--primary-red);">₹${initialFare}</span></div>
+</div>
+<p style="margin-bottom: 1rem; font-weight: 600; font-size: 0.95rem; color: var(--text-main);">Select pickup date and time for the repeated ride:</p>
+<div style="margin-bottom: 1rem;">
+<label style="font-size: 0.75rem; color: var(--text-muted); font-weight: 700; display: block; margin-bottom: 0.3rem; letter-spacing: 0.5px;">PICKUP DATE</label>
+<input type="date" id="rebook-date" class="swal2-input" min="${today}" style="margin: 0; width: 100%; box-sizing: border-box; border-radius: 8px;" required>
+</div>
+<div style="margin-bottom: 1rem;">
+<label style="font-size: 0.75rem; color: var(--text-muted); font-weight: 700; display: block; margin-bottom: 0.3rem; letter-spacing: 0.5px;">PICKUP TIME</label>
+<input type="time" id="rebook-time" class="swal2-input" style="margin: 0; width: 100%; box-sizing: border-box; border-radius: 8px;" required>
+</div>
+`;
+if (ride.trip_type === 'round') {
+htmlContent += `
+<div style="margin-bottom: 1rem;">
+<label style="font-size: 0.75rem; color: var(--text-muted); font-weight: 700; display: block; margin-bottom: 0.3rem; letter-spacing: 0.5px;">RETURN DATE (Optional)</label>
+<input type="date" id="rebook-return-date" class="swal2-input" min="${today}" style="margin: 0; width: 100%; box-sizing: border-box; border-radius: 8px;">
+</div>
+`;
+}
+htmlContent += `</div>`;
+Swal.fire({
+title: '<span style="color:#B71C1C; font-weight:700;">Repeat Ride Booking</span>',
+html: htmlContent,
+showCancelButton: true,
+confirmButtonText: 'Confirm Booking',
+cancelButtonText: 'Cancel',
+confirmButtonColor: '#B71C1C',
+cancelButtonColor: '#aaa',
+width: '450px',
+focusConfirm: false,
+didOpen: () => {
+const dateInput = document.getElementById('rebook-date');
+const timeInput = document.getElementById('rebook-time');
+const returnDateInput = document.getElementById('rebook-return-date');
+const fareDisplay = document.getElementById('rebook-fare-display');
+const updateModalFare = () => {
+const dateVal = dateInput.value;
+const timeVal = timeInput.value;
+const returnDateVal = returnDateInput ? returnDateInput.value : null;
+const currentFare = calculateFareEstimate(
+ride.vehicle_type,
+ride.trip_type,
+distance,
+durationMins,
+timeVal,
+dateVal,
+returnDateVal,
+ride.rental_package
+);
+fareDisplay.textContent = `₹${currentFare}`;
+};
+dateInput.addEventListener('change', updateModalFare);
+timeInput.addEventListener('change', updateModalFare);
+if (returnDateInput) {
+returnDateInput.addEventListener('change', updateModalFare);
+}
+},
+preConfirm: () => {
+const date = document.getElementById('rebook-date').value;
+const time = document.getElementById('rebook-time').value;
+const returnDateInput = document.getElementById('rebook-return-date');
+const returnDate = returnDateInput ? returnDateInput.value : null;
+if (!date || !time) {
+Swal.showValidationMessage('Please select both date and time.');
+return false;
+}
+const selectedDateTime = new Date(`${date}T${time}`);
+if (selectedDateTime <= new Date()) {
+Swal.showValidationMessage('Pickup date and time must be in the future.');
+return false;
+}
+if (ride.trip_type === 'round' && returnDate) {
+const rDate = new Date(returnDate);
+const pDate = new Date(date);
+if (rDate < pDate) {
+Swal.showValidationMessage('Return date cannot be earlier than pickup date.');
+return false;
+}
+}
+return { date, time, returnDate };
+}
+}).then(async (result) => {
+if (result.isConfirmed) {
+const { date, time, returnDate } = result.value;
+const finalFare = calculateFareEstimate(
+ride.vehicle_type,
+ride.trip_type,
+distance,
+durationMins,
+time,
+date,
+returnDate,
+ride.rental_package
+);
+const bookingData = {
+userId: user.id,
+pickup: ride.pickup_loc,
+pickupCoords: ride.pickup_coords,
+drop: ride.drop_loc,
+dropCoords: ride.drop_coords,
+date: date,
+time: time,
+passengers: parseInt(ride.passengers) || 1,
+vehicle: ride.vehicle_type,
+tripType: ride.trip_type,
+returnDate: returnDate,
+rentalPackage: ride.rental_package,
+fare: `₹${finalFare}`,
+distance: `${distance} KM`,
+estimatedDuration: durationText
+};
+try {
+const response = await fetch(`${API_BASE_URL}/api/bookings/create`, {
+method: 'POST',
+headers: { 'Content-Type': 'application/json' },
+body: JSON.stringify(bookingData)
+});
+if (response.ok) {
+const data = await response.json();
+Swal.fire({
+title: 'Booking Confirmed!',
+html: `
+<div style="font-family: inherit; font-size: 0.95rem; text-align: left; line-height: 1.6;">
+<div style="color: #2e7d32; font-weight: 800; font-size: 1.2rem; text-align: center; margin-bottom: 1rem;">🏨 RIDE BOOKED SUCCESSFULLY!</div>
+<p><b>Booking ID:</b> #B${data.bookingId}</p>
+<p><b>Verification OTP:</b> <span style="font-size:1.2rem; font-weight:800; letter-spacing:2px; color:var(--primary-red);">${data.journeyOtp}</span></p>
+<p style="font-size: 0.8rem; color: #666; margin-top: 10px;">Please share this OTP with your captain ONLY at the end of the journey.</p>
+</div>
+`,
+icon: 'success',
+confirmButtonColor: '#2e7d32',
+confirmButtonText: 'Go to Dashboard'
+}).then(() => {
+window.location.reload();
+});
+} else {
+const errData = await response.json();
+Swal.fire('Booking Failed', errData.error || 'Failed to book the ride.', 'error');
+}
+} catch (err) {
+Swal.fire('Error', 'A network error occurred.', 'error');
+}
+}
+});
+}
+async function showInvoiceModal(trip) {
+const isRental = trip.trip_type === 'rental';
+const unit = isRental ? 'Hours' : 'Mins';
+const distStr = trip.actual_distance || '0.0 KM';
+const coveredDist = parseFloat(String(distStr).replace(/[^\d.]/g, '')) || 0;
+let elapsedMins = 0;
+if (trip.journey_start_time) {
+const startTime = new Date(trip.journey_start_time);
+const endTime = trip.journey_end_time ? new Date(trip.journey_end_time) : new Date();
+elapsedMins = Math.max(0, Math.floor((endTime - startTime) / 60000));
+}
+const formatDateTime = (dateStr) => {
+if (!dateStr) return 'N/A';
+const d = new Date(dateStr);
+if (isNaN(d.getTime())) return 'N/A';
+const datePart = d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+const timePart = d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true });
+return `${datePart} • ${timePart}`;
+};
+const startTimeStr = trip.journey_start_time ? formatDateTime(trip.journey_start_time) : 'Awaiting Start';
+const endTimeStr = trip.journey_end_time ? formatDateTime(trip.journey_end_time) : (trip.status === 'ongoing' ? 'In Progress' : (trip.status === 'cancelled' ? 'Cancelled' : 'Not Ended'));
+let allowedMins = 0;
+if (isRental) {
+const packageVal = trip.rental_package || '2-20';
+const [pMaxHrs] = packageVal.split('-').map(Number);
+allowedMins = pMaxHrs * 60;
+} else {
+const origDistStr = trip.estimated_distance || trip.distance || '0';
+const origDistKm = parseFloat(String(origDistStr).replace(/[^\d.]/g, '')) || 0;
+allowedMins = Math.ceil(origDistKm * 2);
+}
+const waitingCharge = isRental ? 0 : Math.max(0, Math.ceil((elapsedMins - allowedMins) * 2));
+const durationText = isRental ? (elapsedMins / 60).toFixed(2) : elapsedMins.toFixed(1);
+// Fetch tariff data for fare breakdown
+let baseFare = 0, perKmRate = 0, distanceCharge = 0, subtotal = 0, gst = 0;
+let peakCharge = 0, driverAllowance = 0;
+let minKmVal = 0, minKmCharge = 0;
+try {
+const tariffRes = await fetch(`${API_BASE_URL}/api/tariffs`);
+const tariffs = await tariffRes.json();
+const vType = trip.vehicle_type || 'suv';
+const category = trip.trip_type || 'local';
+const match = tariffs.find(t => t.vehicle_type === vType && t.category === category);
+if (match) {
+const config = typeof match.config === 'string' ? JSON.parse(match.config) : match.config;
+baseFare = config.base || 0;
+if (category === 'local') {
+perKmRate = config.perKm || 0;
+const minKm = typeof config.minKm === 'number' ? config.minKm : 0;
+const billableKm = Math.max(coveredDist, minKm);
+distanceCharge = billableKm * perKmRate;
+const baseKmFare = Math.max(baseFare, distanceCharge);
+minKmVal = minKm;
+minKmCharge = minKm * perKmRate;
+const getPeakSurcharge = (timeStr) => {
+if (!timeStr) return 0;
+const [h, m] = timeStr.split(':').map(Number);
+const tm = h * 60 + m;
+if (tm >= 480 && tm <= 660) return 0.25;
+if (tm >= 960 && tm <= 1260) return 0.25;
+return 0;
+};
+const peakMult = getPeakSurcharge(trip.pickup_time);
+peakCharge = baseKmFare * peakMult;
+subtotal = baseKmFare + peakCharge + waitingCharge;
+} else if (category === 'oneway') {
+perKmRate = config.perKm || 13;
+const minKm = typeof config.minKm === 'number' ? config.minKm : 130;
+const billableKm = Math.max(coveredDist, minKm);
+distanceCharge = billableKm * perKmRate;
+const baseKmFare = Math.max(baseFare, distanceCharge);
+driverAllowance = (trip.vehicle_type === 'bike') ? 0 : (billableKm > 250 ? 600 : 400);
+subtotal = baseKmFare + driverAllowance + waitingCharge;
+minKmVal = minKm;
+minKmCharge = minKm * perKmRate;
+} else if (category === 'round') {
+perKmRate = config.perKm || 12;
+let tripDays = 1;
+if (trip.return_date && trip.pickup_date) {
+const start = new Date(trip.pickup_date);
+const end = new Date(trip.return_date);
+if (end > start) {
+const diffTime = Math.abs(end - start);
+tripDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) + 1;
+}
+}
+const minKmPerDay = (typeof config.minKmPerDay === 'number' ? config.minKmPerDay : 250) * tripDays;
+const billableKm = Math.max(coveredDist, minKmPerDay);
+distanceCharge = billableKm * perKmRate;
+const baseKmFare = Math.max(baseFare, distanceCharge);
+driverAllowance = (trip.vehicle_type === 'bike' ? 0 : ((billableKm > 250 ? 600 : 400) * tripDays));
+subtotal = baseKmFare + driverAllowance + waitingCharge;
+minKmVal = minKmPerDay;
+minKmCharge = minKmPerDay * perKmRate;
+}
+gst = Math.ceil(subtotal * 0.05);
+}
+} catch(e) { console.warn('Could not fetch tariff breakdown:', e); }
+const fareBreakdownHtml = (perKmRate > 0) ? `
+            <div style="margin-top: 1.5rem; border-top: 1px solid rgba(255,255,255,0.08); padding-top: 1.2rem;">
+                <div style="font-weight:800; font-size:0.75rem; color:var(--text-muted); margin-bottom:1rem; text-transform:uppercase; letter-spacing:1px;">Fare Breakdown</div>
+                
+                <div style="display:flex; justify-content:space-between; margin-bottom:0.6rem; font-size:0.9rem;">
+                    <span style="color:var(--text-muted);">Base Fare</span>
+                    <span style="font-weight:600;">₹${baseFare}</span>
+                </div>
+                
+                ${minKmVal > 0 ? `
+                <div style="display:flex; justify-content:space-between; margin-bottom:0.6rem; font-size:0.9rem;">
+                    <span style="color:var(--text-muted);">Min. Charge (${minKmVal} KM)</span>
+                    <span style="font-weight:600;">₹${Math.ceil(minKmCharge)}</span>
+                </div>
+                ` : ''}
+                
+                <div style="display:flex; justify-content:space-between; margin-bottom:0.6rem; font-size:0.9rem;">
+                    <span style="color:var(--text-muted);">Distance Charge (${coveredDist.toFixed(1)} km × ₹${perKmRate})</span>
+                    <span style="font-weight:600;">₹${Math.ceil(distanceCharge)}</span>
+                </div>
 
-            Swal.fire({
-                title: '<span style="color:#2e7d32; font-weight:700;">Trip Invoice & Details</span>',
-                html: `
-                    <div style="text-align: left; padding: 0.5rem 0; font-family: inherit;">
-                        <div style="display:flex; justify-content:space-between; margin-bottom:0.8rem; font-size:1.1rem; font-weight:700; border-bottom:2px dashed #eee; padding-bottom:0.5rem;">
-                            <span>Final Fare:</span>
-                            <span style="color: #2e7d32;">${trip.fare}</span>
-                        </div>
-                        <div style="display:flex; justify-content:space-between; margin-bottom:0.5rem; font-size:0.95rem; color:#555;">
-                            <span>Pickup:</span>
-                            <span style="text-align: right; font-weight:600; max-width:60%; font-size:0.85rem;">${trip.pickup_loc}</span>
-                        </div>
-                        <div style="display:flex; justify-content:space-between; margin-bottom:0.8rem; font-size:0.95rem; color:#555; border-bottom: 1px solid #eee; padding-bottom:0.5rem;">
-                            <span>Dropoff:</span>
-                            <span style="text-align: right; font-weight:600; max-width:60%; font-size:0.85rem;">${trip.drop_loc}</span>
-                        </div>
-                        <div style="display:flex; justify-content:space-between; margin-bottom:0.5rem; font-size:1rem; font-weight:700; color:#1565c0;">
-                            <span>🛣️ Covered Distance:</span>
-                            <span>${coveredDist.toFixed(1)} KM</span>
-                        </div>
-                        <div style="display:flex; justify-content:space-between; margin-bottom:0.5rem; font-size:0.95rem; color:#555;">
-                            <span>Ride Duration:</span>
-                            <span>${durationText} ${unit}</span>
-                        </div>
-                        <div style="display:flex; justify-content:space-between; margin-bottom:0.5rem; font-size:0.95rem; color:#555;">
-                            <span>Vehicle Type:</span>
-                            <span style="text-transform:uppercase; font-weight:600;">${trip.vehicle_type || 'suv'}</span>
-                        </div>
-                        <div style="display:flex; justify-content:space-between; margin-bottom:0.5rem; font-size:0.95rem; color:#555;">
-                            <span>Trip Category:</span>
-                            <span style="text-transform:uppercase; font-weight:600;">${trip.trip_type || 'local'}</span>
-                        </div>
-                        ${(trip.trip_type !== 'local' && trip.start_odometer) ? `
-                        <div style="margin:0.8rem 0; padding:0.8rem; background:#f1f3f5; border-radius:10px; border:1px solid #e9ecef;">
-                            <div style="font-weight:700; font-size:0.85rem; color:#333; margin-bottom:0.5rem; text-transform:uppercase; letter-spacing:0.5px;">🎛️ Odometer Readings</div>
-                            <div style="display:flex; justify-content:space-between; margin-bottom:0.3rem; font-size:0.9rem; color:#555;">
-                                <span>Opening Odometer:</span>
-                                <span style="font-weight:700; color:#111;">${trip.start_odometer}</span>
+                ${peakCharge > 0 ? `
+                <div style="display:flex; justify-content:space-between; margin-bottom:0.6rem; font-size:0.9rem;">
+                    <span style="color:var(--warning-amber);">Peak Surcharge</span>
+                    <span style="font-weight:600; color:var(--warning-amber);">₹${Math.ceil(peakCharge)}</span>
+                </div>` : ''}
+
+                ${driverAllowance > 0 ? `
+                <div style="display:flex; justify-content:space-between; margin-bottom:0.6rem; font-size:0.9rem;">
+                    <span style="color:#0a84ff;">Driver Allowance</span>
+                    <span style="font-weight:600; color:#0a84ff;">₹${Math.ceil(driverAllowance)}</span>
+                </div>` : ''}
+
+                ${waitingCharge > 0 ? `
+                <div style="display:flex; justify-content:space-between; margin-bottom:0.6rem; font-size:0.9rem;">
+                    <span style="color:var(--danger-red);">Waiting Charges</span>
+                    <span style="font-weight:600; color:var(--danger-red);">₹${waitingCharge}</span>
+                </div>` : ''}
+
+                <div style="display:flex; justify-content:space-between; margin-bottom:0.6rem; font-size:0.9rem;">
+                    <span style="color:var(--text-muted);">GST (5%)</span>
+                    <span style="font-weight:600;">₹${gst}</span>
+                </div>
+                
+                <div style="display:flex; justify-content:space-between; margin-top:1rem; padding-top:1rem; border-top:1px dashed rgba(255,255,255,0.1); font-size:1.1rem; font-weight:800; color:var(--primary-red);">
+                    <span>Total Amount</span>
+                    <span>₹${Math.ceil(subtotal + gst)}</span>
+                </div>
+            </div>
+        ` : '';
+
+        Swal.fire({
+            title: '<div style="font-weight:800; color:var(--text-main); font-size:1.3rem; margin-bottom:-0.5rem;">Trip Invoice</div>',
+            html: `
+                <div style="text-align:left; font-family:\'Outfit\', sans-serif;">
+                    
+                    <!-- Header Strip -->
+                    <div style="background:var(--primary-red); margin:-1rem -1rem 1.5rem -1rem; padding:1.5rem; text-align:center; position:relative; border-radius:0 0 20px 20px;">
+                        <div style="font-size:0.8rem; text-transform:uppercase; font-weight:800; letter-spacing:1.5px; color:rgba(255,255,255,0.8); margin-bottom:0.5rem;">Final Fare</div>
+                        <div style="font-size:2.8rem; font-weight:800; color:#fff; line-height:1; text-shadow:0 2px 10px rgba(0,0,0,0.3);">${trip.fare}</div>
+                        <div style="position:absolute; top:1rem; right:1rem; background:rgba(0,0,0,0.2); padding:4px 8px; border-radius:6px; font-size:0.75rem; font-weight:700; color:#fff;">#B${trip.id}</div>
+                    </div>
+
+                    <!-- Locations -->
+                    <div style="display:flex; flex-direction:column; gap:1rem; margin-bottom:1.5rem; position:relative;">
+                        <div style="position:absolute; left:7px; top:12px; bottom:12px; width:2px; background:rgba(255,255,255,0.1); z-index:1;"></div>
+                        
+                        <div style="display:flex; gap:15px; align-items:flex-start; position:relative; z-index:2;">
+                            <div style="width:16px; height:16px; border-radius:50%; background:var(--white); border:4px solid #34c759; margin-top:3px; flex-shrink:0;"></div>
+                            <div>
+                                <div style="font-size:0.7rem; text-transform:uppercase; color:var(--text-muted); font-weight:700;">Pickup</div>
+                                <div style="font-weight:600; font-size:0.95rem; line-height:1.4;">${trip.pickup_loc}</div>
                             </div>
-                            ${trip.end_odometer ? `
-                            <div style="display:flex; justify-content:space-between; font-size:0.9rem; color:#555;">
-                                <span>Closing Odometer:</span>
-                                <span style="font-weight:700; color:#111;">${trip.end_odometer}</span>
+                        </div>
+
+                        <div style="display:flex; gap:15px; align-items:flex-start; position:relative; z-index:2;">
+                            <div style="width:16px; height:16px; background:var(--white); border:4px solid var(--primary-red); margin-top:3px; flex-shrink:0;"></div>
+                            <div>
+                                <div style="font-size:0.7rem; text-transform:uppercase; color:var(--text-muted); font-weight:700;">Dropoff</div>
+                                <div style="font-weight:600; font-size:0.95rem; line-height:1.4;">${trip.drop_loc}</div>
                             </div>
-                            ` : ''}
+                        </div>
+                    </div>
+
+                    <!-- Timeline (Start / End) -->
+                    <div style="background:rgba(255,255,255,0.02); border:1px solid var(--border-color); border-radius:12px; padding:1rem; margin-bottom:1.5rem; display:flex; flex-direction:column; gap:0.5rem;">
+                        <div style="display:flex; justify-content:space-between; font-size:0.85rem; align-items:center;">
+                            <span style="color:var(--text-muted); font-weight:700; font-size:0.7rem; text-transform:uppercase; letter-spacing:0.5px;">Trip Started</span>
+                            <span style="font-weight:700; color:var(--text-main); font-size:0.85rem;">${startTimeStr}</span>
+                        </div>
+                        <div style="display:flex; justify-content:space-between; font-size:0.85rem; align-items:center; border-top:1px solid rgba(255,255,255,0.04); padding-top:0.5rem;">
+                            <span style="color:var(--text-muted); font-weight:700; font-size:0.7rem; text-transform:uppercase; letter-spacing:0.5px;">Trip Ended</span>
+                            <span style="font-weight:700; color:var(--text-main); font-size:0.85rem;">${endTimeStr}</span>
+                        </div>
+                    </div>
+
+                    <!-- Stats Grid -->
+                    <div style="display:grid; grid-template-columns:1fr 1fr; gap:1rem; margin-bottom:1.5rem;">
+                        <div style="background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.05); border-radius:12px; padding:1rem;">
+                            <div style="font-size:0.7rem; text-transform:uppercase; color:var(--text-muted); font-weight:700; margin-bottom:0.3rem;">Distance</div>
+                            <div style="font-weight:800; font-size:1.1rem; color:var(--text-main);">${coveredDist.toFixed(1)} KM</div>
+                        </div>
+                        <div style="background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.05); border-radius:12px; padding:1rem;">
+                            <div style="font-size:0.7rem; text-transform:uppercase; color:var(--text-muted); font-weight:700; margin-bottom:0.3rem;">Duration</div>
+                            <div style="font-weight:800; font-size:1.1rem; color:var(--text-main);">${durationText} ${unit}</div>
+                        </div>
+                        <div style="background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.05); border-radius:12px; padding:1rem;">
+                            <div style="font-size:0.7rem; text-transform:uppercase; color:var(--text-muted); font-weight:700; margin-bottom:0.3rem;">Category</div>
+                            <div style="font-weight:800; font-size:1.1rem; color:var(--text-main); text-transform:capitalize;">${trip.trip_type || 'Local'}</div>
+                        </div>
+                        <div style="background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.05); border-radius:12px; padding:1rem;">
+                            <div style="font-size:0.7rem; text-transform:uppercase; color:var(--text-muted); font-weight:700; margin-bottom:0.3rem;">Vehicle</div>
+                            <div style="font-weight:800; font-size:1.1rem; color:var(--text-main); text-transform:capitalize;">${trip.vehicle_type || 'SUV'}</div>
+                        </div>
+                    </div>
+
+                    ${(trip.trip_type !== 'local' && trip.start_odometer) ? `
+                    <div style="background:rgba(10,132,255,0.05); border:1px solid rgba(10,132,255,0.2); border-radius:12px; padding:1rem; margin-bottom:1.5rem;">
+                        <div style="font-weight:800; font-size:0.75rem; color:#0a84ff; margin-bottom:0.8rem; text-transform:uppercase; letter-spacing:1px;">Odometer Readings</div>
+                        <div style="display:flex; justify-content:space-between; margin-bottom:0.4rem; font-size:0.9rem;">
+                            <span style="color:var(--text-muted);">Opening</span>
+                            <span style="font-weight:700;">${trip.start_odometer}</span>
+                        </div>
+                        ${trip.end_odometer ? `
+                        <div style="display:flex; justify-content:space-between; font-size:0.9rem;">
+                            <span style="color:var(--text-muted);">Closing</span>
+                            <span style="font-weight:700;">${trip.end_odometer}</span>
                         </div>
                         ` : ''}
-                        ${fareBreakdownHtml}
                     </div>
-                `,
-                icon: 'info',
-                confirmButtonText: 'Close',
-                confirmButtonColor: '#2e7d32',
-                width: '420px'
-            });
-        }
+                    ` : ''}
 
-    </script>
-    <script src="alert.js"></script>
-    <script>
-        window.addEventListener('load', () => {
-            const splash = document.getElementById('splash-screen');
-            if (splash) {
-                setTimeout(() => {
-                    splash.classList.add('splash-hidden');
-                    document.body.style.setProperty('overflow', 'auto', 'important');
-                }, 3200);
+                    ${fareBreakdownHtml}
+                    
+                </div>
+            `,
+            background: '#14161d',
+            color: '#fff',
+            customClass: { popup: 'premium-invoice-modal' },
+            showCloseButton: true,
+            confirmButtonText: 'Download PDF',
+            showCancelButton: true,
+            cancelButtonText: 'Close',
+            confirmButtonColor: '#B71C1C',
+            cancelButtonColor: 'rgba(255,255,255,0.1)',
+            width: '450px'
+        }).then((result) => {
+            if (result.isConfirmed) {
+                Swal.fire({
+                    title: 'Downloading...',
+                    text: 'Invoice is being generated.',
+                    icon: 'success',
+                    background: '#14161d',
+                    color: '#fff',
+                    confirmButtonColor: '#B71C1C'
+                });
             }
         });
-    </script>
+}</script>
+    <script src="alert.js"></script>
+    <script>window.addEventListener('load', () => {
+const splash = document.getElementById('splash-screen');
+if (splash) {
+setTimeout(() => {
+splash.classList.add('splash-hidden');
+document.body.style.setProperty('overflow', 'auto', 'important');
+}, 3200);
+}
+});</script>
 </body>
 </html>

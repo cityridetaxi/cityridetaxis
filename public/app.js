@@ -76,7 +76,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const distanceVal = document.getElementById('distance-val');
     const fareVal = document.getElementById('fare-val');
     const vehicleBadge = document.getElementById('vehicle-badge');
-    const categoryBtns = document.querySelectorAll('.category-btn');
+    const categoryBtns = document.querySelectorAll('.bk-tab');
     const destinationGroup = document.getElementById('destination-group');
     const pickupDate = document.getElementById('pickup-date');
     const returnDate = document.getElementById('return-date');
@@ -146,6 +146,12 @@ document.addEventListener('DOMContentLoaded', () => {
             categoryBtns.forEach(b => b.classList.remove('active'));
             btn.classList.add('active');
             currentCategory = btn.dataset.category;
+            
+            // Clear vehicle selection and hide fare strip on mode change
+            selectedVehicleData = null;
+            if (vehicleSelect) vehicleSelect.value = '';
+            const strip = document.getElementById('fare-strip');
+            if (strip) strip.classList.remove('visible');
             
             updateDateTimeFieldsVisibility();
 
@@ -334,12 +340,14 @@ document.addEventListener('DOMContentLoaded', () => {
 
                 if (data.routes && data.routes.length > 0) {
                     const distanceInKm = Math.ceil(data.routes[0].distance / 1000);
-                    const durationInMins = data.routes[0].duration ? Math.ceil(data.routes[0].duration / 60) : Math.ceil(distanceInKm * 1.5);
+                    // GLOBAL RULE: Estimated Duration = Distance × 2 minutes (overrides OSRM time)
+                    const durationInMins = distanceInKm * 2;
                     renderVehicleOptions(distanceInKm, durationInMins);
                 }
             } catch (err) {
                 console.error('Distance calculation error:', err);
-                renderVehicleOptions(15, 25);
+                // Do NOT render with hardcoded fallback — clear and show error
+                document.getElementById('vehicle-cards-grid') && (document.getElementById('vehicle-cards-grid').innerHTML = '<div style="padding:2rem; text-align:center; color:#888;">Could not calculate route. Please re-select your locations.</div>');
             }
         } else if (currentCategory === 'rental' && pickupCoords) {
             // Rentals don't strictly need a destination for the base package price
@@ -350,10 +358,173 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
+    // State for selected vehicle in modal
+    let selectedVehicleData = null;
+
+    // Open the vehicle selection modal
+    function openVehicleModal() {
+        const overlay = document.getElementById('vehicle-modal-overlay');
+        if (!overlay) return;
+        overlay.classList.add('open');
+
+        // Update route text in modal header
+        const routeText = document.getElementById('vm-route-text');
+        const pickup = document.getElementById('pickup').value;
+        const drop = document.getElementById('drop').value;
+        if (routeText) routeText.textContent = currentCategory === 'rental' ? `Rental from ${pickup}` : `${pickup} → ${drop}`;
+
+        // Update summary bar
+        const vmDist = document.getElementById('vm-distance');
+        const vmDur = document.getElementById('vm-duration');
+        const vmPass = document.getElementById('vm-passengers');
+        if (vmDist && lastCalculatedDistance) vmDist.textContent = `${lastCalculatedDistance} KM`;
+        if (vmDur && lastCalculatedDuration) {
+            const m = lastCalculatedDuration;
+            vmDur.textContent = m >= 60 ? `${Math.floor(m/60)}h ${m%60}m` : `${m} min`;
+        }
+        if (vmPass) vmPass.textContent = `${parseInt(passengerInput.value) || 1} Person(s)`;
+    }
+
+    // Called when user clicks "Select Vehicle" in modal
+    window.confirmVehicleSelection = function() {
+        if (!selectedVehicleData) return;
+        const overlay = document.getElementById('vehicle-modal-overlay');
+        if (overlay) overlay.classList.remove('open');
+
+        // Update hidden fields for booking
+        vehicleSelect.value = selectedVehicleData.vType;
+        currentTripType = selectedVehicleData.tripType;
+        fareVal.textContent = `₹${selectedVehicleData.fare} (Approx.)`;
+        distanceVal.textContent = selectedVehicleData.displayDistance;
+        window.selectedDuration = selectedVehicleData.durationText;
+
+        // Show fare strip
+        const strip = document.getElementById('fare-strip');
+        const fsDistance = document.getElementById('fs-distance');
+        const fsDuration = document.getElementById('fs-duration');
+        const fsFare = document.getElementById('fs-fare');
+        if (fsDistance) fsDistance.textContent = `${selectedVehicleData.distanceKm} KM`;
+        if (fsDuration) fsDuration.textContent = selectedVehicleData.durationText || '—';
+        if (fsFare) fsFare.textContent = `₹${selectedVehicleData.fare}`;
+        if (strip) strip.classList.add('visible');
+
+        // Show/hide return date for round trips
+        if (selectedVehicleData.tripType === 'round') {
+            returnDateGroup.style.display = 'flex';
+        } else {
+            returnDateGroup.style.display = 'none';
+        }
+
+        // Store fare breakdown data
+        window._lastFareBreakdown = selectedVehicleData.breakdown;
+    };
+
+    // Open fare breakdown popup
+    window.openFareBreakdown = function() {
+        const overlay = document.getElementById('fare-modal-overlay');
+        const body = document.getElementById('fare-modal-body');
+        if (!overlay || !body) return;
+
+        const bd = window._lastFareBreakdown || {};
+        const pickup = document.getElementById('pickup').value || '—';
+        const drop = document.getElementById('drop').value || '—';
+
+        body.innerHTML = `
+            <div class="fm-row"><span class="fm-label">📍 Pickup</span><span class="fm-value" style="max-width:180px;text-align:right;font-size:0.8rem;">${pickup}</span></div>
+            <div class="fm-row"><span class="fm-label">🏁 Destination</span><span class="fm-value" style="max-width:180px;text-align:right;font-size:0.8rem;">${drop}</span></div>
+            <div class="fm-row"><span class="fm-label">🛣 Distance</span><span class="fm-value">${bd.distanceKm || lastCalculatedDistance || 0} KM</span></div>
+            <div class="fm-row"><span class="fm-label">⏱ Est. Duration</span><span class="fm-value">${bd.durationText || window.selectedDuration || '—'}</span></div>
+            <div class="fm-row"><span class="fm-label">🚗 Vehicle</span><span class="fm-value">${bd.vehicleName || '—'}</span></div>
+            <div class="fm-row"><span class="fm-label">💰 Rate / KM</span><span class="fm-value">₹${bd.perKm || '—'}</span></div>
+            ${bd.baseFare ? `<div class="fm-row"><span class="fm-label">🏠 Base Fare</span><span class="fm-value">₹${bd.baseFare}</span></div>` : ''}
+            ${bd.driverAllowance ? `<div class="fm-row"><span class="fm-label">👨‍🚕 Driver Betta</span><span class="fm-value">₹${bd.driverAllowance}</span></div>` : ''}
+            ${bd.peakCharge ? `<div class="fm-row"><span class="fm-label">⚡ Peak Surcharge</span><span class="fm-value" style="color:#ff9f0a;">₹${bd.peakCharge}</span></div>` : ''}
+            <div class="fm-row"><span class="fm-label">📊 GST (5%)</span><span class="fm-value">₹${bd.gst || 0}</span></div>
+            <div class="fm-total-row">
+                <span class="fm-total-label">Estimated Total</span>
+                <span class="fm-total-value">₹${bd.total || 0}</span>
+            </div>
+            <p class="fm-note">ℹ️ Actual fare may vary based on route, waiting time, peak hours & tolls.</p>
+        `;
+        overlay.classList.add('open');
+    };
+
+    // Open booking confirm modal (replaces old openBookingModal)
+    window.openConfirmModal = function() {
+        if (!selectedVehicleData) {
+            alert('Please select a vehicle first.');
+            return;
+        }
+        const user = JSON.parse(localStorage.getItem('cityride_member'));
+        if (!user) {
+            alert('Please login to confirm booking.');
+            window.location.href = '/auth';
+            return;
+        }
+
+        // Build pendingBookingData
+        let bookingDate = document.getElementById('pickup-date').value;
+        let bookingTime = document.getElementById('pickup-time').value;
+        if (currentCategory === 'local' && document.getElementById('booking-type') && document.getElementById('booking-type').value === 'now') {
+            const now = new Date();
+            bookingDate = now.toISOString().split('T')[0];
+            const hours = String(now.getHours()).padStart(2, '0');
+            const minutes = String(now.getMinutes()).padStart(2, '0');
+            bookingTime = `${hours}:${minutes}`;
+        }
+        pendingBookingData = {
+            userId: user.id,
+            pickup: document.getElementById('pickup').value,
+            pickupCoords: document.getElementById('pickup').dataset.coords,
+            drop: document.getElementById('drop').value,
+            dropCoords: document.getElementById('drop').dataset.coords,
+            date: bookingDate,
+            time: bookingTime,
+            passengers: parseInt(passengerInput.value) || 1,
+            vehicle: selectedVehicleData.vType,
+            tripType: selectedVehicleData.tripType,
+            returnDate: selectedVehicleData.tripType === 'round' ? document.getElementById('return-date').value : null,
+            rentalPackage: selectedVehicleData.tripType === 'rental' ? document.getElementById('rental-package').value : null,
+            fare: `₹${selectedVehicleData.fare}`,
+            distance: `${selectedVehicleData.distanceKm} KM`,
+            estimatedDuration: window.selectedDuration || null
+        };
+
+        const fareNum = selectedVehicleData.fare || 0;
+        if (fareNum <= 0) {
+            alert('⚠️ Fare Calculation Error. Please re-select vehicle.');
+            return;
+        }
+
+        // Populate confirm modal
+        const grid = document.getElementById('cm-summary-grid');
+        if (grid) {
+            grid.innerHTML = `
+                <div class="cm-info-row"><span class="cm-info-label">📍 Pickup</span><span class="cm-info-value" style="max-width:200px;text-align:right;font-size:0.82rem;">${pendingBookingData.pickup}</span></div>
+                <div class="cm-info-row"><span class="cm-info-label">🏁 Destination</span><span class="cm-info-value" style="max-width:200px;text-align:right;font-size:0.82rem;">${pendingBookingData.drop || 'Rental — No fixed drop'}</span></div>
+                <div class="cm-info-row"><span class="cm-info-label">🚗 Vehicle</span><span class="cm-info-value">${selectedVehicleData.vehicleName} (${selectedVehicleData.tripType.toUpperCase()})</span></div>
+                <div class="cm-info-row"><span class="cm-info-label">🛣 Distance</span><span class="cm-info-value">${selectedVehicleData.distanceKm} KM</span></div>
+                <div class="cm-info-row"><span class="cm-info-label">⏱ Est. Duration</span><span class="cm-info-value">${window.selectedDuration || '—'}</span></div>
+                <div class="cm-info-row"><span class="cm-info-label">💰 Estimated Fare</span><span class="cm-info-value" style="color:#e53935;font-size:1.1rem;">₹${selectedVehicleData.fare}</span></div>
+                <div class="cm-info-row"><span class="cm-info-label">📅 Date &amp; Time</span><span class="cm-info-value">${bookingDate} at ${bookingTime || 'Now'}</span></div>
+            `;
+        }
+        document.getElementById('confirm-modal-overlay').classList.add('open');
+    };
+
+    let lastCalculatedDistance = 0;
+    let lastCalculatedDuration = 0;
+
     function renderVehicleOptions(distance, duration = 0) {
+        lastCalculatedDistance = distance;
+        lastCalculatedDuration = duration;
+
         const passengers = parseInt(passengerInput.value) || 1;
+        // Keep inline container cleared (SPA uses modal now)
         const container = document.getElementById('vehicle-selection-container');
-        container.innerHTML = '';
+        if (container) container.innerHTML = '';
+        const grid = document.getElementById('vehicle-cards-grid');
+        if (!grid) { return; }
 
         // Calculate Days for Round Trip
         const start = new Date(pickupDate.value);
@@ -365,11 +536,15 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         if (!pricing) {
-            container.innerHTML = '<div style="padding: 20px; text-align: center; color: #888;">Synchronizing Tariffs...</div>';
+            grid.innerHTML = '<div style="padding: 2rem; text-align: center; color: #888;">Synchronizing Tariffs...</div>';
             return;
         }
 
-        // Inject Distance & Duration Indicator for Local and Outstation rides
+        grid.innerHTML = ''; // Clear previous cards
+        selectedVehicleData = null;
+        const vmSelectBtn = document.getElementById('vm-select-btn');
+        if (vmSelectBtn) vmSelectBtn.disabled = true;
+
         if (distance > 0 && currentCategory !== 'rental') {
             const distInfo = document.createElement('div');
             distInfo.style.textAlign = 'center';
@@ -526,49 +701,64 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
 
                 const card = document.createElement('div');
-                card.className = `vehicle-card-item ${isDisabled ? 'vehicle-disabled' : ''}`;
+                card.className = `vc-card${isDisabled ? ' vc-disabled' : ''}`;
+                card.style.opacity = isDisabled ? '0.4' : '1';
+                card.style.cursor = isDisabled ? 'not-allowed' : 'pointer';
                 card.innerHTML = `
-                    <div class="vehicle-icon-wrap">
-                        ${VEHICLE_ICONS[vType]}
+                    <div class="vc-icon">${VEHICLE_ICONS[vType] || '🚗'}</div>
+                    <div class="vc-name">
+                        ${info.name}
+                        ${isDisabled ? `<span class="vc-badge" style="background:rgba(255,50,50,0.2);color:#ff5252;margin-left:8px;display:inline-block;vertical-align:middle;">Over Cap</span>` : ''}
                     </div>
-                    <div class="vehicle-info-main">
-                        <div class="vehicle-name">${info.name} <span class="vehicle-capacity">${info.capacity}</span></div>
-                        <div class="vehicle-capacity" style="font-size: 0.65rem; opacity: 0.8;">${detailLabel}</div>
-                        ${isDisabled ? `<div class="vehicle-capacity-warning">Exceeds capacity for ${passengers}</div>` : ''}
-                    </div>
-                    <div class="vehicle-price-wrap">
-                        <div class="vehicle-price">₹${totalFare} <span style="font-size:0.65rem; font-weight:normal; color:#888;">Approx.</span></div>
-                        <div class="vehicle-eta">🕒 ${etaText}</div>
-                    </div>
+                    <div class="vc-fare">₹${totalFare}</div>
                 `;
 
                 if (!isDisabled) {
-                    card.onclick = () => {
-                        document.querySelectorAll('.vehicle-card-item').forEach(c => c.classList.remove('selected'));
+                    card.addEventListener('click', () => {
+                        grid.querySelectorAll('.vc-card').forEach(c => c.classList.remove('selected'));
                         card.classList.add('selected');
-                        
-                        // Update state
-                        currentTripType = tType.id;
-                        vehicleSelect.value = vType;
-                        fareVal.textContent = `₹${totalFare} (Approx.)`;
-                        distanceVal.textContent = displayDistance;
-                        window.selectedDuration = (duration > 0 || tType.id === 'rental') ? etaText : null;
 
-                        // Toggle related inputs for better UX
-                        if (tType.id === 'round') {
-                            returnDateGroup.style.display = 'flex';
-                        } else {
-                            returnDateGroup.style.display = 'none';
-                        }
-                    };
+                        // Enable the select button
+                        const vmBtn = document.getElementById('vm-select-btn');
+                        if (vmBtn) { vmBtn.disabled = false; vmBtn.textContent = `Select ${info.name} — ₹${totalFare} →`; }
+
+                        // Build breakdown for fare popup
+                        const gstBase = totalFare / 1.05;
+                        const gst = Math.round(totalFare - gstBase);
+                        const driverAllowanceAmt = (tType.id === 'oneway' || tType.id === 'round') && vType !== 'bike' ? (distance > 250 ? 600 : 400) : 0;
+                        const peakSurcharge = tType.id === 'local' ? Math.round(getPeakSurcharge(document.getElementById('pickup-time')?.value) * (Math.max(distance, info.local?.minKm || 0) * (info.local?.perKm || 0))) : 0;
+
+                        // Store selected vehicle data
+                        selectedVehicleData = {
+                            vType,
+                            vehicleName: info.name,
+                            tripType: tType.id,
+                            fare: totalFare,
+                            distanceKm: distance,
+                            displayDistance: displayDistance.toString(),
+                            durationText: etaText,
+                            breakdown: {
+                                vehicleName: info.name,
+                                distanceKm: distance,
+                                durationText: etaText,
+                                perKm: tType.id === 'local' ? (info.local?.perKm || 0) : (info[tType.id]?.perKm || 0),
+                                baseFare: info[tType.id]?.base || 0,
+                                driverAllowance: driverAllowanceAmt,
+                                peakCharge: peakSurcharge,
+                                gst,
+                                total: totalFare
+                            }
+                        };
+                    });
                 }
 
-                container.appendChild(card);
+                grid.appendChild(card);
             });
         });
 
-        const defaultCard = container.querySelector('.vehicle-card-item:not(.vehicle-disabled)');
-        if (defaultCard) defaultCard.click();
+        // Auto-select first valid card
+        const firstCard = grid.querySelector('.vc-card:not([style*="not-allowed"])');
+        if (firstCard) firstCard.click();
     }
 
 
@@ -584,6 +774,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
             if (query.length < 3) {
                 box.innerHTML = '';
+                box.style.display = 'none';
                 delete input.dataset.coords;
                 return;
             }
@@ -596,7 +787,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     const data = await res.json();
                     box.innerHTML = '';
 
-                    if (data.features) {
+                    if (data.features && data.features.length > 0) {
                         data.features.forEach(feature => {
                             const p = feature.properties;
                             const c = feature.geometry.coordinates; // [lng, lat]
@@ -612,20 +803,28 @@ document.addEventListener('DOMContentLoaded', () => {
                                 input.value = label;
                                 input.dataset.coords = `${c[0]},${c[1]}`;
                                 box.innerHTML = '';
+                                box.style.display = 'none';
                                 calculateFare(); // Trigger fare update immediately
                             };
                             box.appendChild(item);
                         });
+                        box.style.display = 'block';
+                    } else {
+                        box.style.display = 'none';
                     }
                 } catch (e) {
                     console.error('Autocomplete service unavailable', e);
+                    box.style.display = 'none';
                 }
             }, 400);
         });
 
         // Hide suggestions on click outside
         document.addEventListener('click', (e) => {
-            if (e.target !== input) box.innerHTML = '';
+            if (e.target !== input) {
+                box.innerHTML = '';
+                box.style.display = 'none';
+            }
         });
     }
 
@@ -681,7 +880,6 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     window.openMapPicker = function (type, event) {
-        // Add a click animation to the button if event is present
         if (event && event.currentTarget) {
             const btn = event.currentTarget;
             btn.style.transform = 'scale(0.85)';
@@ -689,17 +887,15 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         currentPickingType = type || (pickupCoords ? 'drop' : 'pickup');
-        document.getElementById('map-modal').style.display = 'flex';
+        // New SPA uses overlay class
+        const overlay = document.getElementById('map-modal-overlay');
+        const modal = document.getElementById('map-modal');
+        if (overlay) overlay.classList.add('open');
+        else if (modal) modal.style.display = 'flex'; // fallback
         document.getElementById('picking-type').textContent = currentPickingType;
         document.getElementById('confirm-location').style.display = 'none';
 
-        // Highlight the associated input box to show target
-        document.querySelectorAll('.input-group input').forEach(el => el.classList.remove('input-highlight'));
-        const activeInput = document.getElementById(currentPickingType);
-        if (activeInput) activeInput.classList.add('input-highlight');
-
         if (!map) {
-            // Initialise map centered on a default location (e.g., Chennai)
             map = L.map('map-picker').setView([13.0827, 80.2707], 13);
             L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
                 attribution: '&copy; OpenStreetMap contributors'
@@ -708,25 +904,21 @@ document.addEventListener('DOMContentLoaded', () => {
             map.on('click', (e) => {
                 const { lat, lng } = e.latlng;
                 tempCoords = `${lng},${lat}`;
-
                 if (mapMarker) map.removeLayer(mapMarker);
                 mapMarker = L.marker([lat, lng]).addTo(map);
-
                 document.getElementById('confirm-location').style.display = 'inline-block';
             });
         } else {
-            // Refresh map size if modal was hidden
             setTimeout(() => map.invalidateSize(), 100);
-            if (mapMarker) {
-                map.removeLayer(mapMarker);
-                mapMarker = null;
-            }
+            if (mapMarker) { map.removeLayer(mapMarker); mapMarker = null; }
         }
     };
 
     window.closeMapPicker = function () {
-        document.getElementById('map-modal').style.display = 'none';
-        document.querySelectorAll('.input-group input').forEach(el => el.classList.remove('input-highlight'));
+        const overlay = document.getElementById('map-modal-overlay');
+        const modal = document.getElementById('map-modal');
+        if (overlay) overlay.classList.remove('open');
+        else if (modal) modal.style.display = 'none';
     };
 
     window.confirmMapPoint = async function () {
@@ -817,13 +1009,18 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     window.closeBookingModal = function() {
-        const modal = document.getElementById('booking-modal');
-        if (modal) modal.style.display = 'none';
+        // Close both old and new confirm modals
+        const oldModal = document.getElementById('booking-modal');
+        if (oldModal) oldModal.style.display = 'none';
+        const newModal = document.getElementById('confirm-modal-overlay');
+        if (newModal) newModal.classList.remove('open');
         pendingBookingData = null;
     };
 
     window.confirmBookingWithTerms = async function() {
         if (!pendingBookingData) return;
+        const cmBtn = document.getElementById('cm-confirm-btn');
+        if (cmBtn) { cmBtn.textContent = '⏳ Booking...'; cmBtn.disabled = true; }
         
         try {
             const response = await fetch(`${API_BASE_URL}/api/bookings/create`, {
@@ -837,22 +1034,18 @@ document.addEventListener('DOMContentLoaded', () => {
                 alert(`🏨 BOOKING CONFIRMED!\nBooking ID: #B${result.bookingId}\nVerification OTP: ${result.journeyOtp}\n\nYour premium captain will be assigned shortly. Please keep this OTP safe.`);
                 bookingForm.reset();
                 if (fareEstimate) fareEstimate.classList.add('hidden');
+                // Hide fare strip
+                const strip = document.getElementById('fare-strip');
+                if (strip) strip.classList.remove('visible');
                 closeBookingModal();
+                selectedVehicleData = null;
 
                 // Clear map state
-                if (mapMarker) {
-                    map.removeLayer(mapMarker);
-                    mapMarker = null;
-                }
-
-                // Clear coordinate datasets
+                if (mapMarker) { map.removeLayer(mapMarker); mapMarker = null; }
                 document.getElementById('pickup').removeAttribute('data-coords');
                 document.getElementById('drop').removeAttribute('data-coords');
                 pickupCoords = null;
                 dropCoords = null;
-                
-                // Clear the vehicle options container
-                document.getElementById('vehicle-selection-container').innerHTML = '';
 
                 // Redirect to Travelers Hub
                 window.location.href = '/dashboard';
@@ -860,106 +1053,107 @@ document.addEventListener('DOMContentLoaded', () => {
                 const errData = await response.json();
                 console.error('Server Booking Error:', errData);
                 alert(`Booking failed: ${errData.error || 'Please check your connection.'}`);
+                if (cmBtn) { cmBtn.textContent = '✅ Accept & Book'; cmBtn.disabled = false; }
             }
         } catch (err) {
             console.error('Submission Error:', err);
             alert('A network error occurred.');
+            if (cmBtn) { cmBtn.textContent = '✅ Accept & Book'; cmBtn.disabled = false; }
         }
     };
 
-    // 5. Booking Submission - Direct Confirmation
+    // 5. Booking Submission — Opens vehicle modal for selection
     bookingForm.addEventListener('submit', async (e) => {
         e.preventDefault();
 
         const user = JSON.parse(localStorage.getItem('cityride_member'));
         if (!user) {
-            alert('Please login to CityRideTaxi to confirm your booking.');
+            alert('Please login to CityRideTaxi to continue.');
             window.location.href = '/auth';
             return;
         }
 
-        let bookingDate = document.getElementById('pickup-date').value;
-        let bookingTime = document.getElementById('pickup-time').value;
-        if (currentCategory === 'local' && document.getElementById('booking-type') && document.getElementById('booking-type').value === 'now') {
-            const now = new Date();
-            bookingDate = now.toISOString().split('T')[0];
-            const hours = String(now.getHours()).padStart(2, '0');
-            const minutes = String(now.getMinutes()).padStart(2, '0');
-            bookingTime = `${hours}:${minutes}`;
+        // Validate location inputs and coordinate selections
+        const pickupVal = document.getElementById('pickup').value.trim();
+        if (!pickupVal) {
+            alert('Please enter a pickup location.');
+            return;
         }
-
-        pendingBookingData = {
-            userId: user.id,
-            pickup: document.getElementById('pickup').value,
-            pickupCoords: document.getElementById('pickup').dataset.coords,
-            drop: document.getElementById('drop').value,
-            dropCoords: document.getElementById('drop').dataset.coords,
-            date: bookingDate,
-            time: bookingTime,
-            passengers: parseInt(passengerInput.value) || 1,
-            vehicle: vehicleSelect.value === 'auto_select' ? 'sedan' : vehicleSelect.value,
-            tripType: currentTripType,
-            returnDate: currentTripType === 'round' ? document.getElementById('return-date').value : null,
-            rentalPackage: currentTripType === 'rental' ? document.getElementById('rental-package').value : null,
-            fare: fareVal.textContent,
-            distance: distanceVal.textContent.trim(),
-            estimatedDuration: window.selectedDuration || null
-        };
-
-        console.log('🚀 Finalizing CityRide Booking Payload:', pendingBookingData);
-        
-        const fareNum = parseFloat(pendingBookingData.fare.replace(/[^\d.]/g, '')) || 0;
-        if (fareNum <= 0) {
-            alert('⚠️ Fare Calculation Error: The estimated fare is 0. Please re-enter your locations or adjust your trip parameters to recalculate.');
+        const pickupCoords = document.getElementById('pickup').dataset.coords;
+        if (!pickupCoords) {
+            alert('Please select a valid pickup location from the suggestions list or map.');
             return;
         }
 
-        // Redirect to booking modal with summary
-        openBookingModal();
+        if (currentCategory !== 'rental') {
+            const dropVal = document.getElementById('drop').value.trim();
+            if (!dropVal) {
+                alert('Please enter a destination.');
+                return;
+            }
+            const dropCoords = document.getElementById('drop').dataset.coords;
+            if (!dropCoords) {
+                alert('Please select a valid destination from the suggestions list or map.');
+                return;
+            }
+        }
+
+        // Trigger fare calculation, which will open the vehicle modal
+        const btn = document.getElementById('search-vehicles-btn');
+        if (btn) { btn.textContent = '🔄 Calculating...'; btn.disabled = true; }
+        await calculateFare();
+        if (btn) { btn.textContent = '🔍 Search Available Vehicles'; btn.disabled = false; }
+
+        // Only open the popup modal if we successfully rendered vehicle cards
+        const grid = document.getElementById('vehicle-cards-grid');
+        if (grid && grid.children.length > 0 && !grid.innerHTML.includes('Could not calculate route')) {
+            openVehicleModal();
+        } else {
+            alert('⚠️ Fare Calculation Error: Could not retrieve route. Please select valid locations from the autocomplete list.');
+        }
     });
 
-    // --- Authentication UI Header Logic ---
+    // --- Authentication UI Header Logic (SPA-aware) ---
     function updateAuthHeader() {
         const member = JSON.parse(localStorage.getItem('cityride_member'));
         const pilot = JSON.parse(localStorage.getItem('cityride_pilot'));
         const master = JSON.parse(localStorage.getItem('cityride_master'));
 
-        const navLinks = document.querySelector('.nav-links');
-        const bookBtn = document.querySelector('.nav-cta');
-        const logoutBtn = document.getElementById('nav-logout');
+        // === NEW SPA HEADER ===
+        const spaDbLink = document.getElementById('spa-dashboard-link');
+        const spaLogout = document.getElementById('spa-logout-wrap');
+        const spaLogin = document.getElementById('spa-login-wrap');
+        const navDbLink = document.getElementById('nav-dashboard-link');
 
-        // Hero Button Toggles (Index.html layout without nav)
+        if (member || pilot || master) {
+            document.body.classList.add('authenticated');
+            if (spaDbLink) spaDbLink.style.display = 'inline';
+            if (spaLogout) spaLogout.style.display = 'inline';
+            if (spaLogin) spaLogin.style.display = 'none';
+
+            if (navDbLink) {
+                if (member) { navDbLink.textContent = 'Dashboard'; navDbLink.href = '/dashboard'; }
+                else if (pilot) { navDbLink.textContent = 'Driver Portal'; navDbLink.href = '/driver'; }
+                else if (master) { navDbLink.textContent = 'Admin'; navDbLink.href = '/admin'; }
+            }
+        } else {
+            document.body.classList.remove('authenticated');
+            if (spaDbLink) spaDbLink.style.display = 'none';
+            if (spaLogout) spaLogout.style.display = 'none';
+            if (spaLogin) spaLogin.style.display = 'block';
+        }
+
+        // === LEGACY HEADER (for other pages that still use old nav) ===
+        const navLinks = document.querySelector('.nav-links');
+        // Hero Button Toggles (old index.html layout)
         const guestActions = document.querySelectorAll('.guest-action');
         const authActions = document.querySelectorAll('.auth-action');
         const heroDashBtn = document.getElementById('hero-dashboard-btn');
 
-        if (member || pilot || master) {
-            document.body.classList.add('authenticated');
-            guestActions.forEach(btn => btn.style.display = 'none');
-            authActions.forEach(btn => btn.style.display = 'block');
-
-            if (heroDashBtn) {
-                if (member) {
-                    heroDashBtn.textContent = 'My Dashboard';
-                    heroDashBtn.onclick = () => window.location.href = '/dashboard';
-                } else if (pilot) {
-                    heroDashBtn.textContent = 'Driver Portal';
-                    heroDashBtn.onclick = () => window.location.href = '/driver';
-                } else if (master) {
-                    heroDashBtn.textContent = 'Admin Control';
-                    heroDashBtn.onclick = () => window.location.href = '/admin';
-                }
-            }
-        } else {
-            document.body.classList.remove('authenticated');
-            guestActions.forEach(btn => btn.style.display = 'block');
-            authActions.forEach(btn => btn.style.display = 'none');
-        }
-
-        if (!navLinks) return;
-
-        // Clear existing auth links
+        // Clear existing auth links (legacy nav only)
+        if (!navLinks) return; // New SPA header doesn't use .nav-links
         navLinks.querySelectorAll('.auth-link').forEach(l => l.remove());
+
 
         if (member || pilot || master) {
             document.body.classList.add('authenticated');

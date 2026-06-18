@@ -1,4 +1,4 @@
-const CACHE_NAME = 'cityride-offline-v1';
+const CACHE_NAME = 'cityride-offline-v11';
 const STATIC_ASSETS = [
     '/',
     '/index.html',
@@ -10,7 +10,13 @@ const STATIC_ASSETS = [
     '/config.js',
     '/logo.png',
     '/icon_background.png',
-    '/splash_icon.png'
+    '/splash_icon.png',
+    '/phosphor/regular/style.css',
+    '/phosphor/bold/style.css',
+    '/phosphor/fill/style.css',
+    '/phosphor/regular/Phosphor.woff2',
+    '/phosphor/bold/Phosphor-Bold.woff2',
+    '/phosphor/fill/Phosphor-Fill.woff2'
 ];
 
 // Install event: cache static assets

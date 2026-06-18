@@ -11,61 +11,7 @@
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="style.css?v=1.0.1">
     <script src="config.js"></script>
-    <style>
-        .password-wrapper {
-            min-width: 0 !important;
-        }
-        .password-wrapper input {
-            width: 100% !important;
-            box-sizing: border-box !important;
-        }
-
-        .auth-container {
-            min-height: 100vh;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            background: linear-gradient(rgba(0, 0, 0, 0.8), rgba(0, 0, 0, 0.8)), #1a1c1e;
-            padding: 2rem;
-        }
-
-        .auth-card {
-            background: rgba(26, 28, 30, 0.95);
-            backdrop-filter: blur(20px);
-            border: 1px solid rgba(255, 255, 255, 0.1);
-            padding: 4rem;
-            border-radius: 30px;
-            width: 100%;
-            max-width: 500px;
-            box-shadow: var(--shadow-lg);
-            color: white;
-        }
-
-        .auth-card label {
-            color: rgba(255, 255, 255, 0.7);
-        }
-
-        .auth-card input {
-            background: rgba(255, 255, 255, 0.05);
-            border: 1px solid rgba(255, 255, 255, 0.1);
-            color: white;
-        }
-
-        .auth-card input::placeholder {
-            color: rgba(255, 255, 255, 0.3);
-        }
-
-        .partner-badge {
-            display: inline-block;
-            background: var(--primary-red);
-            padding: 0.5rem 1rem;
-            border-radius: 8px;
-            font-size: 0.7rem;
-            font-weight: 800;
-            text-transform: uppercase;
-            margin-bottom: 1.5rem;
-        }
-    </style>
+    <style>.password-wrapper{min-width:0 !important;}.password-wrapper input{width:100% !important;box-sizing:border-box !important;}.auth-container{min-height:100vh;display:flex;align-items:center;justify-content:center;background:linear-gradient(rgba(0,0,0,0.8),rgba(0,0,0,0.8)),#1a1c1e;padding:2rem;}.auth-card{background:rgba(26,28,30,0.95);backdrop-filter:blur(20px);border:1px solid rgba(255,255,255,0.1);padding:4rem;border-radius:30px;width:100%;max-width:500px;box-shadow:var(--shadow-lg);color:white;}.auth-card label{color:rgba(255,255,255,0.7);}.auth-card input{background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);color:white;}.auth-card input::placeholder{color:rgba(255,255,255,0.3);}.partner-badge{display:inline-block;background:var(--primary-red);padding:0.5rem 1rem;border-radius:8px;font-size:0.7rem;font-weight:800;text-transform:uppercase;margin-bottom:1.5rem;}</style>
 </head>
 
 <body style="overflow: hidden;"> <!-- Lock scroll during splash -->
@@ -75,7 +21,7 @@
         <div class="splash-ring"></div>
         <div class="splash-ring splash-ring-2"></div>
         <div class="splash-logo-wrap">
-            <img src="logo.png" class="splash-logo" alt="CityRideTaxi">
+            <img src="logo.png" class="splash-logo" alt="CityRideTaxi" width="220" height="160">
             <div class="splash-brand"><span>CityRide</span>Taxi</div>
             <div class="splash-tagline">Premium Cab Booking</div>
         </div>
@@ -102,7 +48,7 @@
             <div style="text-align: center; margin-bottom: 2.5rem;">
                 <div class="partner-badge">Partner Portal</div>
                 <div class="logo" style="display: flex; justify-content: center; margin-top: 10px; cursor: pointer;" onclick="window.location.href='/'">
-                    <img src="logo.png" alt="CityRideTaxi" style="height: 60px; width: auto; filter: drop-shadow(0 0 10px rgba(183, 28, 28, 0.3));">
+                    <img src="logo.png" alt="CityRideTaxi" width="83" height="60" style="height: 60px; width: auto; filter: drop-shadow(0 0 10px rgba(183, 28, 28, 0.3));">
                 </div>
                 <h2 style="margin-top: 1.5rem; font-weight: 800; color: #ffffff; letter-spacing: 0.5px;">Partner Driver Login</h2>
             </div>
@@ -137,66 +83,55 @@
         </div>
     </div>
 
-    <script>
-        // Persistence Logic
-        const LOGIN_KEY = 'cityride_driver_login_draft';
-        function setupPersistence() {
-            const form = document.getElementById('driver-login-form');
-            const saved = localStorage.getItem(LOGIN_KEY);
-            if (saved) {
-                const data = JSON.parse(saved);
-                if (data.phone) document.getElementById('login-phone').value = data.phone;
-                if (data.password) document.getElementById('login-password').value = data.password;
-            }
-
-            form.addEventListener('input', () => {
-                const data = {
-                    phone: document.getElementById('login-phone').value,
-                    password: document.getElementById('login-password').value
-                };
-                localStorage.setItem(LOGIN_KEY, JSON.stringify(data));
-            });
-        }
-
-        window.addEventListener('DOMContentLoaded', setupPersistence);
-
-        document.getElementById('driver-login-form').addEventListener('submit', async (e) => {
-            e.preventDefault();
-            const phone = document.getElementById('login-phone').value;
-            const password = document.getElementById('login-password').value;
-
-            try {
-                const res = await fetch(`${API_BASE_URL}/api/driver/login`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ phone, password })
-                });
-
-                const result = await res.json();
-
-                if (res.ok) {
-                    localStorage.setItem('cityride_pilot', JSON.stringify(result.user));
-                    localStorage.removeItem(LOGIN_KEY);
-                    window.location.href = '/driver';
-                } else {
-                    alert(result.error);
-                }
-            } catch (err) {
-                alert('Authorization failed');
-            }
-        });
-    </script>
-    <script>
-        window.addEventListener('load', () => {
-            const splash = document.getElementById('splash-screen');
-            if (splash) {
-                setTimeout(() => {
-                    splash.classList.add('splash-hidden');
-                    document.body.style.setProperty('overflow', 'auto', 'important');
-                }, 3200);
-            }
-        });
-    </script>
+    <script>const LOGIN_KEY = 'cityride_driver_login_draft';
+function setupPersistence() {
+const form = document.getElementById('driver-login-form');
+const saved = localStorage.getItem(LOGIN_KEY);
+if (saved) {
+const data = JSON.parse(saved);
+if (data.phone) document.getElementById('login-phone').value = data.phone;
+if (data.password) document.getElementById('login-password').value = data.password;
+}
+form.addEventListener('input', () => {
+const data = {
+phone: document.getElementById('login-phone').value,
+password: document.getElementById('login-password').value
+};
+localStorage.setItem(LOGIN_KEY, JSON.stringify(data));
+});
+}
+window.addEventListener('DOMContentLoaded', setupPersistence);
+document.getElementById('driver-login-form').addEventListener('submit', async (e) => {
+e.preventDefault();
+const phone = document.getElementById('login-phone').value;
+const password = document.getElementById('login-password').value;
+try {
+const res = await fetch(`${API_BASE_URL}/api/driver/login`, {
+method: 'POST',
+headers: { 'Content-Type': 'application/json' },
+body: JSON.stringify({ phone, password })
+});
+const result = await res.json();
+if (res.ok) {
+localStorage.setItem('cityride_pilot', JSON.stringify(result.user));
+localStorage.removeItem(LOGIN_KEY);
+window.location.href = '/driver';
+} else {
+alert(result.error);
+}
+} catch (err) {
+alert('Authorization failed');
+}
+});</script>
+    <script>window.addEventListener('load', () => {
+const splash = document.getElementById('splash-screen');
+if (splash) {
+setTimeout(() => {
+splash.classList.add('splash-hidden');
+document.body.style.setProperty('overflow', 'auto', 'important');
+}, 3200);
+}
+});</script>
     <script src="alert.js"></script>
 </body>
 

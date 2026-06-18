@@ -11,137 +11,7 @@
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="style.css?v=1.0.1">
     <script src="config.js"></script>
-    <style>
-        .password-wrapper {
-            min-width: 0 !important;
-        }
-        .password-wrapper input {
-            width: 100% !important;
-            box-sizing: border-box !important;
-        }
-
-        .admin-login-container {
-            min-height: 100vh;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            background: #121212;
-            padding: 2rem;
-            position: relative;
-            overflow: hidden;
-        }
-
-        /* Abstract geometric background for administrative feel */
-        .admin-login-container::before {
-            content: '';
-            position: absolute;
-            top: -10%;
-            right: -10%;
-            width: 50%;
-            height: 50%;
-            background: radial-gradient(circle, rgba(183, 28, 28, 0.1) 0%, transparent 70%);
-            z-index: 1;
-        }
-
-        .login-card {
-            background: #1a1a1a;
-            border: 1px solid rgba(255, 255, 255, 0.05);
-            padding: 4rem;
-            border-radius: 30px;
-            width: 100%;
-            max-width: 450px;
-            box-shadow: 0 40px 100px rgba(0, 0, 0, 0.5);
-            position: relative;
-            z-index: 2;
-        }
-
-        .security-badge {
-            display: inline-block;
-            border: 1px solid var(--primary-red);
-            color: var(--primary-red);
-            padding: 0.4rem 1rem;
-            border-radius: 8px;
-            font-size: 0.65rem;
-            font-weight: 800;
-            text-transform: uppercase;
-            letter-spacing: 2px;
-            margin-bottom: 2rem;
-        }
-
-        .login-card h2 {
-            color: white;
-            font-size: 2rem;
-            font-weight: 700;
-            margin-bottom: 0.5rem;
-        }
-
-        .login-card p {
-            color: rgba(255, 255, 255, 0.4);
-            font-size: 0.9rem;
-            margin-bottom: 3rem;
-        }
-
-        .input-group label {
-            color: rgba(255, 255, 255, 0.6);
-            display: block;
-            margin-bottom: 0.75rem;
-            font-size: 0.85rem;
-            font-weight: 600;
-        }
-
-        .input-group input {
-            width: 100%;
-            padding: 1.2rem;
-            background: #252525;
-            border: 1px solid #333;
-            border-radius: 12px;
-            color: white;
-            font-family: inherit;
-            transition: all 0.3s ease;
-        }
-
-        .input-group input:focus {
-            outline: none;
-            border-color: var(--primary-red);
-            background: #2a2a2a;
-        }
-
-        .btn-admin {
-            width: 100%;
-            padding: 1.2rem;
-            background: var(--primary-red);
-            color: white;
-            border: none;
-            border-radius: 12px;
-            font-weight: 700;
-            font-size: 1rem;
-            cursor: pointer;
-            transition: var(--transition);
-            margin-top: 1rem;
-        }
-
-        .btn-admin:hover {
-            background: var(--primary-red-hover);
-            transform: translateY(-2px);
-            box-shadow: 0 10px 20px rgba(183, 28, 28, 0.3);
-        }
-
-        .footer-link {
-            text-align: center;
-            margin-top: 2rem;
-        }
-
-        .footer-link a {
-            color: rgba(255, 255, 255, 0.3);
-            text-decoration: none;
-            font-size: 0.8rem;
-            transition: all 0.3s ease;
-        }
-
-        .footer-link a:hover {
-            color: white;
-        }
-    </style>
+    <style>.password-wrapper{min-width:0 !important;}.password-wrapper input{width:100% !important;box-sizing:border-box !important;}.admin-login-container{min-height:100vh;display:flex;align-items:center;justify-content:center;background:#121212;padding:2rem;position:relative;overflow:hidden;}.admin-login-container::before{content:'';position:absolute;top:-10%;right:-10%;width:50%;height:50%;background:radial-gradient(circle,rgba(183,28,28,0.1) 0%,transparent 70%);z-index:1;}.login-card{background:#1a1a1a;border:1px solid rgba(255,255,255,0.05);padding:4rem;border-radius:30px;width:100%;max-width:450px;box-shadow:0 40px 100px rgba(0,0,0,0.5);position:relative;z-index:2;}.security-badge{display:inline-block;border:1px solid var(--primary-red);color:var(--primary-red);padding:0.4rem 1rem;border-radius:8px;font-size:0.65rem;font-weight:800;text-transform:uppercase;letter-spacing:2px;margin-bottom:2rem;}.login-card h2{color:white;font-size:2rem;font-weight:700;margin-bottom:0.5rem;}.login-card p{color:rgba(255,255,255,0.4);font-size:0.9rem;margin-bottom:3rem;}.input-group label{color:rgba(255,255,255,0.6);display:block;margin-bottom:0.75rem;font-size:0.85rem;font-weight:600;}.input-group input{width:100%;padding:1.2rem;background:#252525;border:1px solid #333;border-radius:12px;color:white;font-family:inherit;transition:all 0.3s ease;}.input-group input:focus{outline:none;border-color:var(--primary-red);background:#2a2a2a;}.btn-admin{width:100%;padding:1.2rem;background:var(--primary-red);color:white;border:none;border-radius:12px;font-weight:700;font-size:1rem;cursor:pointer;transition:var(--transition);margin-top:1rem;}.btn-admin:hover{background:var(--primary-red-hover);transform:translateY(-2px);box-shadow:0 10px 20px rgba(183,28,28,0.3);}.footer-link{text-align:center;margin-top:2rem;}.footer-link a{color:rgba(255,255,255,0.3);text-decoration:none;font-size:0.8rem;transition:all 0.3s ease;}.footer-link a:hover{color:white;}</style>
 </head>
 
 <body style="overflow: hidden;"> <!-- Lock scroll during splash -->
@@ -151,7 +21,7 @@
         <div class="splash-ring"></div>
         <div class="splash-ring splash-ring-2"></div>
         <div class="splash-logo-wrap">
-            <img src="logo.png" class="splash-logo" alt="CityRideTaxi">
+            <img src="logo.png" class="splash-logo" alt="CityRideTaxi" width="220" height="160">
             <div class="splash-brand"><span>CityRide</span>Taxi</div>
             <div class="splash-tagline">Premium Cab Booking</div>
         </div>
@@ -177,7 +47,7 @@
         <div class="login-card">
             <div class="security-badge">Secure Gateway</div>
             <div class="logo" style="margin-bottom: 2rem; cursor: pointer;" onclick="window.location.href='/'">
-                <img src="logo.png" alt="CityRideTaxi" style="height: 50px; width: auto;">
+                <img src="logo.png" alt="CityRideTaxi" width="69" height="50" style="height: 50px; width: auto;">
             </div>
             <h2>Mainframe Login</h2>
             <p>Administrative clearance required to enter the core.</p>
@@ -202,66 +72,55 @@
         </div>
     </div>
 
-    <script>
-        // Persistence Logic
-        const ADMIN_KEY = 'cityride_admin_login_draft';
-        function setupPersistence() {
-            const form = document.getElementById('admin-login-form');
-            const saved = localStorage.getItem(ADMIN_KEY);
-            if (saved) {
-                const data = JSON.parse(saved);
-                if (data.id) document.getElementById('admin-id').value = data.id;
-                if (data.pass) document.getElementById('admin-pass').value = data.pass;
-            }
-
-            form.addEventListener('input', () => {
-                const data = {
-                    id: document.getElementById('admin-id').value,
-                    pass: document.getElementById('admin-pass').value
-                };
-                localStorage.setItem(ADMIN_KEY, JSON.stringify(data));
-            });
-        }
-
-        window.addEventListener('DOMContentLoaded', setupPersistence);
-
-        document.getElementById('admin-login-form').addEventListener('submit', async (e) => {
-            e.preventDefault();
-            const email = document.getElementById('admin-id').value;
-            const password = document.getElementById('admin-pass').value;
-
-            try {
-                const res = await fetch(`${API_BASE_URL}/api/admin/login`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ email, password })
-                });
-
-                const result = await res.json();
-
-                if (res.ok) {
-                    localStorage.setItem('cityride_master', JSON.stringify(result.user));
-                    localStorage.removeItem(ADMIN_KEY);
-                    window.location.href = '/admin';
-                } else {
-                    alert('Invalid credentials. Access attempt logged.');
-                }
-            } catch (err) {
-                alert('Connection to core failed.');
-            }
-        });
-    </script>
-    <script>
-        window.addEventListener('load', () => {
-            const splash = document.getElementById('splash-screen');
-            if (splash) {
-                setTimeout(() => {
-                    splash.classList.add('splash-hidden');
-                    document.body.style.setProperty('overflow', 'auto', 'important');
-                }, 3200);
-            }
-        });
-    </script>
+    <script>const ADMIN_KEY = 'cityride_admin_login_draft';
+function setupPersistence() {
+const form = document.getElementById('admin-login-form');
+const saved = localStorage.getItem(ADMIN_KEY);
+if (saved) {
+const data = JSON.parse(saved);
+if (data.id) document.getElementById('admin-id').value = data.id;
+if (data.pass) document.getElementById('admin-pass').value = data.pass;
+}
+form.addEventListener('input', () => {
+const data = {
+id: document.getElementById('admin-id').value,
+pass: document.getElementById('admin-pass').value
+};
+localStorage.setItem(ADMIN_KEY, JSON.stringify(data));
+});
+}
+window.addEventListener('DOMContentLoaded', setupPersistence);
+document.getElementById('admin-login-form').addEventListener('submit', async (e) => {
+e.preventDefault();
+const email = document.getElementById('admin-id').value;
+const password = document.getElementById('admin-pass').value;
+try {
+const res = await fetch(`${API_BASE_URL}/api/admin/login`, {
+method: 'POST',
+headers: { 'Content-Type': 'application/json' },
+body: JSON.stringify({ email, password })
+});
+const result = await res.json();
+if (res.ok) {
+localStorage.setItem('cityride_master', JSON.stringify(result.user));
+localStorage.removeItem(ADMIN_KEY);
+window.location.href = '/admin';
+} else {
+alert('Invalid credentials. Access attempt logged.');
+}
+} catch (err) {
+alert('Connection to core failed.');
+}
+});</script>
+    <script>window.addEventListener('load', () => {
+const splash = document.getElementById('splash-screen');
+if (splash) {
+setTimeout(() => {
+splash.classList.add('splash-hidden');
+document.body.style.setProperty('overflow', 'auto', 'important');
+}, 3200);
+}
+});</script>
     <script src="alert.js"></script>
 </body>
 
