@@ -21,6 +21,7 @@ const crypto = require('crypto');
 require('dotenv').config();
 
 const app = express();
+const isDev = process.env.NODE_ENV !== 'production';
 
 // Global memory cache for ongoing ride GPS tracking and Kalman state
 const activeRidesGpsState = new Map();
@@ -31,21 +32,125 @@ app.use(helmet({
     contentSecurityPolicy: {
         directives: {
             defaultSrc: ["'self'"],
+            baseUri: ["'self'"],
+            formAction: ["'self'"],
+            frameAncestors: ["'self'"],
             scriptSrc: ["'self'", "'unsafe-inline'", "'unsafe-eval'", "https://unpkg.com", "https://cdn.jsdelivr.net", "https://cdnjs.cloudflare.com"],
             scriptSrcAttr: ["'unsafe-inline'"],
             styleSrc: ["'self'", "'unsafe-inline'", "https://unpkg.com", "https://fonts.googleapis.com"],
             fontSrc: ["'self'", "https://fonts.gstatic.com"],
-            imgSrc: ["'self'", "data:", "blob:", "https://*", "http://*"],
-            connectSrc: ["'self'", "https://photon.komoot.io", "https://unpkg.com", "https://cdn.jsdelivr.net"],
+            imgSrc: ["'self'", "data:", "blob:", "https:", "http:"],
+            connectSrc: ["'self'", "http://localhost:*", "http://127.0.0.1:*", "ws://localhost:*", "ws://127.0.0.1:*", "capacitor://*", "https://*.railway.app", "https://photon.komoot.io", "https://router.project-osrm.org", "https://unpkg.com", "https://cdn.jsdelivr.net"],
             objectSrc: ["'none'"],
-            upgradeInsecureRequests: [],
+            upgradeInsecureRequests: null,
         },
+    },
+    hsts: isDev ? false : {
+        maxAge: 31536000,
+        includeSubDomains: true,
+        preload: true
+    }
+}));
+
+// Strict CSP in Report-Only mode to log any potential issues without blocking them
+app.use(helmet.contentSecurityPolicy({
+    reportOnly: true,
+    directives: {
+        defaultSrc: ["'self'"],
+        baseUri: ["'self'"],
+        formAction: ["'self'"],
+        frameAncestors: ["'self'"],
+        scriptSrc: ["'self'", "'unsafe-inline'", "'unsafe-eval'", "https://unpkg.com", "https://cdn.jsdelivr.net", "https://cdnjs.cloudflare.com"],
+        scriptSrcAttr: ["'unsafe-inline'"],
+        styleSrc: ["'self'", "'unsafe-inline'", "https://unpkg.com", "https://fonts.googleapis.com"],
+        fontSrc: ["'self'", "https://fonts.gstatic.com"],
+        imgSrc: ["'self'", "data:", "blob:", "https:", "http:"],
+        connectSrc: ["'self'", "http://localhost:*", "http://127.0.0.1:*", "ws://localhost:*", "ws://127.0.0.1:*", "capacitor://*", "https://*.railway.app", "https://photon.komoot.io", "https://router.project-osrm.org", "https://unpkg.com", "https://cdn.jsdelivr.net"],
+        objectSrc: ["'none'"],
+        upgradeInsecureRequests: null,
     }
 }));
 app.disable('x-powered-by');
+
+const fs = require('fs');
+
+const getContentType = (ext) => {
+    switch (ext) {
+        case '.js': return 'application/javascript; charset=UTF-8';
+        case '.css': return 'text/css; charset=UTF-8';
+        case '.html': return 'text/html; charset=UTF-8';
+        case '.svg': return 'image/svg+xml; charset=UTF-8';
+        case '.json': return 'application/json; charset=UTF-8';
+        case '.png': return 'image/png';
+        case '.jpg': case '.jpeg': return 'image/jpeg';
+        case '.webp': return 'image/webp';
+        case '.ico': return 'image/x-icon';
+        default: return 'application/octet-stream';
+    }
+};
+
+// Custom pre-compressed Brotli/Gzip static serving middleware
+app.use((req, res, next) => {
+    if (req.method !== 'GET' && req.method !== 'HEAD') {
+        return next();
+    }
+    
+    let reqPath = req.path;
+    if (reqPath === '/') {
+        reqPath = '/index.html';
+    }
+    
+    const ext = path.extname(reqPath);
+    if (!['.js', '.css', '.html', '.svg', '.json'].includes(ext)) {
+        return next();
+    }
+    
+    const filePath = path.join(__dirname, 'public', reqPath);
+    const acceptEncoding = req.headers['accept-encoding'] || '';
+    
+    if (ext === '.html') {
+        res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
+        res.setHeader('Pragma', 'no-cache');
+    } else {
+        res.setHeader('Cache-Control', 'public, max-age=2592000'); // 30 days
+    }
+    
+    res.setHeader('Content-Type', getContentType(ext));
+    res.setHeader('Vary', 'Accept-Encoding');
+
+    if (acceptEncoding.includes('br') && fs.existsSync(filePath + '.br')) {
+        res.setHeader('Content-Encoding', 'br');
+        return fs.createReadStream(filePath + '.br').pipe(res);
+    }
+    
+    if (acceptEncoding.includes('gzip') && fs.existsSync(filePath + '.gz')) {
+        res.setHeader('Content-Encoding', 'gzip');
+        return fs.createReadStream(filePath + '.gz').pipe(res);
+    }
+    
+    next();
+});
+
+// Configure caching for fallback static assets serving
+app.use(express.static(path.join(__dirname, 'public'), {
+    maxAge: '365d',
+    etag: true,
+    lastModified: true,
+    setHeaders: (res, filePath) => {
+        if (filePath.endsWith('.html')) {
+            res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
+            res.setHeader('Pragma', 'no-cache');
+        } else if (filePath.endsWith('.js') || filePath.endsWith('.css')) {
+            res.setHeader('Cache-Control', 'public, max-age=2592000'); // 30 days
+        } else {
+            res.setHeader('Cache-Control', 'public, max-age=31536000, immutable'); // 365 days
+        }
+    }
+}));
+
+// Compression middleware (moved after static files serving)
 app.use(compression({
     filter: (req, res) => {
-        // Do not compress Server-Sent Events (SSE) stream or it will buffer/block live updates
         if (req.originalUrl && req.originalUrl.includes('/api/monitor/stream')) {
             return false;
         }
@@ -96,21 +201,7 @@ app.use((req, res, next) => {
     })(req, res, next);
 });
 
-// Browser caching for static assets (no-cache for HTML so changes deploy instantly)
-app.use(express.static(path.join(__dirname, 'public'), {
-    maxAge: '1d', // 1 day cache for assets
-    etag: true,
-    lastModified: true,
-    setHeaders: (res, filePath) => {
-        if (filePath.endsWith('.html')) {
-            res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
-            res.setHeader('Pragma', 'no-cache');
-        }
-    }
-}));
-
 // --- LIVE MONITOR: SSE BROADCAST SYSTEM ---
-const fs = require('fs');
 const LOG_FILE = path.join(__dirname, 'server.log');
 
 const monitorClients = new Set();
@@ -591,6 +682,7 @@ function authenticateJWT(req, res, next) {
 function requireRole(roles) {
     return (req, res, next) => {
         if (!req.user || !roles.includes(req.user.role)) {
+            console.warn(`[AUTH WARNING] Path ${req.originalUrl} requires role [${roles.join(', ')}], but req.user has role "${req.user ? req.user.role : 'none'}"`);
             return res.status(403).json({ error: 'Access denied. Unauthorized access role.' });
         }
         next();
@@ -732,7 +824,7 @@ let db;
 
 // --- MAIL ENGINE (Supports Gmail & Brevo) ---
 async function sendBrevoMail(recipient, subject, htmlContent, attachments = []) {
-    // 1. If GMAIL_APP_PASSWORD is provided, use NodeMailer with Gmail (Most Reliable for @gmail.com senders)
+    // 1. If GMAIL SMTP app passcode is provided, use NodeMailer with Gmail (Most Reliable for @gmail.com senders)
     if (process.env.GMAIL_APP_PASSWORD && process.env.BREVO_SENDER_EMAIL) {
         try {
             const transporter = nodemailer.createTransport({
@@ -2548,6 +2640,180 @@ app.post('/api/bookings/create', authenticateJWT, requireRole(['user']), (req, r
     }
 });
 
+// Fare Breakdown endpoint — returns itemized fare for customer popup
+app.get('/api/bookings/fare-breakdown/:bookingId', authenticateJWT, requireRole(['user', 'driver', 'admin']), async (req, res) => {
+    try {
+        const { bookingId } = req.params;
+        const [rows] = await db.query(
+            `SELECT b.*, 
+                COALESCE(d.name, 'Unassigned') as driver_name,
+                COALESCE(d.car_model, '') as car_model,
+                COALESCE(d.car_number, '') as car_number
+             FROM taxi_bookings b
+             LEFT JOIN taxi_drivers d ON b.driver_id = d.id
+             WHERE b.id = ?`, [bookingId]
+        );
+        if (rows.length === 0) return res.status(404).json({ error: 'Booking not found.' });
+        const b = rows[0];
+
+        // Fetch tariff for the trip type
+        const categoryKey = b.trip_type === 'rental' ? 'rental' : b.trip_type;
+        const [tariffRows] = await db.query('SELECT config FROM tariffs WHERE vehicle_type = ? AND category = ?', [b.vehicle_type, categoryKey]);
+        const [peakRules] = await db.query('SELECT * FROM taxi_peak_rules WHERE is_active = 1');
+
+        let pricingConfig = null;
+        if (tariffRows.length > 0) {
+            pricingConfig = typeof tariffRows[0].config === 'string' ? JSON.parse(tariffRows[0].config) : tariffRows[0].config;
+        }
+
+        // Use actual distance if available, else estimated
+        const distKm = parseNumeric(b.actual_distance || b.distance || b.estimated_distance || '0');
+        const estimDistKm = parseNumeric(b.estimated_distance || b.distance || '0');
+        const estimDurationMins = calcEstimatedDurationMins(estimDistKm);
+
+        const totalFareNum = parseNumeric(b.fare);
+        const peakMult = getPeakMultiplier(b.pickup_time, peakRules);
+
+        // Reconstruct waiting charges
+        let preRideWaitingCharge = 0;
+        if (b.reached_pickup_time && b.journey_start_time) {
+            const reachedTime = new Date(b.reached_pickup_time);
+            const journeyStartTime = new Date(b.journey_start_time);
+            const preRideElapsedMs = journeyStartTime - reachedTime;
+            const preRideElapsedMins = preRideElapsedMs / (1000 * 60);
+            if (preRideElapsedMins > 5) {
+                preRideWaitingCharge = Math.max(0, Math.ceil((preRideElapsedMins - 5) * 2));
+            }
+        }
+
+        let waitingCharge = 0;
+        if (b.trip_type === 'local') {
+            waitingCharge = preRideWaitingCharge;
+        } else if (b.trip_type === 'rental') {
+            if (b.journey_start_time) {
+                const startTime = new Date(b.journey_start_time);
+                const endTime = b.journey_end_time ? new Date(b.journey_end_time) : new Date();
+                const durationMs = endTime - startTime;
+                const durationMins = durationMs / (1000 * 60);
+                const allowedMins = distKm * 2;
+                if (durationMins > allowedMins) {
+                    waitingCharge = (durationMins - allowedMins) * 2;
+                }
+            }
+        }
+
+        // Reconstruct fare components from tariff
+        let baseFare = 0, distanceFare = 0, peakCharge = 0, gstAmount = 0, driverAllowance = 0;
+        let extraKmCharge = 0, extraHrCharge = 0, minKmVal = 0, minKmCharge = 0, packageBase = 0;
+        
+        if (pricingConfig && b.trip_type === 'local') {
+            const config = pricingConfig;
+            const minKm = typeof config.minKm === 'number' ? config.minKm : 0;
+            const billable = Math.max(distKm, minKm);
+            baseFare = config.base || 0;
+            distanceFare = Math.max(billable * (config.perKm || 0), baseFare);
+            peakCharge = distanceFare * peakMult;
+            minKmVal = minKm;
+            minKmCharge = minKm * (config.perKm || 0);
+            const subTotal = distanceFare + peakCharge + waitingCharge;
+            gstAmount = subTotal * 0.05;
+        } else if (pricingConfig && b.trip_type === 'oneway') {
+            const config = pricingConfig;
+            const minKm = typeof config.minKm === 'number' ? config.minKm : 130;
+            const billable = Math.max(distKm, minKm);
+            distanceFare = billable * (config.perKm || 13);
+            driverAllowance = (b.vehicle_type === 'bike') ? 0 : (billable > 250 ? 600 : 400);
+            minKmVal = minKm;
+            minKmCharge = minKm * (config.perKm || 13);
+            const subTotal = distanceFare + driverAllowance + waitingCharge;
+            gstAmount = subTotal * 0.05;
+        } else if (pricingConfig && b.trip_type === 'round') {
+            const config = pricingConfig;
+            const minKmPerDay = typeof config.minKmPerDay === 'number' ? config.minKmPerDay : 250;
+            let tripDays = 1;
+            if (b.return_date && b.pickup_date) {
+                const start = new Date(b.pickup_date);
+                const end = new Date(b.return_date);
+                if (end > start) {
+                    const diffTime = Math.abs(end - start);
+                    tripDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) + 1;
+                }
+            }
+            const minKmForTrip = minKmPerDay * tripDays;
+            const billable = Math.max(distKm, minKmForTrip);
+            distanceFare = billable * (config.perKm || 12);
+            driverAllowance = (b.vehicle_type === 'bike' ? 0 : ((billable > 250 ? 600 : 400) * tripDays));
+            minKmVal = minKmForTrip;
+            minKmCharge = minKmForTrip * (config.perKm || 12);
+            const subTotal = distanceFare + driverAllowance + waitingCharge;
+            gstAmount = subTotal * 0.05;
+        } else if (pricingConfig && b.trip_type === 'rental') {
+            const config = pricingConfig;
+            const packageVal = b.rental_package || '2-20';
+            const packageConfig = config[packageVal];
+            if (packageConfig) {
+                const [pMaxHrs, pMaxKm] = packageVal.split('-').map(Number);
+                packageBase = packageConfig.base || 0;
+                
+                // Extra distance
+                const extraKm = Math.max(0, distKm - pMaxKm);
+                extraKmCharge = extraKm * (packageConfig.extraKm || 0);
+                
+                // Extra duration
+                let durationMins = 0;
+                if (b.journey_start_time && b.journey_end_time) {
+                    durationMins = (new Date(b.journey_end_time) - new Date(b.journey_start_time)) / (1000 * 60);
+                } else if (b.journey_start_time) {
+                    durationMins = (new Date() - new Date(b.journey_start_time)) / (1000 * 60);
+                }
+                const durationHrs = durationMins / 60;
+                const extraHrs = Math.max(0, Math.ceil(durationHrs - pMaxHrs));
+                extraHrCharge = extraHrs * (packageConfig.extraHour || 0);
+                
+                const subTotal = packageBase + extraKmCharge + extraHrCharge + waitingCharge;
+                gstAmount = subTotal * 0.05;
+            }
+        }
+
+        res.json({
+            bookingId: b.id,
+            pickup: b.pickup_loc,
+            drop: b.drop_loc,
+            vehicle: b.vehicle_type,
+            tripType: b.trip_type,
+            distance: distKm.toFixed(1),
+            estimatedDistance: estimDistKm.toFixed(1),
+            estimatedDurationMins: estimDurationMins,
+            estimatedDuration: formatDurationMins(estimDurationMins),
+            baseFare: Math.round(baseFare),
+            distanceFare: Math.round(distanceFare),
+            peakCharge: Math.round(peakCharge),
+            peakPercent: Math.round(peakMult * 100),
+            driverAllowance: Math.round(driverAllowance),
+            waitingCharge: Math.round(waitingCharge),
+            gstAmount: Math.round(gstAmount),
+            gstPercent: 5,
+            totalFare: totalFareNum,
+            fareStr: b.fare,
+            status: b.status,
+            driverName: b.driver_name,
+            // Additional rental/round fields
+            rentalPackage: b.rental_package || null,
+            packageBase: Math.round(packageBase),
+            extraKmCharge: Math.round(extraKmCharge),
+            extraHrCharge: Math.round(extraHrCharge),
+            minKmVal: minKmVal,
+            minKmCharge: Math.round(minKmCharge),
+            perKmRate: pricingConfig ? (pricingConfig.perKm || 0) : 0
+        });
+    } catch (err) {
+        console.error('Fare breakdown error:', err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+
+
 // Search drivers by vehicle/car number
 app.get('/api/drivers/search-by-vehicle', authenticateJWT, requireRole(['vendor', 'admin']), async (req, res) => {
     try {
@@ -2739,6 +3005,7 @@ app.get('/api/user/bookings/:userId', authenticateJWT, (req, res, next) => {
 // 2.3 Accept Ride (Driver Action)
 app.post('/api/bookings/accept', authenticateJWT, requireRole(['driver']), (req, res, next) => {
     if (req.user.id !== parseInt(req.body.driverId)) {
+        console.warn(`[AUTH WARNING] Driver ID mismatch on /api/bookings/accept: req.user.id is ${req.user.id} (${typeof req.user.id}), but req.body.driverId is ${req.body.driverId} (${typeof req.body.driverId})`);
         return res.status(403).json({ error: 'Access Denied: Driver ID mismatch.' });
     }
     next();
@@ -3067,7 +3334,7 @@ app.post('/api/admin/update-driver-wallet', async (req, res) => {
     }
 });
 
-// 3.4.1.2 Password Reset (Driver)
+// 3.4.1.2 Credentials Reset (Driver)
 app.post('/api/admin/update-driver-password', async (req, res) => {
     try {
         const { id, password } = req.body;
@@ -3082,7 +3349,7 @@ app.post('/api/admin/update-driver-password', async (req, res) => {
     }
 });
 
-// 3.4.1.3 Password Reset (Passenger)
+// 3.4.1.3 Credentials Reset (Passenger)
 app.post('/api/admin/update-passenger-password', async (req, res) => {
     try {
         const { id, password } = req.body;
@@ -3231,8 +3498,8 @@ app.get('/api/driver/jobs/:driverId', async (req, res) => {
                 if (!booking.pickup_coords) return true; // No coords: always show
                 const parts = booking.pickup_coords.split(',');
                 if (parts.length < 2) return true;
-                const pickupLat = parseFloat(parts[0]);
-                const pickupLng = parseFloat(parts[1]);
+                const pickupLng = parseFloat(parts[0]);
+                const pickupLat = parseFloat(parts[1]);
                 if (isNaN(pickupLat) || isNaN(pickupLng)) return true;
 
                 const tripType = (booking.trip_type || '').toLowerCase();
@@ -3304,6 +3571,62 @@ function getDistance(lat1, lon1, lat2, lon2) {
         Math.sin(dLon / 2) * Math.sin(dLon / 2);
     const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
     return R * c;
+}
+
+// ============================================================
+// CENTRALIZED BUSINESS LOGIC HELPERS
+// Global rule: Estimated Duration = Estimated Distance × 2 minutes
+// Waiting rule: Allowed Duration = Trip Distance × 2 minutes (actual, not estimated)
+// ============================================================
+
+/**
+ * Calculate estimated duration in minutes from distance.
+ * Rule: 1 km = 2 minutes (global rule across all modules)
+ * @param {number} distanceKm
+ * @returns {number} minutes
+ */
+function calcEstimatedDurationMins(distanceKm) {
+    return Math.ceil(parseFloat(distanceKm) || 0) * 2;
+}
+
+/**
+ * Format duration minutes to human-readable string.
+ * @param {number} mins
+ * @returns {string} e.g. "20 min" or "1h 30m"
+ */
+function formatDurationMins(mins) {
+    const m = Math.ceil(mins);
+    if (m <= 0) return '0 min';
+    if (m < 60) return `${m} min`;
+    const hrs = Math.floor(m / 60);
+    const rem = m % 60;
+    return rem > 0 ? `${hrs}h ${rem}m` : `${hrs}h`;
+}
+
+/**
+ * Calculate waiting charge using ACTUAL trip distance (not estimated).
+ * Rule: Allowed Duration = actualTripDistKm × 2 minutes
+ *       Waiting Time = max(0, actualDurationMins - allowedMins)
+ *       Charge = waitingMins × ₹2/min
+ * @param {number} actualTripDistKm - Actual odometer/GPS distance
+ * @param {number} actualDurationMins - Actual ride duration in minutes
+ * @returns {{ allowedMins: number, waitingMins: number, waitingCharge: number }}
+ */
+function calcWaitingCharge(actualTripDistKm, actualDurationMins) {
+    const allowedMins = (parseFloat(actualTripDistKm) || 0) * 2;
+    const waitingMins = Math.max(0, actualDurationMins - allowedMins);
+    const waitingCharge = waitingMins * 2; // ₹2 per minute
+    return { allowedMins, waitingMins, waitingCharge };
+}
+
+/**
+ * Parse a numeric value from a string that may include units like "₹", "KM", etc.
+ * @param {string|number} val
+ * @returns {number}
+ */
+function parseNumeric(val) {
+    if (val === null || val === undefined) return 0;
+    return parseFloat(String(val).replace(/[^0-9.]/g, '')) || 0;
 }
 
 // Retrieve or initialize the in-memory GPS Kalman filter state and cumulative distance for a booking
@@ -4105,38 +4428,56 @@ app.post('/api/bookings/finish-trip', authenticateJWT, requireRole(['driver']), 
                 distanceCovered = parseInt(endOdometer) - parseInt(booking.start_odometer);
                 if (distanceCovered < 0) return res.status(400).json({ error: 'End Odometer cannot be less than Start Odometer.' });
             } else {
-                // Use stored GPS coords: start_gps_coords (captured at Start Journey press)
-                //                         end_gps_coords (captured at Finish Trip press)
-                let startCoords = booking.start_gps_coords || null;
-                if (startCoords === 'null,null') {
-                    startCoords = null;
-                }
-
-                // Use in-memory cached cumulative distance if available, falling back to calculation
-                let serverDistance = 0;
-                const cachedState = activeRidesGpsState.get(bookingId);
-                if (cachedState) {
-                    serverDistance = cachedState.cumulativeDistance;
-                    console.log(`[Finish Trip #${bookingId}] Using cached server distance: ${serverDistance.toFixed(2)} KM`);
+                // LOCAL TRIP DISTANCE RESOLUTION (Priority order):
+                // Priority 1: Optional end odometer (most accurate if driver inputs it)
+                if (endOdometer && booking.start_odometer && /^\d{8}$/.test(String(endOdometer).trim())) {
+                    const odometerDiff = parseInt(endOdometer) - parseInt(booking.start_odometer);
+                    if (odometerDiff >= 0) {
+                        distanceCovered = odometerDiff;
+                        console.log(`[Finish Trip #${bookingId}] ODOMETER: ${distanceCovered} KM (start:${booking.start_odometer} end:${endOdometer})`);
+                    }
                 } else {
-                    serverDistance = await calculateOdometerDistance(bookingId, startCoords, booking.journey_start_time, gpsLogs);
-                }
-                distanceCovered = serverDistance;
+                    // Priority 2: GPS Kalman filter from server
+                    let startCoords = booking.start_gps_coords || null;
+                    if (startCoords === 'null,null') startCoords = null;
 
-                if (clientDistance !== undefined && clientDistance !== null) {
-                    const parsedClientDist = parseFloat(clientDistance);
-                    if (!isNaN(parsedClientDist) && parsedClientDist > 0) {
-                        // Security check: driver's client distance should be within 15% + 2km of server-calculated distance
-                        const maxAllowedClientDist = serverDistance * 1.15 + 2.0;
-                        if (parsedClientDist <= maxAllowedClientDist) {
-                            distanceCovered = parsedClientDist;
-                            console.log(`[Fare Billing #${bookingId}] Using high-accuracy client-side distance: ${distanceCovered.toFixed(2)} KM (Server calculated: ${serverDistance.toFixed(2)} KM)`);
-                        } else {
-                            console.warn(`[Fare Billing Security #${bookingId}] Client distance (${parsedClientDist.toFixed(2)} KM) exceeded server bounds (max: ${maxAllowedClientDist.toFixed(2)} KM). Defaulting to server distance.`);
+                    let serverDistance = 0;
+                    const cachedState = activeRidesGpsState.get(bookingId);
+                    if (cachedState) {
+                        serverDistance = cachedState.cumulativeDistance;
+                        console.log(`[Finish Trip #${bookingId}] GPS CACHE: ${serverDistance.toFixed(2)} KM`);
+                    } else {
+                        serverDistance = await calculateOdometerDistance(bookingId, startCoords, booking.journey_start_time, gpsLogs);
+                        console.log(`[Finish Trip #${bookingId}] GPS CALC: ${serverDistance.toFixed(2)} KM from ${gpsLogs.length} logs`);
+                    }
+                    distanceCovered = serverDistance;
+
+                    // Priority 3: Client-reported odometer distance from driver app
+                    if (clientDistance !== undefined && clientDistance !== null) {
+                        const parsedClientDist = parseFloat(clientDistance);
+                        if (!isNaN(parsedClientDist) && parsedClientDist > 0) {
+                            const gpsLogCount = gpsLogs.length;
+                            if (gpsLogCount < 3) {
+                                // CRITICAL FIX: GPS tracking was insufficient — trust driver app odometer directly
+                                // The old code blocked any >2km client distance when server=0, causing the 1km bug.
+                                distanceCovered = Math.min(parsedClientDist, 200);
+                                console.log(`[Finish Trip #${bookingId}] GPS INSUFFICIENT (${gpsLogCount} logs) — CLIENT ODOMETER: ${distanceCovered.toFixed(2)} KM`);
+                            } else {
+                                // GPS available — apply 15%+2km security tolerance
+                                const maxAllowedClientDist = serverDistance * 1.15 + 2.0;
+                                if (parsedClientDist <= maxAllowedClientDist) {
+                                    distanceCovered = parsedClientDist;
+                                    console.log(`[Finish Trip #${bookingId}] CLIENT GPS accepted: ${distanceCovered.toFixed(2)} KM (server: ${serverDistance.toFixed(2)} KM)`);
+                                } else {
+                                    console.warn(`[Finish Trip Security #${bookingId}] Client ${parsedClientDist.toFixed(2)} KM > max ${maxAllowedClientDist.toFixed(2)} KM. Using server GPS.`);
+                                }
+                            }
                         }
                     }
                 }
             }
+
+            console.log(`[Finish Trip #${bookingId}] FINAL distance: ${distanceCovered.toFixed(2)} KM`);
 
             // Calculate final time period of the ride
             const startTime = new Date(booking.journey_start_time);
@@ -4144,22 +4485,21 @@ app.post('/api/bookings/finish-trip', authenticateJWT, requireRole(['driver']), 
             const durationMs = endTime - startTime;
             const durationMins = durationMs / (1000 * 60);
 
-            let allowedMins = distanceCovered * 2; // Default for local: 2 min per actual travelled km
+            // WAITING CHARGE: Uses ACTUAL trip distance (not estimated)
+            // Rule: Allowed Duration = actualTripDistKm × 2 minutes
+            let waitingCharge = 0;
             if (booking.trip_type === 'rental') {
                 const packageVal = booking.rental_package || '2-20';
                 const [pMaxHrs] = packageVal.split('-').map(Number);
-                allowedMins = (pMaxHrs || 2) * 60;
-            } else if (booking.trip_type === 'outstation') {
-                allowedMins = Infinity; // Outstation bills by day allowance, no minutely waiting
+                const rentalAllowedMins = (pMaxHrs || 2) * 60;
+                if (durationMins > rentalAllowedMins) {
+                    waitingCharge = (durationMins - rentalAllowedMins) * 2;
+                }
+            } else if (booking.trip_type === 'local') {
+                // Local trips only accumulate pre-ride waiting charges; trip duration is not billed as waiting time.
+                waitingCharge = preRideWaitingCharge;
             }
-
-            let waitingCharge = 0;
-            if (durationMins > allowedMins) {
-                waitingCharge = (durationMins - allowedMins) * 2; // 2 rupees per minute
-            }
-            if (booking.trip_type === 'local') {
-                waitingCharge += preRideWaitingCharge;
-            }
+            // oneway/round: no per-minute waiting (billed by km day allowance)
 
             // Recalculate Final Fare (check vendor tariff first, then system fallback)
             let totalFare = 0;
@@ -4220,6 +4560,9 @@ app.post('/api/bookings/finish-trip', authenticateJWT, requireRole(['driver']), 
 
             const finalFareStr = `₹${Math.ceil(totalFare)}`;
             const distanceStr = `${distanceCovered.toFixed(1)} KM`;
+            const { allowedMins: finalAllowedMins, waitingMins: finalWaitingMins } = calcWaitingCharge(distanceCovered, durationMins);
+
+            console.log(`[Finish Trip #${bookingId}] Fare: ${finalFareStr} | Dist: ${distanceStr} | Duration: ${durationMins.toFixed(1)}min | WaitCharge: ₹${Math.ceil(waitingCharge)}`);
 
             // --- VENDOR PROFIT DEDUCTION ---
             let vendorProfitDeducted = 0;
@@ -4235,14 +4578,16 @@ app.post('/api/bookings/finish-trip', authenticateJWT, requireRole(['driver']), 
             }
 
             if (booking.trip_type !== 'local') {
+                // Sync both actual_distance AND distance for cross-panel consistency
                 updatePromises.push(db.query(
-                    'UPDATE taxi_bookings SET status = ?, end_odometer = ?, journey_end_time = NOW(), fare = ?, actual_distance = ?, end_gps_coords = ? WHERE id = ?',
-                    [nextStatus, endOdometer, finalFareStr, distanceStr, endCoords, bookingId]
+                    'UPDATE taxi_bookings SET status = ?, end_odometer = ?, journey_end_time = NOW(), fare = ?, actual_distance = ?, distance = ?, end_gps_coords = ? WHERE id = ?',
+                    [nextStatus, endOdometer || null, finalFareStr, distanceStr, distanceStr, endCoords, bookingId]
                 ));
             } else {
+                // Sync both actual_distance AND distance for cross-panel consistency
                 updatePromises.push(db.query(
-                    'UPDATE taxi_bookings SET status = ?, journey_end_time = NOW(), fare = ?, actual_distance = ?, end_gps_coords = ? WHERE id = ?',
-                    [nextStatus, finalFareStr, distanceStr, endCoords, bookingId]
+                    'UPDATE taxi_bookings SET status = ?, journey_end_time = NOW(), fare = ?, actual_distance = ?, distance = ?, end_gps_coords = ? WHERE id = ?',
+                    [nextStatus, finalFareStr, distanceStr, distanceStr, endCoords, bookingId]
                 ));
             }
             await Promise.all(updatePromises);
@@ -4255,7 +4600,9 @@ app.post('/api/bookings/finish-trip', authenticateJWT, requireRole(['driver']), 
                 finalFare: finalFareStr,
                 distance: distanceCovered.toFixed(1),
                 duration: durationMins.toFixed(1),
-                waitingCharge: waitingCharge.toFixed(1),
+                allowedMins: Math.ceil(finalAllowedMins),
+                waitingMins: Math.ceil(finalWaitingMins),
+                waitingCharge: Math.ceil(waitingCharge),
                 vendorProfit: vendorProfitDeducted,
                 status: nextStatus
             });
@@ -4347,7 +4694,18 @@ app.post('/api/bookings/update-gps-location', authenticateJWT, requireRole(['dri
 
         const totalDistance = actualDistKm;
 
-        // 5.1 Calculate elapsed time, allowed time, and waiting charge (2 min per km, excess is 2 rupees/min)
+        // Calculate pre-ride waiting charge (5 min grace time, then ₹2/min)
+        let preRideWaitingCharge = 0;
+        if (booking.reached_pickup_time && booking.journey_start_time) {
+            const reachedTime = new Date(booking.reached_pickup_time);
+            const startTime = new Date(booking.journey_start_time);
+            if (startTime > reachedTime) {
+                const preRideElapsedMins = (startTime - reachedTime) / (1000 * 60);
+                preRideWaitingCharge = Math.max(0, Math.ceil((preRideElapsedMins - 5) * 2));
+            }
+        }
+
+        // 5.1 Calculate elapsed time and waiting charge
         let elapsedMins = 0;
         if (booking.journey_start_time) {
             const startTime = new Date(booking.journey_start_time);
@@ -4355,20 +4713,17 @@ app.post('/api/bookings/update-gps-location', authenticateJWT, requireRole(['dri
             elapsedMins = Math.max(0, durationMs / (1000 * 60));
         }
         let allowedMins = 0;
+        let waitingCharge = 0;
         if (booking.trip_type === 'rental') {
             const packageVal = booking.rental_package || '2-20';
             const [pMaxHrs] = packageVal.split('-').map(Number);
             allowedMins = pMaxHrs * 60;
-        } else {
-            const originalDistStr = booking.estimated_distance || booking.distance || '0';
-            const originalDistKm = parseFloat(originalDistStr.replace(/[^\d.]/g, '')) || 0;
-            allowedMins = originalDistKm * 2;
-        }
-        let waitingCharge = 0;
-        if (booking.trip_type === 'local') {
             if (elapsedMins > allowedMins) {
                 waitingCharge = (elapsedMins - allowedMins) * 2;
             }
+        } else if (booking.trip_type === 'local') {
+            // Local trips only accumulate pre-ride waiting charges; trip duration is not billed as waiting time.
+            waitingCharge = preRideWaitingCharge;
         }
 
         // 6. Recalculate Fare (check vendor tariff first, then system fallback)
@@ -4936,17 +5291,17 @@ app.delete('/api/dbmanager/delete/:table/:id', async (req, res) => {
     }
 });
 
-// Tables that have password fields we allow managing
+// Tables that have credentials fields we allow managing
 const PASSWORD_TABLES = ['taxi_passengers', 'passengers', 'taxi_drivers', 'taxi_admins', 'taxi_vendors', 'taxi_driver_applications'];
 
-// GET /api/dbmanager/password/:table/:id - get the hashed password for a row (for display)
+// GET /api/dbmanager/password/:table/:id - get the hashed credential for a row (for display)
 app.get('/api/dbmanager/password/:table/:id', async (req, res) => {
     const { table, id } = req.params;
     if (!isManageableTable(table) || !PASSWORD_TABLES.includes(table)) {
         return res.status(403).json({ error: 'Password access not available for this table.' });
     }
     try {
-        // Only fetch the password column
+        // Only fetch the credential column
         const [rows] = await db.query(`SELECT id, password FROM \`${table}\` WHERE id = ?`, [id]);
         if (!rows || rows.length === 0) return res.status(404).json({ error: 'Row not found.' });
         broadcastLog({ type: 'DB_MANAGER', op: 'VIEW_PASSWORD', table, affectedId: id, status: 'OK', ts: Date.now() });
@@ -4956,7 +5311,7 @@ app.get('/api/dbmanager/password/:table/:id', async (req, res) => {
     }
 });
 
-// PUT /api/dbmanager/password/:table/:id - update password for a row (accepts plaintext, stores bcrypt hash)
+// PUT /api/dbmanager/password/:table/:id - update credential for a row (accepts plaintext, stores bcrypt hash)
 app.put('/api/dbmanager/password/:table/:id', async (req, res) => {
     const { table, id } = req.params;
     if (!isManageableTable(table) || !PASSWORD_TABLES.includes(table)) {
