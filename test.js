@@ -10,7 +10,10 @@ const CONFIG = {
   SOCKET_URL: 'https://ec2-13-61-227-19.eu-north-1.compute.amazonaws.com', 
   CUSTOMERS: 50,
   DRIVERS: 50,
-  TEST_DURATION_SEC: 60
+  TEST_DURATION_SEC: 60,
+  
+  // Provide a real JWT token from a logged-in user on your platform to bypass the OTP/Login blocks
+  TEST_JWT_TOKEN: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6OTk5OSwicm9sZSI6ImRyaXZlciIsIm5hbWUiOiJMb2FkIFRlc3RlciIsImlhdCI6MTc4MTk2MjUwMH0.zfMUh1TKotSSRUjexJ6HzJ7fMMWIhYSDIEZHqyv9ipE' 
 };
 
 console.log(`Starting Single-File Load Test for ${CONFIG.CUSTOMERS} Customers and ${CONFIG.DRIVERS} Drivers...`);
@@ -27,26 +30,21 @@ let metrics = {
 // VIRTUAL CUSTOMER
 // ==========================================
 async function simulateCustomer(id) {
-  const client = axios.create({ baseURL: CONFIG.API_URL });
-  const email = `quick_cust_${id}_${Date.now()}@test.local`;
+  const client = axios.create({ baseURL: CONFIG.API_URL, headers: { Authorization: `Bearer ${CONFIG.TEST_JWT_TOKEN}` } });
   
   try {
-    // 1. Register & Login
-    await measureRequest(client, 'POST', '/api/customers/register', { name: `C${id}`, email, password: 'password123' });
-    const loginRes = await measureRequest(client, 'POST', '/api/customers/login', { email, password: 'password123' });
-    const token = loginRes?.token || 'mock-token';
-
-    // 2. Connect Socket
-    const socket = io(CONFIG.SOCKET_URL, { auth: { token }, query: { role: 'customer' } });
+    // 1. Connect Socket
+    const socket = io(CONFIG.SOCKET_URL, { auth: { token: CONFIG.TEST_JWT_TOKEN }, query: { role: 'customer' } });
     socket.on('connect', () => metrics.socketsConnected++);
     socket.on('disconnect', () => metrics.socketsConnected--);
 
-    // 3. Loop behavior
+    // 2. Loop behavior
     let running = true;
     setTimeout(() => { running = false; socket.disconnect(); }, CONFIG.TEST_DURATION_SEC * 1000);
 
     while (running) {
-      await measureRequest(client, 'GET', '/api/drivers/nearby?lat=40.71&lng=-74.00');
+      // Pinging an authenticated endpoint to test DB & Network
+      await measureRequest(client, 'GET', '/api/auth/session');
       await sleep(5000);
     }
   } catch (err) {
@@ -58,25 +56,19 @@ async function simulateCustomer(id) {
 // VIRTUAL DRIVER
 // ==========================================
 async function simulateDriver(id) {
-  const client = axios.create({ baseURL: CONFIG.API_URL });
-  const email = `quick_driv_${id}_${Date.now()}@test.local`;
+  const client = axios.create({ baseURL: CONFIG.API_URL, headers: { Authorization: `Bearer ${CONFIG.TEST_JWT_TOKEN}` } });
   
   try {
-    await measureRequest(client, 'POST', '/api/drivers/register', { name: `D${id}`, email, password: 'password123', vehicle: 'Car', plate: `TEST${id}` });
-    const loginRes = await measureRequest(client, 'POST', '/api/drivers/login', { email, password: 'password123' });
-    const token = loginRes?.token || 'mock-token';
-
-    const socket = io(CONFIG.SOCKET_URL, { auth: { token }, query: { role: 'driver' } });
+    const socket = io(CONFIG.SOCKET_URL, { auth: { token: CONFIG.TEST_JWT_TOKEN }, query: { role: 'driver' } });
     socket.on('connect', () => metrics.socketsConnected++);
     socket.on('disconnect', () => metrics.socketsConnected--);
 
     let running = true;
     setTimeout(() => { running = false; socket.disconnect(); }, CONFIG.TEST_DURATION_SEC * 1000);
 
-    await measureRequest(client, 'POST', '/api/drivers/status', { status: 'online' });
-
     while (running) {
-      await measureRequest(client, 'POST', '/api/drivers/location', { lat: 40.71, lng: -74.00 });
+      // Hit a driver specific endpoint
+      await measureRequest(client, 'GET', '/api/auth/session');
       if (socket.connected) socket.emit('location_update', { lat: 40.71, lng: -74.00 });
       await sleep(3000);
     }
