@@ -1,6 +1,7 @@
 const axios = require('axios');
 const { io } = require('socket.io-client');
 const { performance } = require('perf_hooks');
+process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
 
 // ==========================================
 // QUICK LOAD TEST CONFIGURATION
