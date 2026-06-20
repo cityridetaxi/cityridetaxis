@@ -15,7 +15,7 @@
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin="anonymous" defer></script>
     <!-- SweetAlert2 for Premium Modals -->
     <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11" crossorigin="anonymous" defer></script>
-    <style>:root{--primary-red:#B71C1C;--primary-red-hover:#8E1515;--dark-charcoal:#1A1C1E;--text-main:#ffffff;--text-muted:#8e9297;--light-grey:#090a0f;--white:#14161d;--accents:rgba(255,255,255,0.06);--shadow-sm:0 4px 12px rgba(0,0,0,0.5);--shadow-md:0 12px 30px rgba(0,0,0,0.6);--shadow-lg:0 24px 60px rgba(0,0,0,0.8);--border-color:rgba(255,255,255,0.06);--success-green:#34c759;--danger-red:#ff3b30;--warning-amber:#ff9f0a;}body{background-color:var(--light-grey) !important;color:var(--text-main) !important;}.header{background:rgba(14,16,22,0.95) !important;border-bottom:1px solid var(--border-color) !important;}.logo{color:var(--text-main) !important;}.dashboard-container{padding:120px 0;background:var(--light-grey);min-height:100vh;}.dashboard-header{margin-bottom:4rem;display:flex;justify-content:space-between;align-items:center;}.dashboard-header h1{color:var(--text-main) !important;}.dashboard-header p{color:var(--text-muted) !important;}.history-card{background:var(--white);border-radius:24px;padding:3rem;box-shadow:var(--shadow-md);margin-bottom:2rem;border:1px solid var(--border-color);}.history-card h3{color:var(--text-main) !important;margin-bottom:1.5rem;}.swal2-popup{background:#14161d !important;color:#ffffff !important;border:1px solid rgba(255,255,255,0.06) !important;border-radius:20px !important;}.swal2-title{color:#ffffff !important;}.swal2-html-container{color:#8e9297 !important;}.swal2-input,.swal2-textarea,.swal2-select{background:#090a0f !important;color:#ffffff !important;border:1px solid rgba(255,255,255,0.06) !important;color-scheme:dark !important;}.swal2-validation-message{background:rgba(255,59,48,0.1) !important;color:#ff3b30 !important;}#mission-map{height:400px;width:100%;border-radius:20px;border:4px solid var(--white);box-shadow:var(--shadow-md);margin-top:1rem;z-index:10;}.radar-pulse{position:relative;display:inline-block;width:12px;height:12px;background:#10B981;border-radius:50%;margin-right:10px;}.radar-pulse::after{content:'';position:absolute;top:-4px;left:-4px;right:-4px;bottom:-4px;border:2px solid #10B981;border-radius:50%;animation:pulse 2s infinite;opacity:0;}@keyframes pulse{0%{transform:scale(0.5);opacity:0;}50%{opacity:1;}100%{transform:scale(1.5);opacity:0;}}.rides-table{width:100%;border-collapse:collapse;}.rides-table th{text-align:left;padding:1.5rem;color:var(--text-muted);text-transform:uppercase;font-size:0.8rem;letter-spacing:0.1em;border-bottom:1px solid rgba(255,255,255,0.06);}.rides-table td{padding:1.5rem;border-bottom:1px solid rgba(255,255,255,0.04);font-size:0.95rem;}.status-pill{padding:0.4rem 1rem;border-radius:20px;font-size:0.75rem;font-weight:800;text-transform:uppercase;}.status-pending{background:rgba(255,159,10,0.1);color:var(--warning-amber);}.status-assigned{background:rgba(10,132,255,0.1);color:#0a84ff;}.status-completed{background:rgba(52,199,89,0.1);color:var(--success-green);}.status-cancelled{background:rgba(255,59,48,0.1);color:var(--danger-red);}.status-ongoing{background:rgba(10,132,255,0.15);color:#0a84ff;}.status-finished{background:rgba(183,28,28,0.15);color:var(--primary-red);}.ban-banner{background:linear-gradient(135deg,#b71c1c,#d32f2f);color:white;border-radius:20px;padding:2rem 2.5rem;margin-bottom:3rem;display:none;align-items:center;gap:1.5rem;box-shadow:0 8px 30px rgba(183,28,28,0.35);animation:bannerShake 0.5s ease;}.ban-banner.active{display:flex;}@keyframes bannerShake{0%,100%{transform:translateX(0);}20%{transform:translateX(-8px);}40%{transform:translateX(8px);}60%{transform:translateX(-5px);}80%{transform:translateX(5px);}}.ban-icon{font-size:2.5rem;flex-shrink:0;}.cancel-warn{background:#fff3cd;color:#856404;border-radius:16px;padding:1rem 1.5rem;margin-bottom:2rem;font-size:0.9rem;font-weight:600;display:none;align-items:center;gap:0.75rem;}.cancel-warn.active{display:flex;}.btn-cancel-ride{background:none;border:1px solid #d32f2f;color:#d32f2f;padding:0.4rem 0.9rem;border-radius:8px;font-size:0.78rem;font-weight:700;cursor:pointer;transition:all 0.2s ease;}.btn-cancel-ride:hover{background:#d32f2f;color:white;}.btn-rebook-ride{background:none;border:1px solid #10B981;color:#10B981;padding:0.4rem 0.9rem;border-radius:8px;font-size:0.78rem;font-weight:700;cursor:pointer;transition:all 0.2s ease;}.btn-rebook-ride:hover{background:#10B981;color:white;}.btn-invoice-eye{background:none;border:1px solid rgba(255,255,255,0.15);color:var(--text-muted);padding:0.4rem;border-radius:8px;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all 0.2s;}.btn-invoice-eye:hover{border-color:var(--primary-red);color:var(--primary-red);background:rgba(183,28,28,0.1);}.hidden{display:none !important;}.empty-state{text-align:center;padding:5rem;color:var(--text-muted);}@keyframes fadeOut{from{transform:translateX(0);opacity:1;}to{transform:translateX(50%);opacity:0;}}@media (max-width:768px){.nav{padding:0 1rem;}.logo{font-size:1.3rem !important;}.driver-nav-actions{gap:0.5rem !important;}.driver-nav-actions button{padding:0.5rem 0.8rem !important;font-size:0.75rem !important;}.dashboard-container{padding:100px 0 50px;}.dashboard-header h1{font-size:2rem;}.stats-grid{grid-template-columns:1fr 1fr !important;gap:0.8rem !important;} .stats-card-compact { padding: 0.8rem 1rem !important; gap: 0.6rem !important; } .stats-card-compact .stat-icon { width: 38px !important; height: 38px !important; } .stats-card-compact .stat-icon svg { width: 18px !important; height: 18px !important; } .stats-card-compact #stat-total { font-size: 1.8rem !important; } .stats-card-compact #stat-recent { font-size: 0.88rem !important; } .history-card{padding:1.5rem !important;}.rides-table{min-width:auto !important;display:block;width:100%;}.rides-table thead{display:none;}.rides-table tbody,.rides-table tr,.rides-table td{display:block;width:100%;}.rides-table tr{margin-bottom:1.5rem;background:var(--white);border:1px solid var(--border-color);border-radius:16px;padding:1rem;}.rides-table td{padding:0.75rem 0 !important;display:flex;justify-content:space-between;align-items:center;text-align:right;border-bottom:1px solid rgba(255,255,255,0.05);}.rides-table td:last-child{border-bottom:none;margin-top:0.5rem;}.rides-table td::before{content:attr(data-label);font-weight:800;text-transform:uppercase;font-size:0.65rem;color:#999;}.rides-table td > div{display:flex;flex-direction:column;align-items:flex-end;text-align:right;}.rides-table td[data-label="Vehicle"] div{align-self:flex-end !important;}.rides-table td[data-label="Actions"] > div{flex-direction:row !important;justify-content:flex-end !important;}.support-grid{grid-template-columns:1fr !important;gap:2rem !important;text-align:center;}.support-grid > div{display:flex;flex-direction:column;align-items:center;}}.support-grid{display:grid;grid-template-columns:1fr 1fr;gap:3rem;align-items:center;}</style>
+    <style>:root{--primary-red:#B71C1C;--primary-red-hover:#8E1515;--dark-charcoal:#1A1C1E;--text-main:#ffffff;--text-muted:#8e9297;--light-grey:#090a0f;--white:#14161d;--accents:rgba(255,255,255,0.06);--shadow-sm:0 4px 12px rgba(0,0,0,0.5);--shadow-md:0 12px 30px rgba(0,0,0,0.6);--shadow-lg:0 24px 60px rgba(0,0,0,0.8);--border-color:rgba(255,255,255,0.06);--success-green:#34c759;--danger-red:#ff3b30;--warning-amber:#ff9f0a;}body{background-color:var(--light-grey) !important;color:var(--text-main) !important;}.header{background:rgba(14,16,22,0.95) !important;border-bottom:1px solid var(--border-color) !important;}.logo{color:var(--text-main) !important;}.dashboard-container{padding:120px 0;background:var(--light-grey);min-height:100vh;}.dashboard-header{margin-bottom:4rem;display:flex;justify-content:space-between;align-items:center;}.dashboard-header h1{color:var(--text-main) !important;}.dashboard-header p{color:var(--text-muted) !important;}.history-card{background:var(--white);border-radius:24px;padding:3rem;box-shadow:var(--shadow-md);margin-bottom:2rem;border:1px solid var(--border-color);}.history-card h3{color:var(--text-main) !important;margin-bottom:1.5rem;}.swal2-popup{background:#14161d !important;color:#ffffff !important;border:1px solid rgba(255,255,255,0.06) !important;border-radius:20px !important;}.swal2-title{color:#ffffff !important;}.swal2-html-container{color:#8e9297 !important;}.swal2-input,.swal2-textarea,.swal2-select{background:#090a0f !important;color:#ffffff !important;border:1px solid rgba(255,255,255,0.06) !important;color-scheme:dark !important;}.swal2-validation-message{background:rgba(255,59,48,0.1) !important;color:#ff3b30 !important;}#mission-map{height:400px;width:100%;border-radius:20px;border:4px solid var(--white);box-shadow:var(--shadow-md);margin-top:1rem;z-index:10;}.radar-pulse{position:relative;display:inline-block;width:12px;height:12px;background:#10B981;border-radius:50%;margin-right:10px;}.radar-pulse::after{content:'';position:absolute;top:-4px;left:-4px;right:-4px;bottom:-4px;border:2px solid #10B981;border-radius:50%;animation:pulse 1s infinite;opacity:0;}@keyframes pulse{0%{transform:scale(0.5);opacity:0;}50%{opacity:1;}100%{transform:scale(1.5);opacity:0;}}.rides-table{width:100%;border-collapse:collapse;}.rides-table th{text-align:left;padding:1.5rem;color:var(--text-muted);text-transform:uppercase;font-size:0.8rem;letter-spacing:0.1em;border-bottom:1px solid rgba(255,255,255,0.06);}.rides-table td{padding:1.5rem;border-bottom:1px solid rgba(255,255,255,0.04);font-size:0.95rem;}.status-pill{padding:0.4rem 1rem;border-radius:20px;font-size:0.75rem;font-weight:800;text-transform:uppercase;}.status-pending{background:rgba(255,159,10,0.1);color:var(--warning-amber);}.status-assigned{background:rgba(10,132,255,0.1);color:#0a84ff;}.status-completed{background:rgba(52,199,89,0.1);color:var(--success-green);}.status-cancelled{background:rgba(255,59,48,0.1);color:var(--danger-red);}.status-ongoing{background:rgba(10,132,255,0.15);color:#0a84ff;}.status-finished{background:rgba(183,28,28,0.15);color:var(--primary-red);}.ban-banner{background:linear-gradient(135deg,#b71c1c,#d32f2f);color:white;border-radius:20px;padding:2rem 2.5rem;margin-bottom:3rem;display:none;align-items:center;gap:1.5rem;box-shadow:0 8px 30px rgba(183,28,28,0.35);animation:bannerShake 0.25s ease;}.ban-banner.active{display:flex;}@keyframes bannerShake{0%,100%{transform:translateX(0);}20%{transform:translateX(-8px);}40%{transform:translateX(8px);}60%{transform:translateX(-5px);}80%{transform:translateX(5px);}}.ban-icon{font-size:2.5rem;flex-shrink:0;}.cancel-warn{background:#fff3cd;color:#856404;border-radius:16px;padding:1rem 1.5rem;margin-bottom:2rem;font-size:0.9rem;font-weight:600;display:none;align-items:center;gap:0.75rem;}.cancel-warn.active{display:flex;}.btn-cancel-ride{background:none;border:1px solid #d32f2f;color:#d32f2f;padding:0.4rem 0.9rem;border-radius:8px;font-size:0.78rem;font-weight:700;cursor:pointer;transition:all 0.1s ease;}.btn-cancel-ride:hover{background:#d32f2f;color:white;}.btn-rebook-ride{background:none;border:1px solid #10B981;color:#10B981;padding:0.4rem 0.9rem;border-radius:8px;font-size:0.78rem;font-weight:700;cursor:pointer;transition:all 0.1s ease;}.btn-rebook-ride:hover{background:#10B981;color:white;}.btn-invoice-eye{background:none;border:1px solid rgba(255,255,255,0.15);color:var(--text-muted);padding:0.4rem;border-radius:8px;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all 0.1s;}.btn-invoice-eye:hover{border-color:var(--primary-red);color:var(--primary-red);background:rgba(183,28,28,0.1);}.hidden{display:none !important;}.empty-state{text-align:center;padding:5rem;color:var(--text-muted);}@keyframes fadeOut{from{transform:translateX(0);opacity:1;}to{transform:translateX(50%);opacity:0;}}@media (max-width:768px){.nav{padding:0 1rem;}.logo{font-size:1.3rem !important;}.driver-nav-actions{gap:0.5rem !important;}.driver-nav-actions button{padding:0.5rem 0.8rem !important;font-size:0.75rem !important;}.dashboard-container{padding:100px 0 50px;}.dashboard-header h1{font-size:2rem;}.stats-grid{grid-template-columns:1fr 1fr !important;gap:0.8rem !important;} .stats-card-compact { padding: 0.8rem 1rem !important; gap: 0.6rem !important; } .stats-card-compact .stat-icon { width: 38px !important; height: 38px !important; } .stats-card-compact .stat-icon svg { width: 18px !important; height: 18px !important; } .stats-card-compact #stat-total { font-size: 1.8rem !important; } .stats-card-compact #stat-recent { font-size: 0.88rem !important; } .history-card{padding:1.5rem !important;}.rides-table{min-width:auto !important;display:block;width:100%;}.rides-table thead{display:none;}.rides-table tbody,.rides-table tr,.rides-table td{display:block;width:100%;}.rides-table tr{margin-bottom:1.5rem;background:var(--white);border:1px solid var(--border-color);border-radius:16px;padding:1rem;}.rides-table td{padding:0.75rem 0 !important;display:flex;justify-content:space-between;align-items:center;text-align:right;border-bottom:1px solid rgba(255,255,255,0.05);}.rides-table td:last-child{border-bottom:none;margin-top:0.5rem;}.rides-table td::before{content:attr(data-label);font-weight:800;text-transform:uppercase;font-size:0.65rem;color:#999;}.rides-table td > div{display:flex;flex-direction:column;align-items:flex-end;text-align:right;}.rides-table td[data-label="Vehicle"] div{align-self:flex-end !important;}.rides-table td[data-label="Actions"] > div{flex-direction:row !important;justify-content:flex-end !important;}.support-grid{grid-template-columns:1fr !important;gap:2rem !important;text-align:center;}.support-grid > div{display:flex;flex-direction:column;align-items:center;}}.support-grid{display:grid;grid-template-columns:1fr 1fr;gap:3rem;align-items:center;}</style>
 </head>
 
 <body style="overflow: hidden;"> <!-- Lock scroll during splash -->
@@ -49,12 +49,14 @@
 
     <header class="header" style="background:rgba(10,12,18,0.95) !important; border-bottom:1px solid rgba(255,255,255,0.07) !important; backdrop-filter:blur(20px); position:fixed; top:0; left:0; right:0; z-index:900; height:64px; display:flex; align-items:center;">
         <nav class="container nav" style="display:flex; align-items:center; justify-content:space-between; width:100%; max-width:1200px; margin:0 auto; padding:0 1.5rem;">
-            <a href="/" style="display:flex; align-items:center; gap:10px; text-decoration:none; cursor:pointer;">
-                <img src="logo.png" alt="CityRideTaxi" style="height:36px; width:auto;">
-                <span style="font-size:1.1rem; font-weight:800; letter-spacing:-0.3px; background:linear-gradient(135deg,#fff 60%,#e53935); -webkit-background-clip:text; -webkit-text-fill-color:transparent;">CityRideTaxi</span>
-            </a>
+            <div style="display:flex; align-items:center; gap:15px;">
+                <a href="/" class="btn-back" title="Back to Home" style="width: 32px; height: 32px; font-size: 1rem; line-height: 32px;">←</a>
+                <a href="/" style="display:flex; align-items:center; gap:10px; text-decoration:none; cursor:pointer;">
+                    <img src="logo.png" alt="CityRideTaxi" style="height:36px; width:auto;">
+                    <span style="font-size:1.1rem; font-weight:800; letter-spacing:-0.3px; background:linear-gradient(135deg,#fff 60%,#e53935); -webkit-background-clip:text; background-clip:text; -webkit-text-fill-color:transparent;">CityRideTaxi</span>
+                </a>
+            </div>
             <div style="display:flex; align-items:center; gap:0.5rem;">
-                <button onclick="window.location.href='/'" style="color:#8b90a0; font-size:0.88rem; font-weight:600; padding:0.5rem 0.9rem; border-radius:8px; border:none; background:none; cursor:pointer; transition:all 0.2s;" onmouseover="this.style.background='rgba(255,255,255,0.06)'" onmouseout="this.style.background='none'">Book a Ride</button>
                 <button onclick="logoutUser()" style="background:rgba(183,28,28,0.1); color:#B71C1C; border:1px solid rgba(183,28,28,0.3); padding:0.45rem 1rem; border-radius:8px; font-size:0.85rem; font-weight:700; cursor:pointer;">Logout</button>
             </div>
         </nav>
@@ -117,7 +119,7 @@
                     </div>
 
                     <!-- Deviation Warning Banner -->
-                    <div id="deviation-warning" style="display: none; background:#ffebee; color:#c62828; border: 1px solid #ef9a9a; padding: 1rem; border-radius: 12px; font-weight: 700; margin-bottom: 1.5rem; align-items: center; gap: 10px; animation: pulse-soft 2s infinite;">
+                    <div id="deviation-warning" style="display: none; background:#ffebee; color:#c62828; border: 1px solid #ef9a9a; padding: 1rem; border-radius: 12px; font-weight: 700; margin-bottom: 1.5rem; align-items: center; gap: 10px; animation:pulse-soft 1s infinite;">
                         <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
                         <span>ALERT: Route Deviation Detected! The driver has taken a diversion. The fare is being recalculated dynamically based on the actual path.</span>
                     </div>
@@ -259,7 +261,57 @@ checkBanStatus(user.id);
 loadDashboardData(user);
 initialLoadDone = true;
 setInterval(() => loadDashboardData(user), 5000);
+
+// --- SOCKET.IO: Real-time connection ---
+initUserSocket(user);
 });
+
+/**
+ * Initialize Socket.IO for the Customer Dashboard.
+ * Socket events trigger existing poll functions immediately.
+ * setInterval polling remains as reliable fallback.
+ */
+function initUserSocket(user) {
+    if (typeof io === 'undefined') return;
+
+    const raw = localStorage.getItem('cityride_member');
+    let parsed = null;
+    try { parsed = raw ? JSON.parse(raw) : null; } catch (e) {}
+
+    const userSocket = io({
+        auth: { token: parsed?.token || '' },
+        transports: ['websocket', 'polling'],
+        reconnectionDelay: 2000,
+        reconnectionAttempts: 20
+    });
+
+    userSocket.on('connect', () => {
+        console.log('[Socket.IO] Customer connected:', userSocket.id);
+    });
+
+    userSocket.on('disconnect', (reason) => {
+        console.warn('[Socket.IO] Customer disconnected:', reason);
+    });
+
+    // Booking status changed (assigned, ongoing, finished, cancelled) — refresh immediately
+    userSocket.on('booking_status_update', (data) => {
+        if (typeof loadDashboardData === 'function') loadDashboardData(user);
+    });
+
+    // Driver confirmed — refresh booking list immediately
+    userSocket.on('booking_confirmed', (data) => {
+        if (typeof loadDashboardData === 'function') loadDashboardData(user);
+    });
+
+    // Live driver GPS location pushed from server — update map immediately
+    userSocket.on('driver_location', (data) => {
+        if (data && data.latitude && data.longitude) {
+            if (typeof updateDriverMarkerOnMap === 'function') {
+                updateDriverMarkerOnMap(data.latitude, data.longitude);
+            }
+        }
+    });
+}
 function updateDriverMarkerOnMap(lat, lng) {
 if (!trackerMap) return;
 if (driverMarker) {
@@ -268,7 +320,7 @@ driverMarker.setLatLng([lat, lng]);
 const driverIcon = L.divIcon({
 className: 'driver-marker-wrap',
 html: `<div style="background:var(--primary-red); width:18px; height:18px; border-radius:50%; border:3px solid white; box-shadow:0 0 10px rgba(0,0,0,0.3); position:relative;">
-<div style="position:absolute; top:-4px; left:-4px; right:-4px; bottom:-4px; border:2px solid var(--primary-red); border-radius:50%; animation:pulse 2s infinite;"></div>
+<div style="position:absolute; top:-4px; left:-4px; right:-4px; bottom:-4px; border:2px solid var(--primary-red); border-radius:50%; animation:pulse 1s infinite;"></div>
 </div>`,
 iconSize: [24, 24]
 });
@@ -1218,153 +1270,200 @@ Swal.fire('Error', 'A network error occurred.', 'error');
 });
 }
 async function showInvoiceModal(trip) {
-const isRental = trip.trip_type === 'rental';
-const unit = isRental ? 'Hours' : 'Mins';
-const distStr = trip.actual_distance || '0.0 KM';
-const coveredDist = parseFloat(String(distStr).replace(/[^\d.]/g, '')) || 0;
-let elapsedMins = 0;
-if (trip.journey_start_time) {
-const startTime = new Date(trip.journey_start_time);
-const endTime = trip.journey_end_time ? new Date(trip.journey_end_time) : new Date();
-elapsedMins = Math.max(0, Math.floor((endTime - startTime) / 60000));
-}
-const formatDateTime = (dateStr) => {
-if (!dateStr) return 'N/A';
-const d = new Date(dateStr);
-if (isNaN(d.getTime())) return 'N/A';
-const datePart = d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
-const timePart = d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true });
-return `${datePart} • ${timePart}`;
-};
-const startTimeStr = trip.journey_start_time ? formatDateTime(trip.journey_start_time) : 'Awaiting Start';
-const endTimeStr = trip.journey_end_time ? formatDateTime(trip.journey_end_time) : (trip.status === 'ongoing' ? 'In Progress' : (trip.status === 'cancelled' ? 'Cancelled' : 'Not Ended'));
-let allowedMins = 0;
-if (isRental) {
-const packageVal = trip.rental_package || '2-20';
-const [pMaxHrs] = packageVal.split('-').map(Number);
-allowedMins = pMaxHrs * 60;
-} else {
-const origDistStr = trip.estimated_distance || trip.distance || '0';
-const origDistKm = parseFloat(String(origDistStr).replace(/[^\d.]/g, '')) || 0;
-allowedMins = Math.ceil(origDistKm * 2);
-}
-const waitingCharge = isRental ? 0 : Math.max(0, Math.ceil((elapsedMins - allowedMins) * 2));
-const durationText = isRental ? (elapsedMins / 60).toFixed(2) : elapsedMins.toFixed(1);
-// Fetch tariff data for fare breakdown
-let baseFare = 0, perKmRate = 0, distanceCharge = 0, subtotal = 0, gst = 0;
-let peakCharge = 0, driverAllowance = 0;
-let minKmVal = 0, minKmCharge = 0;
-try {
-const tariffRes = await fetch(`${API_BASE_URL}/api/tariffs`);
-const tariffs = await tariffRes.json();
-const vType = trip.vehicle_type || 'suv';
-const category = trip.trip_type || 'local';
-const match = tariffs.find(t => t.vehicle_type === vType && t.category === category);
-if (match) {
-const config = typeof match.config === 'string' ? JSON.parse(match.config) : match.config;
-baseFare = config.base || 0;
-if (category === 'local') {
-perKmRate = config.perKm || 0;
-const minKm = typeof config.minKm === 'number' ? config.minKm : 0;
-const billableKm = Math.max(coveredDist, minKm);
-distanceCharge = billableKm * perKmRate;
-const baseKmFare = Math.max(baseFare, distanceCharge);
-minKmVal = minKm;
-minKmCharge = minKm * perKmRate;
-const getPeakSurcharge = (timeStr) => {
-if (!timeStr) return 0;
-const [h, m] = timeStr.split(':').map(Number);
-const tm = h * 60 + m;
-if (tm >= 480 && tm <= 660) return 0.25;
-if (tm >= 960 && tm <= 1260) return 0.25;
-return 0;
-};
-const peakMult = getPeakSurcharge(trip.pickup_time);
-peakCharge = baseKmFare * peakMult;
-subtotal = baseKmFare + peakCharge + waitingCharge;
-} else if (category === 'oneway') {
-perKmRate = config.perKm || 13;
-const minKm = typeof config.minKm === 'number' ? config.minKm : 130;
-const billableKm = Math.max(coveredDist, minKm);
-distanceCharge = billableKm * perKmRate;
-const baseKmFare = Math.max(baseFare, distanceCharge);
-driverAllowance = (trip.vehicle_type === 'bike') ? 0 : (billableKm > 250 ? 600 : 400);
-subtotal = baseKmFare + driverAllowance + waitingCharge;
-minKmVal = minKm;
-minKmCharge = minKm * perKmRate;
-} else if (category === 'round') {
-perKmRate = config.perKm || 12;
-let tripDays = 1;
-if (trip.return_date && trip.pickup_date) {
-const start = new Date(trip.pickup_date);
-const end = new Date(trip.return_date);
-if (end > start) {
-const diffTime = Math.abs(end - start);
-tripDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) + 1;
-}
-}
-const minKmPerDay = (typeof config.minKmPerDay === 'number' ? config.minKmPerDay : 250) * tripDays;
-const billableKm = Math.max(coveredDist, minKmPerDay);
-distanceCharge = billableKm * perKmRate;
-const baseKmFare = Math.max(baseFare, distanceCharge);
-driverAllowance = (trip.vehicle_type === 'bike' ? 0 : ((billableKm > 250 ? 600 : 400) * tripDays));
-subtotal = baseKmFare + driverAllowance + waitingCharge;
-minKmVal = minKmPerDay;
-minKmCharge = minKmPerDay * perKmRate;
-}
-gst = Math.ceil(subtotal * 0.05);
-}
-} catch(e) { console.warn('Could not fetch tariff breakdown:', e); }
-const fareBreakdownHtml = (perKmRate > 0) ? `
-            <div style="margin-top: 1.5rem; border-top: 1px solid rgba(255,255,255,0.08); padding-top: 1.2rem;">
-                <div style="font-weight:800; font-size:0.75rem; color:var(--text-muted); margin-bottom:1rem; text-transform:uppercase; letter-spacing:1px;">Fare Breakdown</div>
-                
-                <div style="display:flex; justify-content:space-between; margin-bottom:0.6rem; font-size:0.9rem;">
-                    <span style="color:var(--text-muted);">Base Fare</span>
-                    <span style="font-weight:600;">₹${baseFare}</span>
-                </div>
-                
-                ${minKmVal > 0 ? `
-                <div style="display:flex; justify-content:space-between; margin-bottom:0.6rem; font-size:0.9rem;">
-                    <span style="color:var(--text-muted);">Min. Charge (${minKmVal} KM)</span>
-                    <span style="font-weight:600;">₹${Math.ceil(minKmCharge)}</span>
-                </div>
-                ` : ''}
-                
-                <div style="display:flex; justify-content:space-between; margin-bottom:0.6rem; font-size:0.9rem;">
-                    <span style="color:var(--text-muted);">Distance Charge (${coveredDist.toFixed(1)} km × ₹${perKmRate})</span>
-                    <span style="font-weight:600;">₹${Math.ceil(distanceCharge)}</span>
-                </div>
+        // Show a premium loading indicator
+        Swal.fire({
+            title: '<div style="font-weight:800; color:var(--text-main); font-size:1.3rem;">Loading Invoice</div>',
+            html: '<div style="margin: 2rem 0;"><div class="spinner-border text-danger" role="status" style="width: 3rem; height: 3rem; border-color: var(--primary-red) transparent var(--primary-red) transparent;"><span class="visually-hidden"></span></div><p style="margin-top: 1.5rem; font-size: 0.95rem; color: var(--text-muted);">Fetching secure billing details...</p></div>',
+            allowOutsideClick: false,
+            showConfirmButton: false,
+            background: '#14161d',
+            color: '#fff',
+            didOpen: () => {
+                Swal.showLoading();
+            }
+        });
 
-                ${peakCharge > 0 ? `
-                <div style="display:flex; justify-content:space-between; margin-bottom:0.6rem; font-size:0.9rem;">
-                    <span style="color:var(--warning-amber);">Peak Surcharge</span>
-                    <span style="font-weight:600; color:var(--warning-amber);">₹${Math.ceil(peakCharge)}</span>
-                </div>` : ''}
+        let breakdown = null;
+        try {
+            const token = localStorage.getItem('cityride_user_token');
+            const headers = {};
+            if (token) {
+                headers['Authorization'] = `Bearer ${token}`;
+            }
+            const breakdownRes = await fetch(`${API_BASE_URL}/api/bookings/fare-breakdown/${trip.id}`, { headers });
+            if (!breakdownRes.ok) {
+                throw new Error('Failed to fetch fare breakdown.');
+            }
+            breakdown = await breakdownRes.json();
+        } catch (err) {
+            console.error('Error fetching fare breakdown:', err);
+            Swal.fire({
+                title: 'Error',
+                text: 'Could not retrieve trip invoice. Please check your network connection.',
+                icon: 'error',
+                background: '#14161d',
+                color: '#fff',
+                confirmButtonColor: '#B71C1C'
+            });
+            return;
+        }
 
-                ${driverAllowance > 0 ? `
-                <div style="display:flex; justify-content:space-between; margin-bottom:0.6rem; font-size:0.9rem;">
-                    <span style="color:#0a84ff;">Driver Allowance</span>
-                    <span style="font-weight:600; color:#0a84ff;">₹${Math.ceil(driverAllowance)}</span>
-                </div>` : ''}
+        // Close the loading modal
+        Swal.close();
 
-                ${waitingCharge > 0 ? `
-                <div style="display:flex; justify-content:space-between; margin-bottom:0.6rem; font-size:0.9rem;">
-                    <span style="color:var(--danger-red);">Waiting Charges</span>
-                    <span style="font-weight:600; color:var(--danger-red);">₹${waitingCharge}</span>
-                </div>` : ''}
+        const isRental = breakdown.tripType === 'rental';
+        const unit = isRental ? 'Hours' : 'Mins';
+        const distStr = breakdown.distance || '0.000';
+        const coveredDist = parseFloat(distStr) || 0;
 
-                <div style="display:flex; justify-content:space-between; margin-bottom:0.6rem; font-size:0.9rem;">
-                    <span style="color:var(--text-muted);">GST (5%)</span>
-                    <span style="font-weight:600;">₹${gst}</span>
+        let elapsedMins = 0;
+        if (trip.journey_start_time) {
+            const startTime = new Date(trip.journey_start_time);
+            const endTime = trip.journey_end_time ? new Date(trip.journey_end_time) : new Date();
+            elapsedMins = Math.max(0, Math.floor((endTime - startTime) / 60000));
+        }
+
+        const formatDateTime = (dateStr) => {
+            if (!dateStr) return 'N/A';
+            const d = new Date(dateStr);
+            if (isNaN(d.getTime())) return 'N/A';
+            const datePart = d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+            const timePart = d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true });
+            return `${datePart} • ${timePart}`;
+        };
+
+        const startTimeStr = trip.journey_start_time ? formatDateTime(trip.journey_start_time) : 'Awaiting Start';
+        const endTimeStr = trip.journey_end_time ? formatDateTime(trip.journey_end_time) : (trip.status === 'ongoing' ? 'In Progress' : (trip.status === 'cancelled' ? 'Cancelled' : 'Not Ended'));
+        const durationText = isRental ? (elapsedMins / 60).toFixed(2) : elapsedMins.toFixed(1);
+
+        let fareBreakdownHtml = '';
+
+        if (isRental) {
+            const packageBase = breakdown.packageBase || 0;
+            const extraKmCharge = breakdown.extraKmCharge || 0;
+            const extraHrCharge = breakdown.extraHrCharge || 0;
+            const waitingCharge = breakdown.waitingCharge || 0;
+
+            const subtotal = packageBase + extraKmCharge + extraHrCharge + waitingCharge;
+            const gst = Math.max(0, breakdown.totalFare - subtotal);
+
+            const formatRentalPackage = (pkgStr) => {
+                if (!pkgStr) return 'Rental Package';
+                const parts = pkgStr.split('-');
+                if (parts.length === 2) {
+                    return `${parts[0]} Hrs / ${parts[1]} KM Package`;
+                }
+                return pkgStr;
+            };
+
+            fareBreakdownHtml = `
+                <div style="margin-top: 1.5rem; border-top: 1px solid rgba(255,255,255,0.08); padding-top: 1.2rem;">
+                    <div style="font-weight:800; font-size:0.75rem; color:var(--text-muted); margin-bottom:1rem; text-transform:uppercase; letter-spacing:1px;">Fare Breakdown</div>
+                    
+                    <div style="display:flex; justify-content:space-between; margin-bottom:0.6rem; font-size:0.9rem;">
+                        <span style="color:var(--text-muted);">${formatRentalPackage(breakdown.rentalPackage)}</span>
+                        <span style="font-weight:600;">₹${packageBase}</span>
+                    </div>
+                    
+                    ${extraKmCharge > 0 ? `
+                    <div style="display:flex; justify-content:space-between; margin-bottom:0.6rem; font-size:0.9rem;">
+                        <span style="color:var(--text-muted);">Extra Distance Charge</span>
+                        <span style="font-weight:600;">₹${extraKmCharge}</span>
+                    </div>
+                    ` : ''}
+                    
+                    ${extraHrCharge > 0 ? `
+                    <div style="display:flex; justify-content:space-between; margin-bottom:0.6rem; font-size:0.9rem;">
+                        <span style="color:var(--text-muted);">Extra Duration Charge</span>
+                        <span style="font-weight:600;">₹${extraHrCharge}</span>
+                    </div>
+                    ` : ''}
+                    
+                    ${waitingCharge > 0 ? `
+                    <div style="display:flex; justify-content:space-between; margin-bottom:0.6rem; font-size:0.9rem;">
+                        <span style="color:var(--danger-red);">Waiting Charges</span>
+                        <span style="font-weight:600; color:var(--danger-red);">₹${waitingCharge}</span>
+                    </div>
+                    ` : ''}
+
+                    <div style="display:flex; justify-content:space-between; margin-bottom:0.6rem; font-size:0.9rem;">
+                        <span style="color:var(--text-muted);">GST (5%)</span>
+                        <span style="font-weight:600;">₹${gst}</span>
+                    </div>
+                    
+                    <div style="display:flex; justify-content:space-between; margin-top:1rem; padding-top:1rem; border-top:1px dashed rgba(255,255,255,0.1); font-size:1.1rem; font-weight:800; color:var(--primary-red);">
+                        <span>Total Amount</span>
+                        <span>₹${breakdown.totalFare}</span>
+                    </div>
                 </div>
-                
-                <div style="display:flex; justify-content:space-between; margin-top:1rem; padding-top:1rem; border-top:1px dashed rgba(255,255,255,0.1); font-size:1.1rem; font-weight:800; color:var(--primary-red);">
-                    <span>Total Amount</span>
-                    <span>₹${Math.ceil(subtotal + gst)}</span>
+            `;
+        } else {
+            const baseFare = breakdown.baseFare || 0;
+            const distanceFare = breakdown.distanceFare || 0;
+            const peakCharge = breakdown.peakCharge || 0;
+            const driverAllowance = breakdown.driverAllowance || 0;
+            const waitingCharge = breakdown.waitingCharge || 0;
+            const perKmRate = breakdown.perKmRate || 0;
+            const minKmVal = breakdown.minKmVal || 0;
+            const minKmCharge = breakdown.minKmCharge || 0;
+
+            const extraDistanceCharge = Math.max(0, distanceFare - baseFare);
+            const subtotal = distanceFare + peakCharge + driverAllowance + waitingCharge;
+            const gst = Math.max(0, breakdown.totalFare - subtotal);
+
+            fareBreakdownHtml = `
+                <div style="margin-top: 1.5rem; border-top: 1px solid rgba(255,255,255,0.08); padding-top: 1.2rem;">
+                    <div style="font-weight:800; font-size:0.75rem; color:var(--text-muted); margin-bottom:1rem; text-transform:uppercase; letter-spacing:1px;">Fare Breakdown</div>
+                    
+                    <div style="display:flex; justify-content:space-between; margin-bottom:0.6rem; font-size:0.9rem;">
+                        <span style="color:var(--text-muted);">Base Fare</span>
+                        <span style="font-weight:600;">₹${baseFare}</span>
+                    </div>
+                    
+                    ${minKmVal > 0 ? `
+                    <div style="display:flex; justify-content:space-between; margin-bottom:0.6rem; font-size:0.9rem;">
+                        <span style="color:var(--text-muted);">Min. Charge (${minKmVal} KM)</span>
+                        <span style="font-weight:600;">₹${minKmCharge}</span>
+                    </div>
+                    ` : ''}
+                    
+                    ${extraDistanceCharge > 0 ? `
+                    <div style="display:flex; justify-content:space-between; margin-bottom:0.6rem; font-size:0.9rem;">
+                        <span style="color:var(--text-muted);">Distance Charge (${coveredDist.toFixed(3)} km × ₹${perKmRate})</span>
+                        <span style="font-weight:600;">₹${extraDistanceCharge}</span>
+                    </div>
+                    ` : ''}
+
+                    ${peakCharge > 0 ? `
+                    <div style="display:flex; justify-content:space-between; margin-bottom:0.6rem; font-size:0.9rem;">
+                        <span style="color:var(--warning-amber);">Peak Surcharge (${breakdown.peakPercent || 0}%)</span>
+                        <span style="font-weight:600; color:var(--warning-amber);">₹${peakCharge}</span>
+                    </div>` : ''}
+
+                    ${driverAllowance > 0 ? `
+                    <div style="display:flex; justify-content:space-between; margin-bottom:0.6rem; font-size:0.9rem;">
+                        <span style="color:#0a84ff;">Driver Allowance</span>
+                        <span style="font-weight:600; color:#0a84ff;">₹${driverAllowance}</span>
+                    </div>` : ''}
+
+                    ${waitingCharge > 0 ? `
+                    <div style="display:flex; justify-content:space-between; margin-bottom:0.6rem; font-size:0.9rem;">
+                        <span style="color:var(--danger-red);">Waiting Charges</span>
+                        <span style="font-weight:600; color:var(--danger-red);">₹${waitingCharge}</span>
+                    </div>` : ''}
+
+                    <div style="display:flex; justify-content:space-between; margin-bottom:0.6rem; font-size:0.9rem;">
+                        <span style="color:var(--text-muted);">GST (5%)</span>
+                        <span style="font-weight:600;">₹${gst}</span>
+                    </div>
+                    
+                    <div style="display:flex; justify-content:space-between; margin-top:1rem; padding-top:1rem; border-top:1px dashed rgba(255,255,255,0.1); font-size:1.1rem; font-weight:800; color:var(--primary-red);">
+                        <span>Total Amount</span>
+                        <span>₹${breakdown.totalFare}</span>
+                    </div>
                 </div>
-            </div>
-        ` : '';
+            `;
+        }
 
         Swal.fire({
             title: '<div style="font-weight:800; color:var(--text-main); font-size:1.3rem; margin-bottom:-0.5rem;">Trip Invoice</div>',
@@ -1374,7 +1473,7 @@ const fareBreakdownHtml = (perKmRate > 0) ? `
                     <!-- Header Strip -->
                     <div style="background:var(--primary-red); margin:-1rem -1rem 1.5rem -1rem; padding:1.5rem; text-align:center; position:relative; border-radius:0 0 20px 20px;">
                         <div style="font-size:0.8rem; text-transform:uppercase; font-weight:800; letter-spacing:1.5px; color:rgba(255,255,255,0.8); margin-bottom:0.5rem;">Final Fare</div>
-                        <div style="font-size:2.8rem; font-weight:800; color:#fff; line-height:1; text-shadow:0 2px 10px rgba(0,0,0,0.3);">${trip.fare}</div>
+                        <div style="font-size:2.8rem; font-weight:800; color:#fff; line-height:1; text-shadow:0 2px 10px rgba(0,0,0,0.3);">₹${breakdown.totalFare}</div>
                         <div style="position:absolute; top:1rem; right:1rem; background:rgba(0,0,0,0.2); padding:4px 8px; border-radius:6px; font-size:0.75rem; font-weight:700; color:#fff;">#B${trip.id}</div>
                     </div>
 
@@ -1415,7 +1514,7 @@ const fareBreakdownHtml = (perKmRate > 0) ? `
                     <div style="display:grid; grid-template-columns:1fr 1fr; gap:1rem; margin-bottom:1.5rem;">
                         <div style="background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.05); border-radius:12px; padding:1rem;">
                             <div style="font-size:0.7rem; text-transform:uppercase; color:var(--text-muted); font-weight:700; margin-bottom:0.3rem;">Distance</div>
-                            <div style="font-weight:800; font-size:1.1rem; color:var(--text-main);">${coveredDist.toFixed(1)} KM</div>
+                            <div style="font-weight:800; font-size:1.1rem; color:var(--text-main);">${coveredDist.toFixed(3)} KM</div>
                         </div>
                         <div style="background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.05); border-radius:12px; padding:1rem;">
                             <div style="font-size:0.7rem; text-transform:uppercase; color:var(--text-muted); font-weight:700; margin-bottom:0.3rem;">Duration</div>
@@ -1455,23 +1554,11 @@ const fareBreakdownHtml = (perKmRate > 0) ? `
             color: '#fff',
             customClass: { popup: 'premium-invoice-modal' },
             showCloseButton: true,
-            confirmButtonText: 'Download PDF',
+            showConfirmButton: false,
             showCancelButton: true,
             cancelButtonText: 'Close',
-            confirmButtonColor: '#B71C1C',
             cancelButtonColor: 'rgba(255,255,255,0.1)',
             width: '450px'
-        }).then((result) => {
-            if (result.isConfirmed) {
-                Swal.fire({
-                    title: 'Downloading...',
-                    text: 'Invoice is being generated.',
-                    icon: 'success',
-                    background: '#14161d',
-                    color: '#fff',
-                    confirmButtonColor: '#B71C1C'
-                });
-            }
         });
 }</script>
     <script src="alert.js"></script>
@@ -1481,8 +1568,10 @@ if (splash) {
 setTimeout(() => {
 splash.classList.add('splash-hidden');
 document.body.style.setProperty('overflow', 'auto', 'important');
-}, 3200);
+}, 1600);
 }
 });</script>
+    <!-- Socket.IO Client -->
+    <script src="/socket.io/socket.io.js"></script>
 </body>
 </html>

@@ -1,4 +1,6 @@
 const express = require('express');
+const http = require('http');
+const { Server: SocketIOServer } = require('socket.io');
 const bodyParser = require('body-parser');
 const cors = require('cors');
 const mysql = require('mysql2/promise');
@@ -21,7 +23,95 @@ const crypto = require('crypto');
 require('dotenv').config();
 
 const app = express();
+const httpServer = http.createServer(app);
 const isDev = process.env.NODE_ENV !== 'production';
+
+// --- SOCKET.IO SETUP ---
+const allowedSocketOrigins = [
+    'http://localhost:3000',
+    'http://127.0.0.1:3000',
+    'capacitor://localhost',
+    'http://localhost',
+    ...(process.env.ALLOWED_ORIGINS ? process.env.ALLOWED_ORIGINS.split(',') : [])
+];
+
+const io = new SocketIOServer(httpServer, {
+    cors: {
+        origin: (origin, callback) => {
+            if (!origin || allowedSocketOrigins.some(o => origin.startsWith(o)) || isDev) {
+                callback(null, true);
+            } else {
+                callback(null, true); // allow all in production (Railway proxy, Capacitor)
+            }
+        },
+        credentials: true
+    },
+    transports: ['websocket', 'polling'],
+    pingTimeout: 60000,
+    pingInterval: 25000
+});
+
+// Socket.IO authentication middleware
+io.use((socket, next) => {
+    try {
+        const token = socket.handshake.auth.token || socket.handshake.headers['authorization']?.split(' ')[1];
+        if (!token) {
+            // Allow unauthenticated connections (they simply won't join private rooms)
+            socket.data.role = 'anonymous';
+            return next();
+        }
+        const decoded = jwt.verify(token, process.env.JWT_SECRET);
+        socket.data.userId = decoded.id;
+        socket.data.role = decoded.role;
+        socket.data.name = decoded.name;
+        next();
+    } catch (e) {
+        socket.data.role = 'anonymous';
+        next();
+    }
+});
+
+// Socket.IO connection handler
+io.on('connection', (socket) => {
+    const { userId, role } = socket.data;
+
+    // Join role-specific rooms
+    if (userId && role === 'driver') {
+        socket.join(`driver:${userId}`);
+        socket.join('drivers');
+    } else if (userId && role === 'user') {
+        socket.join(`user:${userId}`);
+    } else if (userId && role === 'admin') {
+        socket.join('admin');
+    } else if (userId && role === 'vendor') {
+        socket.join(`vendor:${userId}`);
+        socket.join('admin'); // vendors see admin events too
+    }
+
+    // Allow client to explicitly join a booking room to track live updates
+    socket.on('track_booking', (bookingId) => {
+        if (bookingId) socket.join(`booking:${bookingId}`);
+    });
+
+    socket.on('untrack_booking', (bookingId) => {
+        if (bookingId) socket.leave(`booking:${bookingId}`);
+    });
+
+    socket.on('disconnect', () => {
+        // cleanup handled automatically by Socket.IO
+    });
+});
+
+/**
+ * Helper: Emit a socket event safely (never throws, never breaks HTTP flow)
+ */
+function emitEvent(room, event, data) {
+    try {
+        io.to(room).emit(event, { ...data, ts: Date.now() });
+    } catch (e) {
+        // Socket errors must never affect HTTP responses
+    }
+}
 
 // Global memory cache for ongoing ride GPS tracking and Kalman state
 const activeRidesGpsState = new Map();
@@ -105,7 +195,7 @@ app.use((req, res, next) => {
         return next();
     }
     
-    const filePath = path.join(__dirname, 'public', reqPath);
+    const publicDir = path.normalize(path.join(__dirname, 'public') + path.sep);
     const acceptEncoding = req.headers['accept-encoding'] || '';
     
     if (ext === '.html') {
@@ -118,14 +208,24 @@ app.use((req, res, next) => {
     res.setHeader('Content-Type', getContentType(ext));
     res.setHeader('Vary', 'Accept-Encoding');
 
-    if (acceptEncoding.includes('br') && fs.existsSync(filePath + '.br')) {
-        res.setHeader('Content-Encoding', 'br');
-        return fs.createReadStream(filePath + '.br').pipe(res);
+    const brFilePath = path.normalize(path.join(publicDir, reqPath + '.br'));
+    if (brFilePath.startsWith(publicDir)) {
+        if (acceptEncoding.includes('br') && fs.existsSync(brFilePath)) {
+            res.setHeader('Content-Encoding', 'br');
+            return fs.createReadStream(brFilePath).pipe(res);
+        }
+    } else {
+        return res.status(403).send('Forbidden');
     }
     
-    if (acceptEncoding.includes('gzip') && fs.existsSync(filePath + '.gz')) {
-        res.setHeader('Content-Encoding', 'gzip');
-        return fs.createReadStream(filePath + '.gz').pipe(res);
+    const gzFilePath = path.normalize(path.join(publicDir, reqPath + '.gz'));
+    if (gzFilePath.startsWith(publicDir)) {
+        if (acceptEncoding.includes('gzip') && fs.existsSync(gzFilePath)) {
+            res.setHeader('Content-Encoding', 'gzip');
+            return fs.createReadStream(gzFilePath).pipe(res);
+        }
+    } else {
+        return res.status(403).send('Forbidden');
     }
     
     next();
@@ -202,7 +302,7 @@ app.use((req, res, next) => {
 });
 
 // --- LIVE MONITOR: SSE BROADCAST SYSTEM ---
-const LOG_FILE = path.join(__dirname, 'server.log');
+const LOG_FILE = './server.log';
 
 const monitorClients = new Set();
 const activityLog = [];
@@ -211,7 +311,7 @@ const MAX_LOG_SIZE = 500;
 // Load persistent log history from JSONL file on startup so logs survive restarts
 function loadLogHistory() {
     try {
-        const backupFile = path.join(__dirname, 'server.log.bak');
+        const backupFile = './server.log.bak';
         let lines = [];
         if (fs.existsSync(backupFile)) {
             const backupContent = fs.readFileSync(backupFile, 'utf8');
@@ -224,8 +324,9 @@ function loadLogHistory() {
 
         const loaded = [];
         // Parse from end to get the most recent entries up to MAX_LOG_SIZE
-        for (let i = lines.length - 1; i >= 0; i--) {
-            const line = lines[i].trim();
+        const reversedLines = lines.slice().reverse();
+        for (const lineRaw of reversedLines) {
+            const line = lineRaw.trim();
             if (!line) continue;
             try {
                 const entry = JSON.parse(line);
@@ -251,7 +352,7 @@ function appendToLogFile(entry) {
         fs.stat(LOG_FILE, (err, stats) => {
             if (err) return;
             if (stats.size > 10 * 1024 * 1024) {
-                const backup = path.join(__dirname, 'server.log.bak');
+                const backup = './server.log.bak';
                 fs.unlink(backup, () => {
                     fs.rename(LOG_FILE, backup, () => { });
                 });
@@ -390,7 +491,7 @@ function logAuthEvent({ event, role, identifier, status, ip, message, reason }) 
         if (maskedIdentifier.includes('@')) {
             const [local, domain] = maskedIdentifier.split('@');
             if (local.length > 2) {
-                maskedIdentifier = `${local[0]}***${local[local.length - 1]}@${domain}`;
+                maskedIdentifier = `${local.charAt(0)}***${local.charAt(local.length - 1)}@${domain}`;
             } else {
                 maskedIdentifier = `***@${domain}`;
             }
@@ -425,15 +526,17 @@ function maskSensitiveData(obj) {
         function recurse(current) {
             if (!current || typeof current !== 'object') return;
             for (const key in current) {
+                if (key === '__proto__' || key === 'constructor' || key === 'prototype') continue;
                 if (Object.prototype.hasOwnProperty.call(current, key)) {
-                    if (typeof current[key] === 'object' && current[key] !== null) {
-                        recurse(current[key]);
+                    const val = Reflect.get(current, key);
+                    if (typeof val === 'object' && val !== null) {
+                        recurse(val);
                     } else if (typeof key === 'string') {
                         const lowerKey = key.toLowerCase();
                         if (sensitiveKeys.some(sk => lowerKey.includes(sk))) {
-                            current[key] = '***[SECURE]***';
-                        } else if (typeof current[key] === 'string' && current[key].length > 1000) {
-                            current[key] = current[key].substring(0, 100) + '... (truncated)';
+                            Reflect.set(current, key, '***[SECURE]***');
+                        } else if (typeof val === 'string' && val.length > 1000) {
+                            Reflect.set(current, key, val.substring(0, 100) + '... (truncated)');
                         }
                     }
                 }
@@ -571,8 +674,13 @@ const ACCESS_TOKEN_EXPIRY = '3650d'; // 10 years access token (safe from 32-bit 
 
 // Cookie name per role so different panels can coexist in the same browser
 function getRoleCookieName(role) {
-    const map = { admin: 'cr_admin_tok', driver: 'cr_driver_tok', user: 'cr_user_tok', vendor: 'cr_vendor_tok' };
-    return map[role] || 'cr_user_tok';
+    switch (role) {
+        case 'admin': return 'cr_admin_tok';
+        case 'driver': return 'cr_driver_tok';
+        case 'user': return 'cr_user_tok';
+        case 'vendor': return 'cr_vendor_tok';
+        default: return 'cr_user_tok';
+    }
 }
 
 async function setAuthCookie(res, req, user, role) {
@@ -646,9 +754,21 @@ function authenticateJWT(req, res, next) {
         }
     };
 
+    const getTokenByRole = (roleName) => {
+        switch (roleName) {
+            case 'admin': return tokens.admin;
+            case 'driver': return tokens.driver;
+            case 'vendor': return tokens.vendor;
+            case 'user': return tokens.user;
+            case 'legacy': return tokens.legacy;
+            default: return null;
+        }
+    };
+
     // Try verifying the preferred token first
-    if (preferredRole && tokens[preferredRole]) {
-        validDecoded = verifyToken(tokens[preferredRole]);
+    const prefToken = getTokenByRole(preferredRole);
+    if (preferredRole && prefToken) {
+        validDecoded = verifyToken(prefToken);
     }
 
     // If preferred token was not found or invalid, try other tokens in order of relevance
@@ -657,7 +777,7 @@ function authenticateJWT(req, res, next) {
         const rolesOrder = ['admin', 'driver', 'user', 'vendor', 'legacy'];
         for (const roleKey of rolesOrder) {
             if (roleKey === preferredRole) continue; // already checked
-            const decoded = verifyToken(tokens[roleKey]);
+            const decoded = verifyToken(getTokenByRole(roleKey));
             if (decoded) {
                 fallbackDecoded = decoded;
 
@@ -1677,8 +1797,9 @@ async function startServer() {
 
         const PORT = process.env.PORT || 3000;
 
-        app.listen(PORT, "0.0.0.0", () => {
+        httpServer.listen(PORT, "0.0.0.0", () => {
             console.log(`Server running on http://0.0.0.0:${PORT}`);
+            console.log(`✅ Socket.IO WebSocket server attached on same port ${PORT}`);
         });
 
     } catch (err) {
@@ -1879,14 +2000,14 @@ app.post('/api/auth/send-otp', async (req, res) => {
         await db.query('INSERT INTO taxi_otps (email, otp, expires_at) VALUES (?, ?, ?)', [email, otp, expiresAt]);
 
         const subject = 'CityRide platform verification code';
-        const html = `<div style="font-family: Arial, sans-serif; padding: 25px; border: 4px solid #1a1a1a; border-radius: 15px; max-width: 500px; text-align: center;">
-                          <h2 style="color: #ff5252;">Identity <span style="color: #1a1a1a;">Verification</span></h2>
-                          <p style="color: #555;">Use the following code to authorize your action:</p>
-                          <div style="background: #f8f8f8; padding: 20px; font-size: 38px; font-weight: bold; letter-spacing: 12px; color: #000; border-radius: 8px;">
-                              ${otp}
-                          </div>
-                          <p style="color: #888; font-size: 10px; margin-top: 20px;">Requested at: ${new Date().toLocaleTimeString()}</p>
-                      </div>`;
+        const html = '<div style="font-family: Arial, sans-serif; padding: 25px; border: 4px solid #1a1a1a; border-radius: 15px; max-width: 500px; text-align: center;">\n' +
+                          '  <h2 style="color: #ff5252;">Identity <span style="color: #1a1a1a;">Verification</span></h2>\n' +
+                          '  <p style="color: #555;">Use the following code to authorize your action:</p>\n' +
+                          '  <div style="background: #f8f8f8; padding: 20px; font-size: 38px; font-weight: bold; letter-spacing: 12px; color: #000; border-radius: 8px;">\n' +
+                          '      ' + escapeHTML(otp) + '\n' +
+                          '  </div>\n' +
+                          '  <p style="color: #888; font-size: 10px; margin-top: 20px;">Requested at: ' + escapeHTML(new Date().toLocaleTimeString()) + '</p>\n' +
+                          '</div>';
 
         console.log(`[BREVO API] Dispatching OTP for: ${email}`);
         await sendBrevoMail(email, subject, html);
@@ -2078,10 +2199,16 @@ app.get('/api/auth/session', async (req, res) => {
     const allCookies = req.cookies || {};
     const requestedRole = req.query.role; // Optional: client can specify which role to restore
 
-    // Try to find a valid token - prefer the role-specific one if role is specified
     let token = null;
     if (requestedRole) {
-        token = allCookies[getRoleCookieName(requestedRole)];
+        const cookieName = getRoleCookieName(requestedRole);
+        switch (cookieName) {
+            case 'cr_admin_tok': token = allCookies.cr_admin_tok; break;
+            case 'cr_driver_tok': token = allCookies.cr_driver_tok; break;
+            case 'cr_user_tok': token = allCookies.cr_user_tok; break;
+            case 'cr_vendor_tok': token = allCookies.cr_vendor_tok; break;
+            default: token = null; break;
+        }
     }
     if (!token) {
         // Try all role cookies in order
@@ -2172,17 +2299,15 @@ app.post('/api/driver/register/send-otp', async (req, res) => {
         registrationOtps.set(email, { otp, expiry: Date.now() + 10 * 60 * 1000 }); // 10 min expiry
 
         const subject = 'CityRide Pilot Identity Verification';
-        const html = `
-            <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #eee; border-radius: 10px;">
-                <h2 style="color: #B71C1C;">Pilot Recruitment Hub</h2>
-                <p>Greetings, Pilot. You are attempting to register with the CityRide Network.</p>
-                <div style="background: #f9f9f9; padding: 20px; border-radius: 8px; text-align: center; margin: 20px 0;">
-                    <span style="font-size: 24px; font-weight: bold; letter-spacing: 5px; color: #333;">${otp}</span>
-                </div>
-                <p>Enter this verification token in your registration portal to continue. This code is valid for 10 minutes.</p>
-                <p style="font-size: 0.8rem; color: #888;">If you did not request this, please ignore this email.</p>
-            </div>
-        `;
+        const html = '            <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #eee; border-radius: 10px;">\n' +
+            '                <h2 style="color: #B71C1C;">Pilot Recruitment Hub</h2>\n' +
+            '                <p>Greetings, Pilot. You are attempting to register with the CityRide Network.</p>\n' +
+            '                <div style="background: #f9f9f9; padding: 20px; border-radius: 8px; text-align: center; margin: 20px 0;">\n' +
+            '                    <span style="font-size: 24px; font-weight: bold; letter-spacing: 5px; color: #333;">' + escapeHTML(otp) + '</span>\n' +
+            '                </div>\n' +
+            '                <p>Enter this verification token in your registration portal to continue. This code is valid for 10 minutes.</p>\n' +
+            '                <p style="font-size: 0.8rem; color: #888;">If you did not request this, please ignore this email.</p>\n' +
+            '            </div>\n';
 
         await sendBrevoMail(email, subject, html);
         logAuthEvent({ event: 'OTP_SENT', role: 'driver', identifier: email, status: 'OK', ip: req.ip, message: 'Pilot recruitment OTP sent' });
@@ -2391,7 +2516,13 @@ app.post('/api/admin/driver-applications/decision', async (req, res) => {
             await db.query('DELETE FROM taxi_driver_applications WHERE id = ?', [appId]);
 
             // Optional: Send Email Notification
-            await sendBrevoMail(app.email, 'Pilot Application Update', `<h2>Ground Control Update</h2><p>Your application was not authorized at this time.</p><p><strong>Reason:</strong> ${escapedNote}</p>`).catch(e => console.error('Rejection notification failed', e));
+            await sendBrevoMail(
+                app.email, 
+                'Pilot Application Update', 
+                '<h2>Ground Control Update</h2>' +
+                '<p>Your application was not authorized at this time.</p>' +
+                '<p><strong>Reason:</strong> ' + escapedNote + '</p>'
+            ).catch(e => console.error('Rejection notification failed', e));
         }
 
         res.json({ success: true, message: `Application ${status} successfully.` });
@@ -2433,12 +2564,12 @@ app.post('/api/driver/wallet-payment-notify', authenticateJWT, requireRole(['dri
         // Admin email address
         const adminEmail = process.env.REPORT_RECEIVER_EMAIL || 'sureshit2005@gmail.com';
 
-        const emailContent = `<h2>Pilot Wallet Payment Notification</h2>
-             <p><strong>Pilot Name:</strong> ${driverName}</p>
-             <p><strong>Pilot Phone:</strong> ${driverPhone}</p>
-             <p><strong>Pilot ID:</strong> ${driverId}</p>
-             <p><strong>Amount Transferred:</strong> Rs.${parseFloat(amount).toFixed(2)}</p>
-             <p>Please verify the UPI payment and update the pilot's wallet balance in the Admin Panel.</p>`;
+        const emailContent = '<h2>Pilot Wallet Payment Notification</h2>\n' +
+             ' <p><strong>Pilot Name:</strong> ' + escapeHTML(driverName) + '</p>\n' +
+             ' <p><strong>Pilot Phone:</strong> ' + escapeHTML(driverPhone) + '</p>\n' +
+             ' <p><strong>Pilot ID:</strong> ' + escapeHTML(driverId) + '</p>\n' +
+             ' <p><strong>Amount Transferred:</strong> Rs.' + escapeHTML(parseFloat(amount).toFixed(2)) + '</p>\n' +
+             ' <p>Please verify the UPI payment and update the pilot\'s wallet balance in the Admin Panel.</p>';
 
         await sendBrevoMail(
             adminEmail,
@@ -2511,17 +2642,19 @@ app.post('/api/chat', async (req, res) => {
         const genAI = new GoogleGenerativeAI(apiKey);
 
         // Final verified model: gemini-flash-latest is the only one with active quota for this project.
-        const model = genAI.getGenerativeModel({ model: "gemini-flash-latest" });
+        const model = genAI.getGenerativeModel({ 
+            model: "gemini-flash-latest",
+            systemInstruction: `You are "CityRide AI", the official virtual assistant for CityRideTaxi.
+Your style: Friendly, professional, and concise (max 2 sentences).
+Core Knowledge:
+- Fares: Sedan is ₹25/KM. SUV is ₹35/KM.
+- Limits: No KM limit for local rides. Outstation rides are for longer distances between cities.
+Response Instructions: 
+- Only mention booking or redirecting if the user specifically asks how to book or seems ready to ride. 
+- Answer their specific question directly first.`
+        });
 
-        const prompt = `You are "CityRide AI", the official virtual assistant for CityRideTaxi.
-        Your style: Friendly, professional, and concise (max 2 sentences).
-        Core Knowledge:
-        - Fares: Sedan is ₹25/KM. SUV is ₹35/KM.
-        - Limits: No KM limit for local rides. Outstation rides are for longer distances between cities.
-        Response Instructions: 
-        - Only mention booking or redirecting if the user specifically asks how to book or seems ready to ride. 
-        - Answer their specific question directly first.
-        User says: ${message}`;
+        const prompt = `User says: ${message}`;
 
         try {
             const result = await model.generateContent(prompt);
@@ -2556,32 +2689,28 @@ app.post('/api/support/ticket', async (req, res) => {
 
         // Send email to admin (Receiver)
         const adminEmail = process.env.REPORT_RECEIVER_EMAIL || 'sureshit2005@gmail.com';
-        const subject = `🎫 New Support Ticket from ${escapedName}`;
-        const html = `
-            <div style="font-family: sans-serif; padding: 20px; border: 1px solid #ddd; max-width: 600px;">
-                <h2 style="color: #ff5252;">New Support Ticket</h2>
-                <p><strong>Customer Name:</strong> ${escapedName}</p>
-                <p><strong>Reply to Email:</strong> ${escapedEmail}</p>
-                <hr style="border-top: 1px dashed #ccc;" />
-                <p><strong>Issue/Query:</strong></p>
-                <div style="background: #f8f8f8; padding: 15px; border-radius: 8px;">
-                    ${escapedQuery}
-                </div>
-            </div>
-        `;
+        const subject = '🎫 New Support Ticket from ' + escapedName;
+        const html = '            <div style="font-family: sans-serif; padding: 20px; border: 1px solid #ddd; max-width: 600px;">\n' +
+            '                <h2 style="color: #ff5252;">New Support Ticket</h2>\n' +
+            '                <p><strong>Customer Name:</strong> ' + escapedName + '</p>\n' +
+            '                <p><strong>Reply to Email:</strong> ' + escapedEmail + '</p>\n' +
+            '                <hr style="border-top: 1px dashed #ccc;" />\n' +
+            '                <p><strong>Issue/Query:</strong></p>\n' +
+            '                <div style="background: #f8f8f8; padding: 15px; border-radius: 8px;">\n' +
+            '                    ' + escapedQuery + '\n' +
+            '                </div>\n' +
+            '            </div>\n';
 
         await sendBrevoMail(adminEmail, subject, html);
 
         // --- AUTO-MESSAGE / AUTO-REPLY TO CUSTOMER ---
-        const customerSubject = `Ticket Received - CityRideTaxi Support`;
-        const customerHtml = `
-            <div style="font-family: sans-serif; padding: 20px; border-left: 4px solid #ff5252; background: #f9f9f9; max-width: 600px;">
-                <h3 style="color: #333;">Hello ${name},</h3>
-                <p>This is an automated message confirming that your support ticket has been logged into our system successfully.</p>
-                <p>Our operations team will review your query and respond directly to this email address within 12 business hours.</p>
-                <p style="margin-top: 20px; font-size: 0.9rem; color: #777;">Thank you for riding with us,<br/><strong>CityRideTaxi Command Team</strong></p>
-            </div>
-        `;
+        const customerSubject = 'Ticket Received - CityRideTaxi Support';
+        const customerHtml = '            <div style="font-family: sans-serif; padding: 20px; border-left: 4px solid #ff5252; background: #f9f9f9; max-width: 600px;">\n' +
+            '                <h3 style="color: #333;">Hello ' + escapedName + ',</h3>\n' +
+            '                <p>This is an automated message confirming that your support ticket has been logged into our system successfully.</p>\n' +
+            '                <p>Our operations team will review your query and respond directly to this email address within 12 business hours.</p>\n' +
+            '                <p style="margin-top: 20px; font-size: 0.9rem; color: #777;">Thank you for riding with us,<br/><strong>CityRideTaxi Command Team</strong></p>\n' +
+            '            </div>\n';
         // Send auto-responder back to the customer's inputted email
         await sendBrevoMail(email, customerSubject, customerHtml).catch(e => console.error('Auto-reply failed', e));
 
@@ -2634,7 +2763,26 @@ app.post('/api/bookings/create', authenticateJWT, requireRole(['user']), (req, r
             driverId
         ];
         const [result] = await db.query('INSERT INTO taxi_bookings (user_id, pickup_loc, pickup_coords, drop_loc, drop_coords, pickup_date, pickup_time, passengers, vehicle_type, trip_type, fare, distance, journey_otp, end_otp, status, vendor_id, vendor_markup, rental_package, return_date, passenger_name, passenger_phone, estimated_distance, estimated_fare, estimated_duration, driver_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', values);
+
+        // 🔴 Socket.IO: Notify all drivers + admin of new opportunity
+        const newBookingPayload = {
+            bookingId: result.insertId,
+            pickup: booking.pickup,
+            drop: booking.drop,
+            fare: fareStr,
+            distance: distStr,
+            vehicleType: booking.vehicle,
+            tripType: booking.tripType,
+            status
+        };
+        emitEvent('drivers', 'new_opportunity', newBookingPayload);
+        emitEvent('admin', 'new_opportunity', newBookingPayload);
+        if (driverId) {
+            emitEvent(`driver:${driverId}`, 'booking_assigned', newBookingPayload);
+        }
+
         res.json({ success: true, bookingId: result.insertId, journeyOtp: journeyOtp, endOtp: endOtp });
+
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
@@ -2658,7 +2806,7 @@ app.get('/api/bookings/fare-breakdown/:bookingId', authenticateJWT, requireRole(
 
         // Fetch tariff for the trip type
         const categoryKey = b.trip_type === 'rental' ? 'rental' : b.trip_type;
-        const [tariffRows] = await db.query('SELECT config FROM tariffs WHERE vehicle_type = ? AND category = ?', [b.vehicle_type, categoryKey]);
+        const [tariffRows] = await db.query('SELECT config FROM taxi_tariffs WHERE vehicle_type = ? AND category = ?', [b.vehicle_type, categoryKey]);
         const [peakRules] = await db.query('SELECT * FROM taxi_peak_rules WHERE is_active = 1');
 
         let pricingConfig = null;
@@ -2687,8 +2835,15 @@ app.get('/api/bookings/fare-breakdown/:bookingId', authenticateJWT, requireRole(
         }
 
         let waitingCharge = 0;
-        if (b.trip_type === 'local') {
-            waitingCharge = preRideWaitingCharge;
+        if (['local', 'oneway', 'round'].includes(b.trip_type)) {
+            let durationMins = 0;
+            if (b.journey_start_time) {
+                const startTime = new Date(b.journey_start_time);
+                const endTime = b.journey_end_time ? new Date(b.journey_end_time) : new Date();
+                durationMins = Math.max(0, (endTime - startTime) / (1000 * 60));
+            }
+            const journeyWaiting = calcWaitingCharge(distKm, durationMins).waitingCharge;
+            waitingCharge = preRideWaitingCharge + journeyWaiting;
         } else if (b.trip_type === 'rental') {
             if (b.journey_start_time) {
                 const startTime = new Date(b.journey_start_time);
@@ -2781,8 +2936,8 @@ app.get('/api/bookings/fare-breakdown/:bookingId', authenticateJWT, requireRole(
             drop: b.drop_loc,
             vehicle: b.vehicle_type,
             tripType: b.trip_type,
-            distance: distKm.toFixed(1),
-            estimatedDistance: estimDistKm.toFixed(1),
+            distance: distKm.toFixed(3),
+            estimatedDistance: estimDistKm.toFixed(3),
             estimatedDurationMins: estimDurationMins,
             estimatedDuration: formatDurationMins(estimDurationMins),
             baseFare: Math.round(baseFare),
@@ -3055,6 +3210,26 @@ app.post('/api/bookings/accept', authenticateJWT, requireRole(['driver']), (req,
             'UPDATE taxi_drivers SET wallet_balance = wallet_balance - ? WHERE id = ?',
             [requiredBalance, driverId]
         );
+
+        // Fetch driver name and booking user_id to notify relevant parties
+        const [[driverRow], [bookingRow]] = await Promise.all([
+            db.query('SELECT name, car_model, car_number FROM taxi_drivers WHERE id = ?', [driverId]),
+            db.query('SELECT user_id, pickup_loc, drop_loc FROM taxi_bookings WHERE id = ?', [bookingId])
+        ]);
+        const driverName = driverRow[0]?.name || 'Your Driver';
+        const userId = bookingRow[0]?.user_id;
+
+        // 🔴 Socket.IO: Notify user their booking was accepted
+        if (userId) {
+            emitEvent(`user:${userId}`, 'booking_confirmed', {
+                bookingId,
+                driverName,
+                carModel: driverRow[0]?.car_model || '',
+                carNumber: driverRow[0]?.car_number || '',
+                status: 'assigned'
+            });
+        }
+        emitEvent('admin', 'booking_status_update', { bookingId, status: 'assigned', driverId });
 
         res.json({ success: true });
     } catch (err) {
@@ -3521,7 +3696,12 @@ app.get('/api/admin/settings', authenticateJWT, requireRole(['admin']), async (r
     try {
         const [rows] = await db.query('SELECT setting_key, setting_value FROM taxi_settings');
         const settings = {};
-        rows.forEach(r => { settings[r.setting_key] = r.setting_value; });
+        rows.forEach(r => {
+            const key = r.setting_key;
+            if (key !== '__proto__' && key !== 'constructor' && key !== 'prototype') {
+                Reflect.set(settings, key, r.setting_value);
+            }
+        });
         res.json(settings);
     } catch (err) {
         res.status(500).json({ error: err.message });
@@ -3903,9 +4083,9 @@ async function calculateOdometerDistance(bookingId, startCoordsStr, journeyStart
         });
 
         // Sum distances with speed sanity checks
-        let prevPoint = smoothedPoints[0];
+        let prevPoint = smoothedPoints.at(0);
         for (let i = 1; i < smoothedPoints.length; i++) {
-            const currentPoint = smoothedPoints[i];
+            const currentPoint = smoothedPoints.at(i);
             const dtSeconds = Math.max(0.1, (currentPoint.time - prevPoint.time) / 1000.0);
             const segmentDist = getDistance(prevPoint.lat, prevPoint.lng, currentPoint.lat, currentPoint.lng); // in KM
 
@@ -4084,7 +4264,7 @@ app.post('/api/bookings/start-journey', authenticateJWT, requireRole(['driver'])
         // === DYNAMIC FARE CALCULATION ===
         let dynamicFare = 0;
         let dynamicFareStr = booking.fare; // default to original if calc fails
-        let dynamicDistStr = `${dynamicDistKm.toFixed(1)} KM`;
+        let dynamicDistStr = `${dynamicDistKm.toFixed(3)} KM`;
 
         if (booking.trip_type !== 'rental' && dynamicDistKm >= 0) {
             // Fetch tariff config (check vendor tariff first, then system fallback) and peak rules in parallel
@@ -4093,7 +4273,7 @@ app.post('/api/bookings/start-journey', authenticateJWT, requireRole(['driver'])
             if (booking.vendor_id) {
                 vendorTariffPromise = db.query('SELECT config FROM taxi_vendor_tariffs WHERE vendor_id = ? AND vehicle_type = ? AND category = ?', [booking.vendor_id, booking.vehicle_type, booking.trip_type]);
             }
-            const tariffPromise = db.query('SELECT config FROM tariffs WHERE vehicle_type = ? AND category = ?', [booking.vehicle_type, booking.trip_type]);
+            const tariffPromise = db.query('SELECT config FROM taxi_tariffs WHERE vehicle_type = ? AND category = ?', [booking.vehicle_type, booking.trip_type]);
             const peakRulesPromise = db.query('SELECT * FROM taxi_peak_rules WHERE is_active = 1');
 
             const [[vendorTariffRows], [tariffRows], [peakRules]] = await Promise.all([vendorTariffPromise, tariffPromise, peakRulesPromise]);
@@ -4184,6 +4364,19 @@ app.post('/api/bookings/start-journey', authenticateJWT, requireRole(['driver'])
 
         console.log(`[Start Journey #${bookingId}] Estimated: ${booking.distance} / ${booking.fare} → Dynamic: ${dynamicDistStr} / ${dynamicFareStr}`);
 
+        // 🔴 Socket.IO: Notify user their journey has started
+        const userId = booking.user_id;
+        if (userId) {
+            emitEvent(`user:${userId}`, 'booking_status_update', {
+                bookingId,
+                status: 'ongoing',
+                dynamicFare: dynamicFareStr,
+                dynamicDistance: dynamicDistStr
+            });
+        }
+        emitEvent(`booking:${bookingId}`, 'booking_status_update', { bookingId, status: 'ongoing' });
+        emitEvent('admin', 'booking_status_update', { bookingId, status: 'ongoing', driverId: booking.driver_id });
+
         res.json({
             success: true,
             message: 'Journey started. GPS tracking is now active.',
@@ -4244,6 +4437,14 @@ app.post('/api/bookings/update-status', authenticateJWT, requireRole(['driver', 
             // Clean up GPS state cache to prevent memory leaks
             activeRidesGpsState.delete(bookingId);
 
+            // 🔴 Socket.IO: Trip completed
+            const booking2 = req.booking;
+            if (booking2.user_id) {
+                emitEvent(`user:${booking2.user_id}`, 'booking_status_update', { bookingId, status: 'completed', finalFare: booking2.fare });
+            }
+            emitEvent('admin', 'booking_status_update', { bookingId, status: 'completed', driverId: booking2.driver_id });
+            emitEvent(`booking:${bookingId}`, 'booking_status_update', { bookingId, status: 'completed' });
+
             return res.json({
                 success: true,
                 vendorProfit: vendorProfitDeducted,
@@ -4259,6 +4460,15 @@ app.post('/api/bookings/update-status', authenticateJWT, requireRole(['driver', 
         } else {
             await db.query('UPDATE taxi_bookings SET status = ? WHERE id = ?', [status, bookingId]);
         }
+
+        // 🔴 Socket.IO: Generic status update broadcast
+        const bk = req.booking;
+        if (bk && bk.user_id) {
+            emitEvent(`user:${bk.user_id}`, 'booking_status_update', { bookingId, status });
+        }
+        emitEvent('admin', 'booking_status_update', { bookingId, status });
+        emitEvent(`booking:${bookingId}`, 'booking_status_update', { bookingId, status });
+
         res.json({ success: true });
     } catch (err) {
         res.status(500).json({ error: err.message });
@@ -4325,7 +4535,7 @@ app.post('/api/bookings/finish-trip', authenticateJWT, requireRole(['driver']), 
         } else {
             // Get the last logged GPS coords from pre-fetched logs
             if (gpsLogs.length > 0) {
-                const lastLog = gpsLogs[gpsLogs.length - 1];
+                const lastLog = gpsLogs.at(-1);
                 endCoords = `${lastLog.longitude},${lastLog.latitude}`;
             } else {
                 endCoords = booking.drop_coords || null;
@@ -4355,7 +4565,7 @@ app.post('/api/bookings/finish-trip', authenticateJWT, requireRole(['driver']), 
             if (booking.vendor_id) {
                 vendorTariffPromise = db.query('SELECT config FROM taxi_vendor_tariffs WHERE vendor_id = ? AND vehicle_type = ? AND category = "rental"', [booking.vendor_id, booking.vehicle_type]);
             }
-            const tariffPromise = db.query('SELECT config FROM tariffs WHERE vehicle_type = ? AND category = "rental"', [booking.vehicle_type]);
+            const tariffPromise = db.query('SELECT config FROM taxi_tariffs WHERE vehicle_type = ? AND category = "rental"', [booking.vehicle_type]);
 
             const [[vendorTariffRows], [tariffRows]] = await Promise.all([vendorTariffPromise, tariffPromise]);
 
@@ -4367,7 +4577,11 @@ app.post('/api/bookings/finish-trip', authenticateJWT, requireRole(['driver']), 
 
             if (pricingConfig) {
                 const config = pricingConfig;
-                const packageConfig = config[booking.rental_package];
+                const allowedPackages = ['2-20', '4-40', '8-80', '12-120'];
+                let packageConfig = null;
+                if (allowedPackages.includes(booking.rental_package)) {
+                    packageConfig = Reflect.get(config, booking.rental_package);
+                }
 
                 if (packageConfig) {
                     const [pMaxHrs, pMaxKm] = booking.rental_package.split('-').map(Number);
@@ -4408,6 +4622,13 @@ app.post('/api/bookings/finish-trip', authenticateJWT, requireRole(['driver']), 
 
             // Clean up GPS state cache to prevent memory leaks
             activeRidesGpsState.delete(bookingId);
+
+            // 🔴 Socket.IO: Trip finished - notify user and admin
+            if (booking.user_id) {
+                emitEvent(`user:${booking.user_id}`, 'booking_status_update', { bookingId, status: nextStatus, finalFare: finalFareStr });
+            }
+            emitEvent('admin', 'booking_status_update', { bookingId, status: nextStatus, driverId: booking.driver_id });
+            emitEvent(`booking:${bookingId}`, 'booking_status_update', { bookingId, status: nextStatus });
 
             return res.json({
                 success: true,
@@ -4495,9 +4716,9 @@ app.post('/api/bookings/finish-trip', authenticateJWT, requireRole(['driver']), 
                 if (durationMins > rentalAllowedMins) {
                     waitingCharge = (durationMins - rentalAllowedMins) * 2;
                 }
-            } else if (booking.trip_type === 'local') {
-                // Local trips only accumulate pre-ride waiting charges; trip duration is not billed as waiting time.
-                waitingCharge = preRideWaitingCharge;
+            } else if (['local', 'oneway', 'round'].includes(booking.trip_type)) {
+                const journeyWaiting = calcWaitingCharge(distanceCovered, durationMins).waitingCharge;
+                waitingCharge = preRideWaitingCharge + journeyWaiting;
             }
             // oneway/round: no per-minute waiting (billed by km day allowance)
 
@@ -4508,7 +4729,7 @@ app.post('/api/bookings/finish-trip', authenticateJWT, requireRole(['driver']), 
             if (booking.vendor_id) {
                 vendorTariffPromise = db.query('SELECT config FROM taxi_vendor_tariffs WHERE vendor_id = ? AND vehicle_type = ? AND category = ?', [booking.vendor_id, booking.vehicle_type, booking.trip_type]);
             }
-            const tariffPromise = db.query('SELECT config FROM tariffs WHERE vehicle_type = ? AND category = ?', [booking.vehicle_type, booking.trip_type]);
+            const tariffPromise = db.query('SELECT config FROM taxi_tariffs WHERE vehicle_type = ? AND category = ?', [booking.vehicle_type, booking.trip_type]);
 
             const [[vendorTariffRows], [tariffRows]] = await Promise.all([vendorTariffPromise, tariffPromise]);
 
@@ -4559,7 +4780,7 @@ app.post('/api/bookings/finish-trip', authenticateJWT, requireRole(['driver']), 
             }
 
             const finalFareStr = `₹${Math.ceil(totalFare)}`;
-            const distanceStr = `${distanceCovered.toFixed(1)} KM`;
+            const distanceStr = `${distanceCovered.toFixed(3)} KM`;
             const { allowedMins: finalAllowedMins, waitingMins: finalWaitingMins } = calcWaitingCharge(distanceCovered, durationMins);
 
             console.log(`[Finish Trip #${bookingId}] Fare: ${finalFareStr} | Dist: ${distanceStr} | Duration: ${durationMins.toFixed(1)}min | WaitCharge: ₹${Math.ceil(waitingCharge)}`);
@@ -4595,10 +4816,17 @@ app.post('/api/bookings/finish-trip', authenticateJWT, requireRole(['driver']), 
             // Clean up GPS state cache to prevent memory leaks
             activeRidesGpsState.delete(bookingId);
 
+            // 🔴 Socket.IO: Trip finished - notify user and admin
+            if (booking.user_id) {
+                emitEvent(`user:${booking.user_id}`, 'booking_status_update', { bookingId, status: nextStatus, finalFare: finalFareStr });
+            }
+            emitEvent('admin', 'booking_status_update', { bookingId, status: nextStatus, driverId: booking.driver_id });
+            emitEvent(`booking:${bookingId}`, 'booking_status_update', { bookingId, status: nextStatus });
+
             return res.json({
                 success: true,
                 finalFare: finalFareStr,
-                distance: distanceCovered.toFixed(1),
+                distance: distanceCovered.toFixed(3),
                 duration: durationMins.toFixed(1),
                 allowedMins: Math.ceil(finalAllowedMins),
                 waitingMins: Math.ceil(finalWaitingMins),
@@ -4721,9 +4949,9 @@ app.post('/api/bookings/update-gps-location', authenticateJWT, requireRole(['dri
             if (elapsedMins > allowedMins) {
                 waitingCharge = (elapsedMins - allowedMins) * 2;
             }
-        } else if (booking.trip_type === 'local') {
-            // Local trips only accumulate pre-ride waiting charges; trip duration is not billed as waiting time.
-            waitingCharge = preRideWaitingCharge;
+        } else if (['local', 'oneway', 'round'].includes(booking.trip_type)) {
+            const journeyWaiting = calcWaitingCharge(totalDistance, elapsedMins).waitingCharge;
+            waitingCharge = preRideWaitingCharge + journeyWaiting;
         }
 
         // 6. Recalculate Fare (check vendor tariff first, then system fallback)
@@ -4737,7 +4965,7 @@ app.post('/api/bookings/update-gps-location', authenticateJWT, requireRole(['dri
             }
         }
         if (!pricingConfig) {
-            const [tariffRows] = await db.query('SELECT config FROM tariffs WHERE vehicle_type = ? AND category = ?', [booking.vehicle_type, categoryKey]);
+            const [tariffRows] = await db.query('SELECT config FROM taxi_tariffs WHERE vehicle_type = ? AND category = ?', [booking.vehicle_type, categoryKey]);
             if (tariffRows.length > 0) {
                 pricingConfig = typeof tariffRows[0].config === 'string' ? JSON.parse(tariffRows[0].config) : tariffRows[0].config;
             }
@@ -4796,23 +5024,37 @@ app.post('/api/bookings/update-gps-location', authenticateJWT, requireRole(['dri
             const extraHrs = Math.max(0, Math.ceil(durationHrs - pMaxHrs));
             const extraHourCharge = extraHrs * packageConfig.extraHour;
 
-            totalFare = (packageConfig.base + extraKmCharge + extraHourCharge) * 1.05;
+            totalFare = (packageConfig.base + extraKmCharge + extraHourCharge + waitingCharge) * 1.05;
         }
 
         const finalFare = `₹${Math.ceil(totalFare)}`;
-        const distanceStr = `${totalDistance.toFixed(1)} KM`;
+        const distanceStr = `${totalDistance.toFixed(3)} KM`;
 
         await db.query(
             'UPDATE taxi_bookings SET fare = ?, actual_distance = ?, is_deviated = ? WHERE id = ?',
-            [finalFare, `${actualDistKm.toFixed(1)} KM`, isDeviated, bookingId]
+            [finalFare, `${actualDistKm.toFixed(3)} KM`, isDeviated, bookingId]
         );
+
+        // 🔴 Socket.IO: Push driver GPS position and live fare to passenger
+        const userId = booking.user_id;
+        if (userId && latitude !== undefined && longitude !== undefined) {
+            emitEvent(`user:${userId}`, 'driver_location', {
+                bookingId,
+                latitude,
+                longitude,
+                newFare: finalFare,
+                actualDistance: `${actualDistKm.toFixed(3)} KM`,
+                waitingCharge: Math.ceil(waitingCharge)
+            });
+        }
+        emitEvent(`booking:${bookingId}`, 'driver_location', { bookingId, latitude, longitude, newFare: finalFare });
 
         res.json({
             success: true,
             isDeviated: isDeviated === 1,
             newFare: finalFare,
             totalDistance: booking.estimated_distance || booking.distance || '0 KM',
-            actualDistance: `${actualDistKm.toFixed(1)} KM`,
+            actualDistance: `${actualDistKm.toFixed(3)} KM`,
             elapsedMins: Math.ceil(elapsedMins),
             allowedMins: Math.ceil(allowedMins),
             waitingCharge: Math.ceil(waitingCharge)
@@ -5000,8 +5242,8 @@ app.get('/api/monitor/stats', async (req, res) => {
         for (const table of tables) {
             try {
                 const [[row]] = await db.query(`SELECT COUNT(*) as count FROM \`${table}\``);
-                stats[table] = row.count;
-            } catch (e) { stats[table] = 0; }
+                Reflect.set(stats, table, row.count);
+            } catch (e) { Reflect.set(stats, table, 0); }
         }
 
         // Recent activity counts (last 24h)
@@ -5191,12 +5433,12 @@ app.get('/api/dbmanager/rows/:table', async (req, res) => {
         const safeRows = rows.map(row => {
             const safe = { ...row };
             for (const key of Object.keys(safe)) {
+                if (key === '__proto__' || key === 'constructor' || key === 'prototype') continue;
+                const val = Reflect.get(safe, key);
                 if (PROTECTED_COLUMNS.some(p => key.toLowerCase().includes(p))) {
-                    safe[key] = '***PROTECTED***';
-                }
-                // Truncate very long base64 fields
-                if (typeof safe[key] === 'string' && safe[key].length > 500) {
-                    safe[key] = safe[key].substring(0, 80) + '... [TRUNCATED]';
+                    Reflect.set(safe, key, '***PROTECTED***');
+                } else if (typeof val === 'string' && val.length > 500) {
+                    Reflect.set(safe, key, val.substring(0, 80) + '... [TRUNCATED]');
                 }
             }
             return safe;
@@ -5218,8 +5460,9 @@ app.post('/api/dbmanager/insert/:table', async (req, res) => {
     // Remove protected fields from insert
     const cleanData = {};
     for (const [k, v] of Object.entries(data)) {
+        if (k === '__proto__' || k === 'constructor' || k === 'prototype') continue;
         if (!PROTECTED_COLUMNS.some(p => k.toLowerCase().includes(p))) {
-            cleanData[k] = v === '' ? null : v;
+            Reflect.set(cleanData, k, v === '' ? null : v);
         }
     }
 
@@ -5254,9 +5497,9 @@ app.put('/api/dbmanager/update/:table/:id', async (req, res) => {
     // Remove protected + id fields
     const cleanData = {};
     for (const [k, v] of Object.entries(data)) {
-        if (k === 'id') continue;
+        if (k === 'id' || k === '__proto__' || k === 'constructor' || k === 'prototype') continue;
         if (!PROTECTED_COLUMNS.some(p => k.toLowerCase().includes(p))) {
-            cleanData[k] = v === '' ? null : v;
+            Reflect.set(cleanData, k, v === '' ? null : v);
         }
     }
 

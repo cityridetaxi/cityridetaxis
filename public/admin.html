@@ -2064,7 +2064,29 @@ if (match) _activeTab = match[1];
 });
 });
 loadTabData('overview');
-setInterval(() => { loadTabData(_activeTab); }, 5000);</script>
+setInterval(() => { loadTabData(_activeTab); }, 5000);
+
+// --- SOCKET.IO: Real-time connection ---
+(function initAdminSocket() {
+    if (typeof io === 'undefined') return;
+    const raw = localStorage.getItem('cityride_master');
+    let parsed = null;
+    try { parsed = raw ? JSON.parse(raw) : null; } catch(e) {}
+    const adminSocket = io({
+        auth: { token: parsed?.token || '' },
+        transports: ['websocket', 'polling'],
+        reconnectionDelay: 2000,
+        reconnectionAttempts: 20
+    });
+    adminSocket.on('connect', () => console.log('[Socket.IO] Admin connected:', adminSocket.id));
+    adminSocket.on('disconnect', (r) => console.warn('[Socket.IO] Admin disconnected:', r));
+    // Any booking event → immediately refresh the active tab
+    ['new_opportunity', 'booking_status_update', 'booking_confirmed', 'driver_location'].forEach(ev => {
+        adminSocket.on(ev, () => {
+            if (typeof loadTabData === 'function') loadTabData(_activeTab);
+        });
+    });
+})();</script>
     <!-- Peak Rule Modal -->
     <div id="peak-rule-modal" class="map-modal" style="display: none;">
         <div class="map-modal-content" style="max-width: 400px; width: 95%;">
@@ -2178,6 +2200,8 @@ console.error('saveAirDistanceKm error:', err);
 showAlertBanner('Failed to update distance.', 'error');
 }
 }</script>
+    <!-- Socket.IO Client -->
+    <script src="/socket.io/socket.io.js"></script>
 </body>
 
 </html>

@@ -81,6 +81,25 @@
             transition: color 0.2s, background 0.2s; cursor: pointer; border: none; background: none;
         }
         .spa-nav-link:hover { color: var(--cr-text); background: rgba(255,255,255,0.06); }
+        .spa-dashboard-btn {
+            color: var(--cr-text);
+            font-size: 0.88rem;
+            font-weight: 700;
+            text-decoration: none;
+            padding: 0.5rem 1.1rem;
+            border-radius: 8px;
+            background: rgba(255, 255, 255, 0.08);
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            transition: all 0.2s;
+            cursor: pointer;
+            display: inline-block;
+        }
+        .spa-dashboard-btn:hover {
+            background: rgba(255, 255, 255, 0.15);
+            border-color: rgba(255, 255, 255, 0.25);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.45);
+            transform: translateY(-1px);
+        }
         .spa-logout-btn {
             background: rgba(183,28,28,0.1); color: var(--cr-red);
             border: 1px solid rgba(183,28,28,0.3); padding: 0.45rem 1rem;
@@ -555,7 +574,7 @@
             </a>
             <nav class="spa-nav">
                 <span id="spa-dashboard-link">
-                    <a href="/dashboard" class="spa-nav-link" id="nav-dashboard-link">Dashboard</a>
+                    <a href="/dashboard" class="spa-dashboard-btn" id="nav-dashboard-link">Dashboard</a>
                 </span>
                 <span id="spa-logout-wrap">
                     <button class="spa-logout-btn" id="nav-logout-btn" onclick="logoutUser()">Logout</button>
@@ -952,7 +971,7 @@
             setTimeout(() => {
                 splash.classList.add('splash-hidden');
                 document.body.style.setProperty('overflow', 'auto', 'important');
-            }, 3200);
+            }, 1600);
         }
     });
     </script>

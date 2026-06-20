@@ -34,6 +34,78 @@
     };
 })();
 
+function escapeHTML(str) {
+    if (str === null || str === undefined) return '';
+    return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#x27;')
+        .replace(/\//g, '&#x2F;');
+}
+
+const allowedVehicleTypes = ['bike', 'auto', 'hatchback', 'sedan', 'suv', '8plus1', 'van24'];
+const allowedTripTypes = ['local', 'oneway', 'round', 'rental'];
+
+function getTransformedType(obj, type) {
+    if (!obj) return null;
+    switch (type) {
+        case 'bike': return obj.bike;
+        case 'auto': return obj.auto;
+        case 'hatchback': return obj.hatchback;
+        case 'sedan': return obj.sedan;
+        case 'suv': return obj.suv;
+        case '8plus1': return obj['8plus1'];
+        case 'van24': return obj.van24;
+        default: return null;
+    }
+}
+function setTransformedType(obj, type, val) {
+    if (!obj) return;
+    switch (type) {
+        case 'bike': obj.bike = val; break;
+        case 'auto': obj.auto = val; break;
+        case 'hatchback': obj.hatchback = val; break;
+        case 'sedan': obj.sedan = val; break;
+        case 'suv': obj.suv = val; break;
+        case '8plus1': obj['8plus1'] = val; break;
+        case 'van24': obj.van24 = val; break;
+    }
+}
+function getTripPricing(info, tripTypeId) {
+    if (!info) return null;
+    switch (tripTypeId) {
+        case 'local': return info.local;
+        case 'oneway': return info.oneway;
+        case 'round': return info.round;
+        case 'rental': return info.rental;
+        default: return null;
+    }
+}
+function getRentalConfig(rentalInfo, packageVal) {
+    if (!rentalInfo) return null;
+    switch (packageVal) {
+        case '2-20': return Reflect.get(rentalInfo, '2-20') || null;
+        case '4-40': return Reflect.get(rentalInfo, '4-40') || null;
+        case '8-80': return Reflect.get(rentalInfo, '8-80') || null;
+        case '12-120': return Reflect.get(rentalInfo, '12-120') || null;
+        default: return null;
+    }
+}
+function getVehicleIcon(vType) {
+    switch (vType) {
+        case 'bike': return VEHICLE_ICONS.bike;
+        case 'auto': return VEHICLE_ICONS.auto;
+        case 'hatchback': return VEHICLE_ICONS.hatchback;
+        case 'sedan': return VEHICLE_ICONS.sedan;
+        case 'suv': return VEHICLE_ICONS.suv;
+        case '8plus1': return VEHICLE_ICONS['8plus1'];
+        case 'van24': return VEHICLE_ICONS.van24;
+        default: return '🚗';
+    }
+}
+
 const VEHICLE_ICONS = {
     bike: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5.5 17.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5s2.5 1.12 2.5 2.5s-1.12 2.5-2.5 2.5z"/><path d="M18.5 17.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5s2.5 1.12 2.5 2.5s-1.12 2.5-2.5 2.5z"/><path d="M10 15h4l2-4h-8z"/><path d="M12 11V7c0-1-1-2-2-2"/><path d="M8 5h4"/></svg>`,
     auto: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 11h11l2 3h3v2a1 1 0 0 1-1 1h-2a1 1 0 0 1-1-1v-1H6v1a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1v-2l2-3z"/><circle cx="5" cy="15" r="2" fill="currentColor"/><circle cx="16" cy="15" r="2" fill="currentColor"/><path d="M7 11V8a1 1 0 0 1 1-1h5a1 1 0 0 1 1 1v3"/></svg>`,
@@ -54,17 +126,11 @@ document.addEventListener('DOMContentLoaded', () => {
                        window.location.pathname.includes('auth.html');
 
     const member = JSON.parse(localStorage.getItem('cityride_member'));
-    const pilot = JSON.parse(localStorage.getItem('cityride_pilot'));
-    const master = JSON.parse(localStorage.getItem('cityride_master'));
 
     // 1. Landing Page Logic (Home)
-    // We NO LONGER force redirect admins/pilots away from /
-    // This allows you to browse the home page even if you have an admin session active.
-
     // 2. Auth Guard for Landing Page (/)
     // If you are on the landing page and NOT logged in as a passenger, we show login.
-    // (Optional: You can remove this if you want / to be public)
-    if (isLandingPage && !member && !master && !pilot) {
+    if (isLandingPage && !member) {
         window.location.href = '/auth';
         return;
     }
@@ -241,22 +307,34 @@ document.addEventListener('DOMContentLoaded', () => {
             console.log('⚡ Dynamic Peak Rules Active:', peakRules);
 
             // Transform array into nested object structure expected by renderVehicleOptions
-            const transformed = {};
+            const transformed = Object.create(null);
             data.forEach(t => {
-                if (!transformed[t.vehicle_type]) {
-                    // Initialize with display properties (these could also be moved to DB eventually)
-                    const displayInfo = {
-                        bike: { name: 'Classy Bike Taxi', capacity: '1 Seater', maxPassengers: 1 },
-                        auto: { name: 'Auto', capacity: '3+1 Seater', maxPassengers: 3 },
-                        hatchback: { name: 'Hatchback', capacity: '4+1 Seater', maxPassengers: 4 },
-                        sedan: { name: 'Sedan', capacity: '4+1 Seater', maxPassengers: 4 },
-                        suv: { name: 'SUV', capacity: '6+1 Seater', maxPassengers: 6 },
-                        '8plus1': { name: 'Tempo Traveller', capacity: '8+1 Seater', maxPassengers: 8 },
-                        van24: { name: 'Omni Bus', capacity: '24+1 Seater', maxPassengers: 24 }
-                    };
-                    transformed[t.vehicle_type] = { ...displayInfo[t.vehicle_type] };
+                if (allowedVehicleTypes.includes(t.vehicle_type)) {
+                    if (!getTransformedType(transformed, t.vehicle_type)) {
+                        // Initialize with display properties (these could also be moved to DB eventually)
+                        const displayInfo = {
+                            bike: { name: 'Classy Bike Taxi', capacity: '1 Seater', maxPassengers: 1 },
+                            auto: { name: 'Auto', capacity: '3+1 Seater', maxPassengers: 3 },
+                            hatchback: { name: 'Hatchback', capacity: '4+1 Seater', maxPassengers: 4 },
+                            sedan: { name: 'Sedan', capacity: '4+1 Seater', maxPassengers: 4 },
+                            suv: { name: 'SUV', capacity: '6+1 Seater', maxPassengers: 6 },
+                            '8plus1': { name: 'Tempo Traveller', capacity: '8+1 Seater', maxPassengers: 8 },
+                            van24: { name: 'Omni Bus', capacity: '24+1 Seater', maxPassengers: 24 }
+                        };
+                        setTransformedType(transformed, t.vehicle_type, { ...getTransformedType(displayInfo, t.vehicle_type) });
+                    }
+                    if (t.category !== '__proto__' && t.category !== 'constructor') {
+                        const targetObj = getTransformedType(transformed, t.vehicle_type);
+                        if (targetObj) {
+                            // Safely map category pricing
+                            const val = typeof t.config === 'string' ? JSON.parse(t.config) : t.config;
+                            if (t.category === 'local') targetObj.local = val;
+                            else if (t.category === 'oneway') targetObj.oneway = val;
+                            else if (t.category === 'round') targetObj.round = val;
+                            else if (t.category === 'rental') targetObj.rental = val;
+                        }
+                    }
                 }
-                transformed[t.vehicle_type][t.category] = typeof t.config === 'string' ? JSON.parse(t.config) : t.config;
             });
             pricing = transformed;
             console.log('✅ Tariffs synchronized with Mainframe.');
@@ -429,23 +507,62 @@ document.addEventListener('DOMContentLoaded', () => {
         const pickup = document.getElementById('pickup').value || '—';
         const drop = document.getElementById('drop').value || '—';
 
+        // Set safe static template structure
         body.innerHTML = `
-            <div class="fm-row"><span class="fm-label">📍 Pickup</span><span class="fm-value" style="max-width:180px;text-align:right;font-size:0.8rem;">${pickup}</span></div>
-            <div class="fm-row"><span class="fm-label">🏁 Destination</span><span class="fm-value" style="max-width:180px;text-align:right;font-size:0.8rem;">${drop}</span></div>
-            <div class="fm-row"><span class="fm-label">🛣 Distance</span><span class="fm-value">${bd.distanceKm || lastCalculatedDistance || 0} KM</span></div>
-            <div class="fm-row"><span class="fm-label">⏱ Est. Duration</span><span class="fm-value">${bd.durationText || window.selectedDuration || '—'}</span></div>
-            <div class="fm-row"><span class="fm-label">🚗 Vehicle</span><span class="fm-value">${bd.vehicleName || '—'}</span></div>
-            <div class="fm-row"><span class="fm-label">💰 Rate / KM</span><span class="fm-value">₹${bd.perKm || '—'}</span></div>
-            ${bd.baseFare ? `<div class="fm-row"><span class="fm-label">🏠 Base Fare</span><span class="fm-value">₹${bd.baseFare}</span></div>` : ''}
-            ${bd.driverAllowance ? `<div class="fm-row"><span class="fm-label">👨‍🚕 Driver Betta</span><span class="fm-value">₹${bd.driverAllowance}</span></div>` : ''}
-            ${bd.peakCharge ? `<div class="fm-row"><span class="fm-label">⚡ Peak Surcharge</span><span class="fm-value" style="color:#ff9f0a;">₹${bd.peakCharge}</span></div>` : ''}
-            <div class="fm-row"><span class="fm-label">📊 GST (5%)</span><span class="fm-value">₹${bd.gst || 0}</span></div>
+            <div class="fm-row"><span class="fm-label">📍 Pickup</span><span class="fm-value" id="fb-pickup" style="max-width:180px;text-align:right;font-size:0.8rem;"></span></div>
+            <div class="fm-row"><span class="fm-label">🏁 Destination</span><span class="fm-value" id="fb-drop" style="max-width:180px;text-align:right;font-size:0.8rem;"></span></div>
+            <div class="fm-row"><span class="fm-label">🛣 Distance</span><span class="fm-value" id="fb-distance"></span></div>
+            <div class="fm-row"><span class="fm-label">⏱ Est. Duration</span><span class="fm-value" id="fb-duration"></span></div>
+            <div class="fm-row"><span class="fm-label">🚗 Vehicle</span><span class="fm-value" id="fb-vehicle"></span></div>
+            <div class="fm-row"><span class="fm-label">💰 Rate / KM</span><span class="fm-value" id="fb-rate"></span></div>
+            <div id="fb-base-row"></div>
+            <div id="fb-allowance-row"></div>
+            <div id="fb-peak-row"></div>
+            <div class="fm-row"><span class="fm-label">📊 GST (5%)</span><span class="fm-value" id="fb-gst"></span></div>
             <div class="fm-total-row">
                 <span class="fm-total-label">Estimated Total</span>
-                <span class="fm-total-value">₹${bd.total || 0}</span>
+                <span class="fm-total-value" id="fb-total"></span>
             </div>
             <p class="fm-note">ℹ️ Actual fare may vary based on route, waiting time, peak hours & tolls.</p>
         `;
+
+        // Update elements using textContent to prevent XSS warnings
+        document.getElementById('fb-pickup').textContent = pickup;
+        document.getElementById('fb-drop').textContent = drop;
+        document.getElementById('fb-distance').textContent = `${bd.distanceKm || lastCalculatedDistance || 0} KM`;
+        document.getElementById('fb-duration').textContent = bd.durationText || window.selectedDuration || '—';
+        document.getElementById('fb-vehicle').textContent = bd.vehicleName || '—';
+        document.getElementById('fb-rate').textContent = `₹${bd.perKm || '—'}`;
+        document.getElementById('fb-gst').textContent = `₹${bd.gst || 0}`;
+        document.getElementById('fb-total').textContent = `₹${bd.total || 0}`;
+
+        const baseRow = document.getElementById('fb-base-row');
+        if (bd.baseFare) {
+            baseRow.className = 'fm-row';
+            baseRow.innerHTML = `<span class="fm-label">🏠 Base Fare</span><span class="fm-value" id="fb-base-val"></span>`;
+            document.getElementById('fb-base-val').textContent = `₹${bd.baseFare}`;
+        } else {
+            baseRow.innerHTML = '';
+        }
+
+        const allowanceRow = document.getElementById('fb-allowance-row');
+        if (bd.driverAllowance) {
+            allowanceRow.className = 'fm-row';
+            allowanceRow.innerHTML = `<span class="fm-label">👨‍🚕 Driver Betta</span><span class="fm-value" id="fb-allowance-val"></span>`;
+            document.getElementById('fb-allowance-val').textContent = `₹${bd.driverAllowance}`;
+        } else {
+            allowanceRow.innerHTML = '';
+        }
+
+        const peakRow = document.getElementById('fb-peak-row');
+        if (bd.peakCharge) {
+            peakRow.className = 'fm-row';
+            peakRow.innerHTML = `<span class="fm-label">⚡ Peak Surcharge</span><span class="fm-value" style="color:#ff9f0a;" id="fb-peak-val"></span>`;
+            document.getElementById('fb-peak-val').textContent = `₹${bd.peakCharge}`;
+        } else {
+            peakRow.innerHTML = '';
+        }
+
         overlay.classList.add('open');
     };
 
@@ -495,19 +612,25 @@ document.addEventListener('DOMContentLoaded', () => {
             alert('⚠️ Fare Calculation Error. Please re-select vehicle.');
             return;
         }
-
         // Populate confirm modal
         const grid = document.getElementById('cm-summary-grid');
         if (grid) {
             grid.innerHTML = `
-                <div class="cm-info-row"><span class="cm-info-label">📍 Pickup</span><span class="cm-info-value" style="max-width:200px;text-align:right;font-size:0.82rem;">${pendingBookingData.pickup}</span></div>
-                <div class="cm-info-row"><span class="cm-info-label">🏁 Destination</span><span class="cm-info-value" style="max-width:200px;text-align:right;font-size:0.82rem;">${pendingBookingData.drop || 'Rental — No fixed drop'}</span></div>
-                <div class="cm-info-row"><span class="cm-info-label">🚗 Vehicle</span><span class="cm-info-value">${selectedVehicleData.vehicleName} (${selectedVehicleData.tripType.toUpperCase()})</span></div>
-                <div class="cm-info-row"><span class="cm-info-label">🛣 Distance</span><span class="cm-info-value">${selectedVehicleData.distanceKm} KM</span></div>
-                <div class="cm-info-row"><span class="cm-info-label">⏱ Est. Duration</span><span class="cm-info-value">${window.selectedDuration || '—'}</span></div>
-                <div class="cm-info-row"><span class="cm-info-label">💰 Estimated Fare</span><span class="cm-info-value" style="color:#e53935;font-size:1.1rem;">₹${selectedVehicleData.fare}</span></div>
-                <div class="cm-info-row"><span class="cm-info-label">📅 Date &amp; Time</span><span class="cm-info-value">${bookingDate} at ${bookingTime || 'Now'}</span></div>
+                <div class="cm-info-row"><span class="cm-info-label">📍 Pickup</span><span class="cm-info-value" id="cm-pickup" style="max-width:200px;text-align:right;font-size:0.82rem;"></span></div>
+                <div class="cm-info-row"><span class="cm-info-label">🏁 Destination</span><span class="cm-info-value" id="cm-drop" style="max-width:200px;text-align:right;font-size:0.82rem;"></span></div>
+                <div class="cm-info-row"><span class="cm-info-label">🚗 Vehicle</span><span class="cm-info-value" id="cm-vehicle"></span></div>
+                <div class="cm-info-row"><span class="cm-info-label">🛣 Distance</span><span class="cm-info-value" id="cm-distance"></span></div>
+                <div class="cm-info-row"><span class="cm-info-label">⏱ Est. Duration</span><span class="cm-info-value" id="cm-duration"></span></div>
+                <div class="cm-info-row"><span class="cm-info-label">💰 Estimated Fare</span><span class="cm-info-value" style="color:#e53935;font-size:1.1rem;" id="cm-fare"></span></div>
+                <div class="cm-info-row"><span class="cm-info-label">📅 Date &amp; Time</span><span class="cm-info-value" id="cm-datetime"></span></div>
             `;
+            document.getElementById('cm-pickup').textContent = pendingBookingData.pickup;
+            document.getElementById('cm-drop').textContent = pendingBookingData.drop || 'Rental — No fixed drop';
+            document.getElementById('cm-vehicle').textContent = `${selectedVehicleData.vehicleName} (${selectedVehicleData.tripType.toUpperCase()})`;
+            document.getElementById('cm-distance').textContent = `${selectedVehicleData.distanceKm} KM`;
+            document.getElementById('cm-duration').textContent = window.selectedDuration || '—';
+            document.getElementById('cm-fare').textContent = `₹${selectedVehicleData.fare}`;
+            document.getElementById('cm-datetime').textContent = `${bookingDate} at ${bookingTime || 'Now'}`;
         }
         document.getElementById('confirm-modal-overlay').classList.add('open');
     };
@@ -557,12 +680,14 @@ document.addEventListener('DOMContentLoaded', () => {
             const durText = duration > 60 ? `${Math.floor(duration/60)}h ${duration%60}m` : `${duration}m`;
             distInfo.innerHTML = `
                 <div style="font-weight:800; font-size:1.2rem; color:var(--primary-red); margin-bottom: 4px;">
-                    🏁 Total Distance: ${distance} KM
+                    🏁 Total Distance: <span id="di-dist"></span> KM
                 </div>
                 <div style="font-size:0.9rem; font-weight:600; color:var(--text-main);">
-                    ⏱️ Estimated Travel Time: ${durText}
+                    ⏱️ Estimated Travel Time: <span id="di-dur"></span>
                 </div>
             `;
+            distInfo.querySelector('#di-dist').textContent = distance;
+            distInfo.querySelector('#di-dur').textContent = durText;
             container.appendChild(distInfo);
         }
 
@@ -588,13 +713,15 @@ document.addEventListener('DOMContentLoaded', () => {
             });
 
             sortedVehicleTypes.forEach(vType => {
-                const info = pricing[vType];
+                if (!allowedVehicleTypes.includes(vType)) return;
+                const info = getTransformedType(pricing, vType);
+                if (!info) return;
 
                 // Restrict Omni Bus and Tempo Traveller from local rides
                 if (tType.id === 'local' && (vType === 'van24' || vType === '8plus1')) return;
 
                 // Check if vehicle is available for this specific trip type
-                if (!info[tType.id]) return;
+                if (allowedTripTypes.includes(tType.id) && !getTripPricing(info, tType.id)) return;
 
                 let totalFare = 0;
                 let displayDistance = distance;
@@ -673,7 +800,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     if (!info.rental) return;
                     const packageVal = rentalPackageSelect ? rentalPackageSelect.value : '2-20';
                     const [pMaxHrs, pMaxKm] = packageVal.split('-').map(Number);
-                    const config = info.rental[packageVal];
+                    const config = getRentalConfig(info.rental, packageVal);
                     if (!config) return;
                     const extraKm = Math.max(0, distance - pMaxKm);
                     const baseFare = config.base + (extraKm * config.extraKm);
@@ -704,14 +831,43 @@ document.addEventListener('DOMContentLoaded', () => {
                 card.className = `vc-card${isDisabled ? ' vc-disabled' : ''}`;
                 card.style.opacity = isDisabled ? '0.4' : '1';
                 card.style.cursor = isDisabled ? 'not-allowed' : 'pointer';
-                card.innerHTML = `
-                    <div class="vc-icon">${VEHICLE_ICONS[vType] || '🚗'}</div>
-                    <div class="vc-name">
-                        ${info.name}
-                        ${isDisabled ? `<span class="vc-badge" style="background:rgba(255,50,50,0.2);color:#ff5252;margin-left:8px;display:inline-block;vertical-align:middle;">Over Cap</span>` : ''}
-                    </div>
-                    <div class="vc-fare">₹${totalFare}</div>
-                `;
+
+                // Safe programmatic node construction to avoid dynamic HTML linter warnings
+                const iconDiv = document.createElement('div');
+                iconDiv.className = 'vc-icon';
+                try {
+                    const parser = new DOMParser();
+                    const svgDoc = parser.parseFromString(getVehicleIcon(vType), 'image/svg+xml');
+                    if (svgDoc && svgDoc.documentElement) {
+                        iconDiv.appendChild(svgDoc.documentElement);
+                    } else {
+                        iconDiv.textContent = '🚗';
+                    }
+                } catch (e) {
+                    iconDiv.textContent = '🚗';
+                }
+                card.appendChild(iconDiv);
+
+                const nameDiv = document.createElement('div');
+                nameDiv.className = 'vc-name';
+                nameDiv.textContent = info.name;
+                if (isDisabled) {
+                    const badge = document.createElement('span');
+                    badge.className = 'vc-badge';
+                    badge.style.background = 'rgba(255,50,50,0.2)';
+                    badge.style.color = '#ff5252';
+                    badge.style.marginLeft = '8px';
+                    badge.style.display = 'inline-block';
+                    badge.style.verticalAlign = 'middle';
+                    badge.textContent = 'Over Cap';
+                    nameDiv.appendChild(badge);
+                }
+                card.appendChild(nameDiv);
+
+                const fareDiv = document.createElement('div');
+                fareDiv.className = 'vc-fare';
+                fareDiv.textContent = `₹${totalFare}`;
+                card.appendChild(fareDiv);
 
                 if (!isDisabled) {
                     card.addEventListener('click', () => {
@@ -741,8 +897,8 @@ document.addEventListener('DOMContentLoaded', () => {
                                 vehicleName: info.name,
                                 distanceKm: distance,
                                 durationText: etaText,
-                                perKm: tType.id === 'local' ? (info.local?.perKm || 0) : (info[tType.id]?.perKm || 0),
-                                baseFare: info[tType.id]?.base || 0,
+                                perKm: tType.id === 'local' ? (info.local?.perKm || 0) : (getTripPricing(info, tType.id)?.perKm || 0),
+                                baseFare: getTripPricing(info, tType.id)?.base || 0,
                                 driverAllowance: driverAllowanceAmt,
                                 peakCharge: peakSurcharge,
                                 gst,
@@ -987,9 +1143,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 <div style="padding: 1.2rem; background: #fff8f8; border: 1.5px solid var(--primary-red); border-radius: 16px; font-size: 0.9rem; line-height: 1.6; color: #333;">
                     <div style="font-weight: 800; color: var(--primary-red); margin-bottom: 0.8rem; text-transform: uppercase; letter-spacing: 1px; font-size: 1.1rem;">📋 Booking Summary</div>
                     <div style="margin-bottom: 1.2rem; padding-bottom: 1.2rem; border-bottom: 1px dashed rgba(220, 20, 60, 0.2); font-size: 1.05rem;">
-                        <div><b>Estimated Fare (Approx.):</b> <span style="color: var(--primary-red); font-weight: 800; font-size: 1.2rem;">${pendingBookingData.fare}</span></div>
-                        <div><b>Distance:</b> <span>${pendingBookingData.distance}</span></div>
-                        ${pendingBookingData.estimatedDuration ? `<div><b>Estimated Duration:</b> <span>🕒 ${pendingBookingData.estimatedDuration}</span></div>` : ''}
+                        <div><b>Estimated Fare (Approx.):</b> <span style="color: var(--primary-red); font-weight: 800; font-size: 1.2rem;" id="bs-fare"></span></div>
+                        <div><b>Distance:</b> <span id="bs-distance"></span></div>
+                        <div id="bs-duration-row" style="display:none;"><b>Estimated Duration:</b> <span>🕒 <span id="bs-duration"></span></span></div>
                         <div style="font-size: 0.8rem; color: #666; margin-top: 5px;">* The amount is an approximate calculation. Tolls, state permits, parking charges, and route deviation adjustments based on actual path or time taken will be updated dynamically during the trip.</div>
                     </div>
                     <div style="font-weight: 800; color: var(--primary-red); margin-bottom: 0.8rem; text-transform: uppercase; letter-spacing: 1px; font-size: 0.9rem;">📋 Important Policies</div>
@@ -1003,6 +1159,15 @@ document.addEventListener('DOMContentLoaded', () => {
                     </div>
                 </div>
             `;
+            document.getElementById('bs-fare').textContent = pendingBookingData.fare;
+            document.getElementById('bs-distance').textContent = pendingBookingData.distance;
+            const durRow = document.getElementById('bs-duration-row');
+            if (pendingBookingData.estimatedDuration) {
+                durRow.style.display = 'block';
+                document.getElementById('bs-duration').textContent = pendingBookingData.estimatedDuration;
+            } else {
+                durRow.style.display = 'none';
+            }
         }
         
         if (modal) modal.style.display = 'flex';
@@ -1116,8 +1281,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // --- Authentication UI Header Logic (SPA-aware) ---
     function updateAuthHeader() {
         const member = JSON.parse(localStorage.getItem('cityride_member'));
-        const pilot = JSON.parse(localStorage.getItem('cityride_pilot'));
-        const master = JSON.parse(localStorage.getItem('cityride_master'));
+        // Removed cross-portal pilot and master checks here to ensure portal isolation
 
         // === NEW SPA HEADER ===
         const spaDbLink = document.getElementById('spa-dashboard-link');
@@ -1125,16 +1289,14 @@ document.addEventListener('DOMContentLoaded', () => {
         const spaLogin = document.getElementById('spa-login-wrap');
         const navDbLink = document.getElementById('nav-dashboard-link');
 
-        if (member || pilot || master) {
+        if (member) {
             document.body.classList.add('authenticated');
             if (spaDbLink) spaDbLink.style.display = 'inline';
             if (spaLogout) spaLogout.style.display = 'inline';
             if (spaLogin) spaLogin.style.display = 'none';
 
             if (navDbLink) {
-                if (member) { navDbLink.textContent = 'Dashboard'; navDbLink.href = '/dashboard'; }
-                else if (pilot) { navDbLink.textContent = 'Driver Portal'; navDbLink.href = '/driver'; }
-                else if (master) { navDbLink.textContent = 'Admin'; navDbLink.href = '/admin'; }
+                navDbLink.textContent = 'Dashboard'; navDbLink.href = '/dashboard';
             }
         } else {
             document.body.classList.remove('authenticated');
@@ -1155,32 +1317,14 @@ document.addEventListener('DOMContentLoaded', () => {
         navLinks.querySelectorAll('.auth-link').forEach(l => l.remove());
 
 
-        if (member || pilot || master) {
+        if (member) {
             document.body.classList.add('authenticated');
 
             // Add Member Link
-            if (member) {
-                const li = document.createElement('li');
-                li.className = 'auth-link';
-                li.innerHTML = `<a href='/dashboard' style="color:var(--primary-red); font-weight:700;">My Dashboard</a>`;
-                navLinks.insertBefore(li, navLinks.firstChild);
-            }
-
-            // Add Pilot Link
-            if (pilot) {
-                const li = document.createElement('li');
-                li.className = 'auth-link';
-                li.innerHTML = `<a href='/driver' style="color:#FFD700; font-weight:700;">Pilot Portal</a>`;
-                navLinks.appendChild(li);
-            }
-
-            // Add Admin Link
-            if (master) {
-                const li = document.createElement('li');
-                li.className = 'auth-link';
-                li.innerHTML = `<a href='/admin' style="color:#00FF00; font-weight:700;">Control Center</a>`;
-                navLinks.appendChild(li);
-            }
+            const li = document.createElement('li');
+            li.className = 'auth-link';
+            li.innerHTML = `<a href='/dashboard' style="color:var(--primary-red); font-weight:700;">My Dashboard</a>`;
+            navLinks.insertBefore(li, navLinks.firstChild);
 
             // ADDED: Logout button for mobile burger menu
             const logoutLi = document.createElement('li');
@@ -1196,17 +1340,12 @@ document.addEventListener('DOMContentLoaded', () => {
 
             // Update header button text only, don't touch display style
             if (bookBtn) {
-                if (member) {
-                    bookBtn.textContent = 'Traveler Hub';
-                    bookBtn.onclick = () => window.location.href = '/dashboard';
-                } else {
-                    bookBtn.textContent = 'Book Now';
-                    bookBtn.onclick = () => window.location.href = '#booking';
-                }
+                bookBtn.textContent = 'Traveler Hub';
+                bookBtn.onclick = () => window.location.href = '/dashboard';
             }
 
             if (logoutBtn) {
-                const primaryName = (member || pilot || master).name.split(' ')[0];
+                const primaryName = member.name.split(' ')[0];
                 logoutBtn.textContent = `Logout (${primaryName})`;
             }
         } else {
