@@ -783,6 +783,16 @@
                                 <input type="text" id="drop" placeholder="Enter destination address" required autocomplete="off">
                                 <div id="drop-suggestions" class="suggestions"></div>
                             </div>
+                            
+                            <!-- Extra Drops Container -->
+                            <div id="extra-drops-container" style="grid-column: span 2; display: none; flex-direction: column; gap: 12px; margin-top: -4px;"></div>
+                            <!-- Add Drop Button -->
+                            <div id="add-drop-btn-container" style="grid-column: span 2; display: none; margin-top: -4px; margin-bottom: 8px;">
+                                <button type="button" id="add-drop-btn" class="category-btn" style="background: rgba(255,255,255,0.05); color: #fff; padding: 6px 12px; border-radius: 6px; display: flex; align-items: center; gap: 6px; font-size: 0.85rem; width: fit-content; border: 1px solid var(--border-color); cursor: pointer;">
+                                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+                                    Add Stop
+                                </button>
+                            </div>
                             <div class="input-group">
                                 <label>Departure Date</label>
                                 <input type="date" id="pickup-date" required>
@@ -1391,6 +1401,24 @@
         let selectedBaseFare = 0;
         let selectedMarkup = 0;
 
+        // Extra Drops Elements
+        const extraDropsContainer = document.getElementById('extra-drops-container');
+        const addDropBtn = document.getElementById('add-drop-btn');
+        const addDropBtnContainer = document.getElementById('add-drop-btn-container');
+        let extraDropCount = 0;
+
+        function updateExtraDropsVisibility() {
+            if (currentCategory === 'local' || currentCategory === 'outstation') {
+                if (addDropBtnContainer) addDropBtnContainer.style.display = 'block';
+                if (extraDropsContainer) extraDropsContainer.style.display = 'flex';
+            } else {
+                if (addDropBtnContainer) addDropBtnContainer.style.display = 'none';
+                if (extraDropsContainer) extraDropsContainer.style.display = 'none';
+                if (extraDropsContainer) extraDropsContainer.innerHTML = '';
+                extraDropCount = 0;
+            }
+        }
+
         // Date Restrictions
         const todayStr = new Date().toISOString().split('T')[0];
         document.getElementById('pickup-date').setAttribute('min', todayStr);
@@ -1406,6 +1434,7 @@
             document.getElementById('return-date-group').style.display = 'none'; // Only shows if vehicle selected for round
             document.getElementById('rental-package-group').style.display = cat === 'rental' ? 'flex' : 'none';
             
+            updateExtraDropsVisibility();
             calculateVendorFare();
         }
 
@@ -1418,9 +1447,22 @@
                 return;
             }
 
+            const extraDropsCoordsArray = [];
+            const rows = extraDropsContainer ? extraDropsContainer.querySelectorAll('.extra-drop-row') : [];
+            rows.forEach(row => {
+                const input = row.querySelector('input');
+                if (input && input.dataset.coords) {
+                    extraDropsCoordsArray.push(input.dataset.coords);
+                }
+            });
+
             if (pickup && drop) {
                 try {
-                    const res = await fetch(`https://router.project-osrm.org/route/v1/driving/${pickup};${drop}?overview=false`);
+                    let url = `${API_BASE_URL}/api/proxy/route?pickup=${pickup}&drop=${drop}`;
+                    if (extraDropsCoordsArray.length > 0) {
+                        url += `&extraDrops=${extraDropsCoordsArray.join(';')}`;
+                    }
+                    const res = await fetch(url);
                     const data = await res.json();
                     if (data.routes && data.routes[0]) {
                         currentDistance = Math.ceil(data.routes[0].distance / 1000);
@@ -1466,6 +1508,13 @@
 
             const types = currentCategory === 'outstation' ? ['oneway', 'round'] : [currentCategory];
 
+            // Count extra drops
+            const extraDropRows = extraDropsContainer ? extraDropsContainer.querySelectorAll('.extra-drop-row') : [];
+            const extraDropsCount = Array.from(extraDropRows).filter(row => {
+                const input = row.querySelector('input');
+                return input && input.value && input.dataset.coords;
+            }).length;
+
             const getSurchargeAndBaseFare = (pricingData, vType, tType) => {
                 const info = pricingData[vType];
                 const config = info[tType];
@@ -1487,6 +1536,13 @@
 
                 const peakMult = currentCategory === 'local' ? getPeakSurcharge(document.getElementById('pickup-time').value) : 0;
 
+                let extraDropsCharge = 0;
+                if (currentCategory === 'local') {
+                    extraDropsCharge = extraDropsCount * 50;
+                } else if (currentCategory === 'outstation' && tType === 'oneway') {
+                    extraDropsCharge = extraDropsCount * 150;
+                }
+
                 if (tType === 'local') {
                     const minKm = typeof config.minKm === 'number' ? config.minKm : 0;
                     const billableDist = Math.max(currentDistance, minKm);
@@ -1496,7 +1552,7 @@
                     const peakCharge = baseKmFare * peakMult;
                     if (peakMult > 0) peakLabel = ` [Peak +25%]`;
                     
-                    baseFare = baseKmFare + peakCharge;
+                    baseFare = baseKmFare + peakCharge + extraDropsCharge;
                 } else if (tType === 'oneway') {
                     const minKm = typeof config.minKm === 'number' ? config.minKm : 130;
                     const billableKm = Math.max(currentDistance, minKm);
@@ -1513,7 +1569,7 @@
                     const distanceFare = billableKm * config.perKm;
                     const baseFareLimit = config.base || 0;
                     const baseKmFare = Math.max(baseFareLimit, distanceFare);
-                    baseFare = baseKmFare + (vType === 'bike' ? 0 : driverAllowance);
+                    baseFare = baseKmFare + (vType === 'bike' ? 0 : driverAllowance) + extraDropsCharge;
                 } else if (tType === 'round') {
                     const minKmPerDay = typeof config.minKmPerDay === 'number' ? config.minKmPerDay : 250;
                     const billableKm = Math.max(currentDistance * 2, minKmPerDay * tripDays);
@@ -1540,7 +1596,7 @@
                 }
 
                 baseFare = Math.ceil(baseFare * 1.05); // Incl GST
-                return { baseFare, peakLabel };
+                return { baseFare, peakLabel, extraDropsCharge };
             };
 
             types.forEach(tType => {
@@ -1552,6 +1608,7 @@
 
                     const sysBaseFare = systemFareData.baseFare;
                     const peakLabel = systemFareData.peakLabel;
+                    const sysExtraCharge = systemFareData.extraDropsCharge || 0;
                     
                     const vendorFareData = getSurchargeAndBaseFare(pricing, vType, tType);
                     const vendorBaseFare = vendorFareData ? vendorFareData.baseFare : sysBaseFare;
@@ -1570,7 +1627,10 @@
                             <div class="icon-wrap">${VEHICLE_ICONS[vType]}</div>
                             <div>
                                 <div style="font-weight:800; font-size:1rem; color:var(--text-main);">${info.name} <span style="font-size:0.7rem; background:rgba(220, 20, 60, 0.12); color:var(--primary-red); padding:2px 6px; border-radius:4px; margin-left:6px; font-weight:700; text-transform:uppercase;">${tType}</span>${peakLabel}</div>
-                                <div style="font-size:0.78rem; color:var(--text-muted); margin-top:4px;">👥 ${info.capacity} capacity • Standard ride tier</div>
+                                <div style="font-size:0.78rem; color:var(--text-muted); margin-top:4px;">
+                                    👥 ${info.capacity} capacity • Standard ride tier
+                                    ${extraDropsCount > 0 && sysExtraCharge > 0 ? `<br><span style="color:#ffc107; font-weight:600;">Includes +₹${(sysExtraCharge * 1.05).toFixed(0)} for ${extraDropsCount} stop(s)</span>` : ''}
+                                </div>
                             </div>
                         </div>
                         <div style="text-align:right;">
@@ -1670,6 +1730,84 @@
         setupAutocomplete('pickup', 'pickup-suggestions');
         setupAutocomplete('drop', 'drop-suggestions');
 
+        // Extra drops event listener and functions
+        if (addDropBtn) {
+            addDropBtn.addEventListener('click', () => {
+                extraDropCount++;
+                const dropId = `extra-drop-${extraDropCount}`;
+                const suggestionId = `extra-drop-suggestions-${extraDropCount}`;
+                
+                const row = document.createElement('div');
+                row.className = 'input-group extra-drop-row';
+                row.id = `extra-drop-row-${extraDropCount}`;
+                row.style.position = 'relative';
+                row.style.animation = 'fadeIn 0.3s ease';
+                row.style.gridColumn = 'span 2';
+                
+                row.innerHTML = `
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                        <label style="margin: 0; font-size: 0.85rem; font-weight: 600; color: var(--text-muted);">Stop #${extraDropCount}</label>
+                        <div style="display: flex; gap: 10px; font-size: 0.85rem;">
+                            <span class="map-picker-link" onclick="startMapPicking('${dropId}')">📍 Select on Map</span>
+                            <span class="map-picker-link" style="color: #ff5252;" onclick="removeExtraDrop(${extraDropCount})">❌ Remove</span>
+                        </div>
+                    </div>
+                    <input type="text" id="${dropId}" placeholder="Enter stop address" required autocomplete="off">
+                    <div id="${suggestionId}" class="suggestions" style="display:none;"></div>
+                `;
+                
+                extraDropsContainer.appendChild(row);
+                setupAutocomplete(dropId, suggestionId);
+                
+                const input = document.getElementById(dropId);
+                input.addEventListener('blur', () => {
+                    setTimeout(calculateVendorFare, 250);
+                });
+                
+                calculateVendorFare();
+            });
+        }
+
+        window.removeExtraDrop = function(id) {
+            const row = document.getElementById(`extra-drop-row-${id}`);
+            if (row) {
+                row.remove();
+                reindexExtraDrops();
+                calculateVendorFare();
+            }
+        };
+
+        function reindexExtraDrops() {
+            const rows = extraDropsContainer.querySelectorAll('.extra-drop-row');
+            extraDropCount = 0;
+            rows.forEach((row) => {
+                extraDropCount++;
+                row.id = `extra-drop-row-${extraDropCount}`;
+                const label = row.querySelector('label');
+                if (label) label.textContent = `Stop #${extraDropCount}`;
+                
+                const mapBtn = row.querySelector('span[onclick^="startMapPicking"]');
+                if (mapBtn) {
+                    mapBtn.setAttribute('onclick', `startMapPicking('extra-drop-${extraDropCount}')`);
+                }
+                
+                const removeBtn = row.querySelector('span[onclick^="removeExtraDrop"]');
+                if (removeBtn) {
+                    removeBtn.setAttribute('onclick', `removeExtraDrop(${extraDropCount})`);
+                }
+                
+                const input = row.querySelector('input');
+                const newId = `extra-drop-${extraDropCount}`;
+                input.id = newId;
+                
+                const suggestion = row.querySelector('.suggestions');
+                const newSuggestionId = `extra-drop-suggestions-${extraDropCount}`;
+                suggestion.id = newSuggestionId;
+                
+                setupAutocomplete(newId, newSuggestionId);
+            });
+        }
+
         let preferredDriverId = null;
 
         function setupVehicleSearch() {
@@ -1766,6 +1904,7 @@
         let liveMap = null;
         let pickupMarker = null;
         let dropMarker = null;
+        let extraDropMarkers = [];
         let routeLayer = null;
         let mapPickingMode = null;
 
@@ -1837,6 +1976,8 @@
 
             if (pickupMarker) liveMap.removeLayer(pickupMarker);
             if (dropMarker) liveMap.removeLayer(dropMarker);
+            extraDropMarkers.forEach(m => liveMap.removeLayer(m));
+            extraDropMarkers = [];
 
             if (pickupCoords) {
                 const [lng, lat] = pickupCoords.split(',').map(Number);
@@ -1853,6 +1994,31 @@
                 } catch (err) {
                     pickupMarker = L.marker([lat, lng]).addTo(liveMap).bindPopup("Pickup Point");
                 }
+            }
+
+            if (currentCategory !== 'rental') {
+                const rows = extraDropsContainer ? extraDropsContainer.querySelectorAll('.extra-drop-row') : [];
+                rows.forEach((row, idx) => {
+                    const input = row.querySelector('input');
+                    if (input && input.dataset.coords) {
+                        const [lng, lat] = input.dataset.coords.split(',').map(Number);
+                        try {
+                            const goldIcon = new L.Icon({
+                                iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-gold.png',
+                                shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/0.7.7/images/marker-shadow.png',
+                                iconSize: [25, 41],
+                                iconAnchor: [12, 41],
+                                popupAnchor: [1, -34],
+                                shadowSize: [41, 41]
+                            });
+                            const m = L.marker([lat, lng], { icon: goldIcon }).addTo(liveMap).bindPopup(`Stop #${idx + 1}`);
+                            extraDropMarkers.push(m);
+                        } catch (err) {
+                            const m = L.marker([lat, lng]).addTo(liveMap).bindPopup(`Stop #${idx + 1}`);
+                            extraDropMarkers.push(m);
+                        }
+                    }
+                });
             }
 
             if (dropCoords && currentCategory !== 'rental') {
@@ -1887,8 +2053,23 @@
             if (routeLayer) liveMap.removeLayer(routeLayer);
             
             if (pickupCoords && dropCoords && currentCategory !== 'rental') {
+                const extraDropsCoordsArray = [];
+                const rows = extraDropsContainer ? extraDropsContainer.querySelectorAll('.extra-drop-row') : [];
+                rows.forEach(row => {
+                    const input = row.querySelector('input');
+                    if (input && input.dataset.coords) {
+                        extraDropsCoordsArray.push(input.dataset.coords);
+                    }
+                });
+
                 try {
-                    const res = await fetch(`https://router.project-osrm.org/route/v1/driving/${pickupCoords};${dropCoords}?overview=full&geometries=geojson`);
+                    let coordsStr = pickupCoords;
+                    if (extraDropsCoordsArray.length > 0) {
+                        coordsStr += ';' + extraDropsCoordsArray.join(';');
+                    }
+                    coordsStr += ';' + dropCoords;
+
+                    const res = await fetch(`https://router.project-osrm.org/route/v1/driving/${coordsStr}?overview=full&geometries=geojson`);
                     const data = await res.json();
                     if (data.routes && data.routes[0]) {
                         routeLayer = L.geoJSON(data.routes[0].geometry, {
@@ -1953,6 +2134,18 @@
             }
 
             const markup = selectedMarkup;
+
+            const extraDropsArray = [];
+            const rows = extraDropsContainer ? extraDropsContainer.querySelectorAll('.extra-drop-row') : [];
+            rows.forEach(row => {
+                const input = row.querySelector('input');
+                if (input && input.value.trim() && input.dataset.coords) {
+                    extraDropsArray.push({
+                        address: input.value.trim(),
+                        coords: input.dataset.coords
+                    });
+                }
+            });
             
             const bookingData = {
                 vendorId: vendorData.id,
@@ -1961,6 +2154,7 @@
                 pickupCoords: document.getElementById('pickup').dataset.coords,
                 drop: document.getElementById('drop').value,
                 dropCoords: document.getElementById('drop').dataset.coords,
+                extraDrops: extraDropsArray.length > 0 ? extraDropsArray : null,
                 date: document.getElementById('pickup-date').value,
                 time: document.getElementById('pickup-time').value,
                 vehicle: selectedVehicle.split('_')[0], // Extract key class name
@@ -2023,12 +2217,24 @@
 
                     const fareNum = (parseFloat(b.fare.replace(/[^0-9.]/g,'')) || 0);
 
+                    let stopsBadge = '';
+                    if (b.extra_drops) {
+                        try {
+                            const stops = typeof b.extra_drops === 'string' ? JSON.parse(b.extra_drops) : b.extra_drops;
+                            if (stops && stops.length > 0) {
+                                stopsBadge = ` <span style="font-size:0.7rem; background:rgba(255, 193, 7, 0.12); color:#ffc107; padding:2px 6px; border-radius:4px; margin-left:6px; font-weight:700; text-transform:uppercase;">+${stops.length} Stop${stops.length > 1 ? 's' : ''}</span>`;
+                            }
+                        } catch (e) {
+                            console.error("Failed to parse extra_drops in vendor history", e);
+                        }
+                    }
+
                     const row = `<tr>
                         <td><strong style="color: var(--primary-red);">#B${b.id}</strong></td>
                         <td>
                             <div style="margin-bottom:6px;">
                                 <div style="font-size:0.7rem; font-weight:700; color:var(--text-muted); text-transform:uppercase;">Route:</div>
-                                <div style="font-weight:600;">${b.pickup_loc.split(',')[0]} <span style="color:#aaa;">→</span> ${b.drop_loc.split(',')[0]}</div>
+                                <div style="font-weight:600;">${b.pickup_loc.split(',')[0]} <span style="color:#aaa;">→</span> ${b.drop_loc.split(',')[0]}${stopsBadge}</div>
                             </div>
                             <div style="margin-bottom:6px;">
                                 <div style="font-size:0.7rem; font-weight:700; color:var(--text-muted); text-transform:uppercase;">Customer:</div>
@@ -2105,6 +2311,44 @@
 
             const fareNum = (parseFloat(b.fare.replace(/[^0-9.]/g,'')) || 0);
 
+            let stopsHtml = '';
+            let extraDropsChargeHtml = '';
+            if (b.extra_drops) {
+                try {
+                    const stops = typeof b.extra_drops === 'string' ? JSON.parse(b.extra_drops) : b.extra_drops;
+                    if (stops && stops.length > 0) {
+                        stopsHtml = `
+                            <div style="display: flex; flex-direction: column; gap: 6px; border-top: 1px dashed rgba(255,255,255,0.04); padding-top: 10px; margin-top: 5px;">
+                                <span style="font-size: 0.72rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase;">Stops Path:</span>
+                                <div style="display: flex; flex-direction: column; gap: 6px; padding-left: 10px; border-left: 2px dashed var(--primary-red);">
+                                    ${stops.map((s, index) => `
+                                        <div style="font-size: 0.82rem; color: var(--text-main); text-align: left;">📍 Stop #${index + 1}: ${s.address.split(',')[0]}</div>
+                                    `).join('')}
+                                </div>
+                            </div>
+                        `;
+
+                        const count = stops.length;
+                        let charge = 0;
+                        const isLocal = b.trip_type.toLowerCase() === 'local';
+                        const isOneway = b.trip_type.toLowerCase() === 'oneway';
+                        if (isLocal) charge = count * 50;
+                        else if (isOneway) charge = count * 150;
+                        
+                        if (charge > 0) {
+                            extraDropsChargeHtml = `
+                                <div style="display: flex; justify-content: space-between; font-size: 0.85rem; color: var(--text-muted);">
+                                    <span>Extra Stops Charge (${count} stop(s) @ ₹${isLocal ? '50' : '150'} ea + GST):</span>
+                                    <span>₹${(charge * 1.05).toFixed(2)}</span>
+                                </div>
+                            `;
+                        }
+                    }
+                } catch (e) {
+                    console.error("Failed to parse extra_drops in billing modal", e);
+                }
+            }
+
             const body = document.getElementById('billing-modal-body');
             body.innerHTML = `
                 <div style="text-align: center; margin-bottom: 2rem;">
@@ -2120,9 +2364,11 @@
                     <div style="display: flex; justify-content: space-between;"><span style="color: var(--text-muted);">Trip Category:</span> <strong style="text-transform: uppercase;">${b.trip_type}</strong></div>
                     <div style="display: flex; justify-content: space-between;"><span style="color: var(--text-muted);">Distance:</span> <strong>${b.distance || '0 KM'}</strong></div>
                     <div style="display: flex; justify-content: space-between;"><span style="color: var(--text-muted);">Date & Time:</span> <strong>${b.pickup_date} at ${b.pickup_time}</strong></div>
+                    ${stopsHtml}
                 </div>
 
                 <div style="display: flex; flex-direction: column; gap: 12px; font-size: 0.95rem; margin-bottom: 2rem;">
+                    ${extraDropsChargeHtml}
                     <div style="display: flex; justify-content: space-between; font-size: 1.25rem; font-weight: 800; border-top: 1px solid rgba(255,255,255,0.08); padding-top: 1rem; margin-top: 1rem; color: var(--primary-red);"><span style="color: var(--text-main);">Total Invoice:</span> <span>₹${fareNum.toFixed(2)}</span></div>
                 </div>
 

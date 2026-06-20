@@ -1305,6 +1305,7 @@ async function initDB() {
         // Migration: Ensure coords exist
         try { await db.query('ALTER TABLE taxi_bookings ADD COLUMN pickup_coords VARCHAR(100) AFTER pickup_loc'); } catch (e) { }
         try { await db.query('ALTER TABLE taxi_bookings ADD COLUMN drop_coords VARCHAR(100) AFTER drop_loc'); } catch (e) { }
+        try { await db.query('ALTER TABLE taxi_bookings ADD COLUMN extra_drops TEXT AFTER drop_coords'); } catch (e) { }
 
         // Migration: Ensure trip_type exists
         try {
@@ -2732,15 +2733,17 @@ app.post('/api/bookings/create', authenticateJWT, requireRole(['user']), (req, r
         const endOtp = Math.floor(1000 + Math.random() * 9000).toString(); // 4-digit OTP
         const fareStr = String(booking.fare || '₹0');
         const distStr = String(booking.distance || '0 KM');
+        const durationStr = String(booking.duration || booking.estimatedDuration || '0 Min');
         const status = booking.driverId ? 'assigned' : 'pending';
         const driverId = booking.driverId || null;
-        const durationStr = booking.estimatedDuration ? String(booking.estimatedDuration) : null;
+        const extraDropsStr = booking.extraDrops ? (typeof booking.extraDrops === 'string' ? booking.extraDrops : JSON.stringify(booking.extraDrops)) : null;
         const values = [
             booking.userId || 1,
             String(booking.pickup || ''),
             booking.pickupCoords,
             String(booking.drop || ''),
             booking.dropCoords,
+            extraDropsStr,
             booking.date,
             booking.time,
             parseInt(booking.passengers) || 1,
@@ -2762,7 +2765,7 @@ app.post('/api/bookings/create', authenticateJWT, requireRole(['user']), (req, r
             durationStr, // estimated_duration
             driverId
         ];
-        const [result] = await db.query('INSERT INTO taxi_bookings (user_id, pickup_loc, pickup_coords, drop_loc, drop_coords, pickup_date, pickup_time, passengers, vehicle_type, trip_type, fare, distance, journey_otp, end_otp, status, vendor_id, vendor_markup, rental_package, return_date, passenger_name, passenger_phone, estimated_distance, estimated_fare, estimated_duration, driver_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', values);
+        const [result] = await db.query('INSERT INTO taxi_bookings (user_id, pickup_loc, pickup_coords, drop_loc, drop_coords, extra_drops, pickup_date, pickup_time, passengers, vehicle_type, trip_type, fare, distance, journey_otp, end_otp, status, vendor_id, vendor_markup, rental_package, return_date, passenger_name, passenger_phone, estimated_distance, estimated_fare, estimated_duration, driver_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', values);
 
         // 🔴 Socket.IO: Notify all drivers + admin of new opportunity
         const newBookingPayload = {
@@ -2803,6 +2806,26 @@ app.get('/api/bookings/fare-breakdown/:bookingId', authenticateJWT, requireRole(
         );
         if (rows.length === 0) return res.status(404).json({ error: 'Booking not found.' });
         const b = rows[0];
+
+        // Parse extra drops and calculate extraDropsCharge
+        let extraDropsCount = 0;
+        let extraDropsCharge = 0;
+        let extraDropsList = [];
+        try {
+            if (b.extra_drops) {
+                extraDropsList = typeof b.extra_drops === 'string' ? JSON.parse(b.extra_drops) : b.extra_drops;
+                if (Array.isArray(extraDropsList)) {
+                    extraDropsCount = extraDropsList.length;
+                    if (b.trip_type === 'local') {
+                        extraDropsCharge = extraDropsCount * 50;
+                    } else if (b.trip_type === 'oneway') {
+                        extraDropsCharge = extraDropsCount * 150;
+                    }
+                }
+            }
+        } catch (e) {
+            console.error("Failed to parse extra_drops in fare-breakdown", e);
+        }
 
         // Fetch tariff for the trip type
         const categoryKey = b.trip_type === 'rental' ? 'rental' : b.trip_type;
@@ -2858,7 +2881,7 @@ app.get('/api/bookings/fare-breakdown/:bookingId', authenticateJWT, requireRole(
         }
 
         // Reconstruct fare components from tariff
-        let baseFare = 0, distanceFare = 0, peakCharge = 0, gstAmount = 0, driverAllowance = 0;
+        let baseFare = 0, distanceFare = 0, peakCharge = 0, platformFee = 5, driverAllowance = 0;
         let extraKmCharge = 0, extraHrCharge = 0, minKmVal = 0, minKmCharge = 0, packageBase = 0;
         
         if (pricingConfig && b.trip_type === 'local') {
@@ -2870,8 +2893,8 @@ app.get('/api/bookings/fare-breakdown/:bookingId', authenticateJWT, requireRole(
             peakCharge = distanceFare * peakMult;
             minKmVal = minKm;
             minKmCharge = minKm * (config.perKm || 0);
-            const subTotal = distanceFare + peakCharge + waitingCharge;
-            gstAmount = subTotal * 0.05;
+            const subTotal = distanceFare + peakCharge + waitingCharge + extraDropsCharge;
+            platformFee = 5;
         } else if (pricingConfig && b.trip_type === 'oneway') {
             const config = pricingConfig;
             const minKm = typeof config.minKm === 'number' ? config.minKm : 130;
@@ -2880,8 +2903,8 @@ app.get('/api/bookings/fare-breakdown/:bookingId', authenticateJWT, requireRole(
             driverAllowance = (b.vehicle_type === 'bike') ? 0 : (billable > 250 ? 600 : 400);
             minKmVal = minKm;
             minKmCharge = minKm * (config.perKm || 13);
-            const subTotal = distanceFare + driverAllowance + waitingCharge;
-            gstAmount = subTotal * 0.05;
+            const subTotal = distanceFare + driverAllowance + waitingCharge + extraDropsCharge;
+            platformFee = 5;
         } else if (pricingConfig && b.trip_type === 'round') {
             const config = pricingConfig;
             const minKmPerDay = typeof config.minKmPerDay === 'number' ? config.minKmPerDay : 250;
@@ -2901,7 +2924,7 @@ app.get('/api/bookings/fare-breakdown/:bookingId', authenticateJWT, requireRole(
             minKmVal = minKmForTrip;
             minKmCharge = minKmForTrip * (config.perKm || 12);
             const subTotal = distanceFare + driverAllowance + waitingCharge;
-            gstAmount = subTotal * 0.05;
+            platformFee = 5;
         } else if (pricingConfig && b.trip_type === 'rental') {
             const config = pricingConfig;
             const packageVal = b.rental_package || '2-20';
@@ -2926,7 +2949,7 @@ app.get('/api/bookings/fare-breakdown/:bookingId', authenticateJWT, requireRole(
                 extraHrCharge = extraHrs * (packageConfig.extraHour || 0);
                 
                 const subTotal = packageBase + extraKmCharge + extraHrCharge + waitingCharge;
-                gstAmount = subTotal * 0.05;
+                platformFee = 5;
             }
         }
 
@@ -2946,9 +2969,12 @@ app.get('/api/bookings/fare-breakdown/:bookingId', authenticateJWT, requireRole(
             peakPercent: Math.round(peakMult * 100),
             driverAllowance: Math.round(driverAllowance),
             waitingCharge: Math.round(waitingCharge),
-            gstAmount: Math.round(gstAmount),
-            gstPercent: 5,
+            platformFee: platformFee,
+            platformFeeDesc: "Platform Fee",
             totalFare: totalFareNum,
+            extraDrops: extraDropsList,
+            extraDropsCount: extraDropsCount,
+            extraDropsCharge: extraDropsCharge,
             fareStr: b.fare,
             status: b.status,
             driverName: b.driver_name,
@@ -4286,6 +4312,22 @@ app.post('/api/bookings/start-journey', authenticateJWT, requireRole(['driver'])
 
             const peakMult = getPeakMultiplier(booking.pickup_time, peakRules);
 
+            let extraDropsCharge = 0;
+            try {
+                if (booking.extra_drops) {
+                    const stops = typeof booking.extra_drops === 'string' ? JSON.parse(booking.extra_drops) : booking.extra_drops;
+                    if (Array.isArray(stops)) {
+                        if (booking.trip_type === 'local') {
+                            extraDropsCharge = stops.length * 50;
+                        } else if (booking.trip_type === 'oneway') {
+                            extraDropsCharge = stops.length * 150;
+                        }
+                    }
+                }
+            } catch (e) {
+                console.error("Failed to parse extra_drops in start-trip dynamic calculation", e);
+            }
+
             if (booking.trip_type === 'local') {
                 const config = pricingConfig || { base: 150, perKm: 20, minKm: 0 };
                 const baseFare = config.base || 0;
@@ -4294,7 +4336,7 @@ app.post('/api/bookings/start-journey', authenticateJWT, requireRole(['driver'])
                 const distanceFare = billableDist * config.perKm;
                 const baseKmFare = Math.max(baseFare, distanceFare);
                 const peakCharge = baseKmFare * peakMult;
-                dynamicFare = (baseKmFare + peakCharge) * 1.05;
+                dynamicFare = (baseKmFare + peakCharge + extraDropsCharge) + 5;
             } else if (booking.trip_type === 'oneway') {
                 const config = pricingConfig || { base: 0, perKm: 13, minKm: 130 };
                 const baseFare = config.base || 0;
@@ -4303,7 +4345,7 @@ app.post('/api/bookings/start-journey', authenticateJWT, requireRole(['driver'])
                 const distanceFare = billableDist * (config.perKm || 13);
                 const baseKmFare = Math.max(baseFare, distanceFare);
                 const driverAllowance = billableDist > 250 ? 600 : 400;
-                dynamicFare = (baseKmFare + (booking.vehicle_type === 'bike' ? 0 : driverAllowance)) * 1.05;
+                dynamicFare = (baseKmFare + (booking.vehicle_type === 'bike' ? 0 : driverAllowance) + extraDropsCharge) + 5;
             } else if (booking.trip_type === 'round') {
                 const config = pricingConfig || { base: 0, perKm: 12, minKmPerDay: 250 };
                 const baseFare = config.base || 0;
@@ -4321,7 +4363,7 @@ app.post('/api/bookings/start-journey', authenticateJWT, requireRole(['driver'])
                 const distanceFare = billableDist * (config.perKm || 12);
                 const baseKmFare = Math.max(baseFare, distanceFare);
                 const driverAllowance = billableDist > 250 ? 600 : 400;
-                dynamicFare = ((baseKmFare + (booking.vehicle_type === 'bike' ? 0 : driverAllowance * tripDays))) * 1.05;
+                dynamicFare = ((baseKmFare + (booking.vehicle_type === 'bike' ? 0 : driverAllowance * tripDays))) + 5;
             }
 
             dynamicFareStr = `₹${Math.ceil(dynamicFare)}`;
@@ -4598,7 +4640,7 @@ app.post('/api/bookings/finish-trip', authenticateJWT, requireRole(['driver']), 
 
                     const totalExtra = extraKmCharge + extraHrCharge;
                     const baseWithExtra = packageConfig.base + totalExtra + waitingCharge;
-                    const finalFareNum = Math.ceil(baseWithExtra * 1.05); // Incl 5% GST
+                    const finalFareNum = Math.ceil(baseWithExtra + 5); // Incl 5% GST
 
                     finalFareStr = `₹${finalFareNum}`;
                 }
@@ -4741,6 +4783,22 @@ app.post('/api/bookings/finish-trip', authenticateJWT, requireRole(['driver']), 
 
             const peakMult = getPeakMultiplier(booking.pickup_time, peakRules);
 
+            let extraDropsCharge = 0;
+            try {
+                if (booking.extra_drops) {
+                    const stops = typeof booking.extra_drops === 'string' ? JSON.parse(booking.extra_drops) : booking.extra_drops;
+                    if (Array.isArray(stops)) {
+                        if (booking.trip_type === 'local') {
+                            extraDropsCharge = stops.length * 50;
+                        } else if (booking.trip_type === 'oneway') {
+                            extraDropsCharge = stops.length * 150;
+                        }
+                    }
+                }
+            } catch (e) {
+                console.error("Failed to parse extra_drops in finish-trip calculation", e);
+            }
+
             if (booking.trip_type === 'local') {
                 const config = pricingConfig || { base: 150, perKm: 20, minKm: 0 };
                 const baseFare = config.base || 0;
@@ -4749,7 +4807,7 @@ app.post('/api/bookings/finish-trip', authenticateJWT, requireRole(['driver']), 
                 const distanceFare = billableDist * config.perKm;
                 const baseKmFare = Math.max(baseFare, distanceFare);
                 const peakCharge = baseKmFare * peakMult;
-                totalFare = (baseKmFare + peakCharge + waitingCharge) * 1.05;
+                totalFare = (baseKmFare + peakCharge + waitingCharge + extraDropsCharge) + 5;
             } else if (booking.trip_type === 'oneway') {
                 const config = pricingConfig || { base: 0, perKm: 13, minKm: 130 };
                 const baseFare = config.base || 0;
@@ -4758,7 +4816,7 @@ app.post('/api/bookings/finish-trip', authenticateJWT, requireRole(['driver']), 
                 const distanceFare = billableDist * (config.perKm || 13);
                 const baseKmFare = Math.max(baseFare, distanceFare);
                 const driverAllowance = billableDist > 250 ? 600 : 400;
-                totalFare = (baseKmFare + (booking.vehicle_type === 'bike' ? 0 : driverAllowance) + waitingCharge) * 1.05;
+                totalFare = (baseKmFare + (booking.vehicle_type === 'bike' ? 0 : driverAllowance) + waitingCharge + extraDropsCharge) + 5;
             } else if (booking.trip_type === 'round') {
                 const config = pricingConfig || { base: 0, perKm: 12, minKmPerDay: 250 };
                 const baseFare = config.base || 0;
@@ -4776,7 +4834,7 @@ app.post('/api/bookings/finish-trip', authenticateJWT, requireRole(['driver']), 
                 const distanceFare = billableDist * (config.perKm || 12);
                 const baseKmFare = Math.max(baseFare, distanceFare);
                 const driverAllowance = billableDist > 250 ? 600 : 400;
-                totalFare = ((baseKmFare + (booking.vehicle_type === 'bike' ? 0 : driverAllowance * tripDays)) + waitingCharge) * 1.05;
+                totalFare = ((baseKmFare + (booking.vehicle_type === 'bike' ? 0 : driverAllowance * tripDays)) + waitingCharge) + 5;
             }
 
             const finalFareStr = `₹${Math.ceil(totalFare)}`;
@@ -4974,6 +5032,22 @@ app.post('/api/bookings/update-gps-location', authenticateJWT, requireRole(['dri
         const [peakRules] = await db.query('SELECT * FROM taxi_peak_rules WHERE is_active = 1');
         const peakMult = getPeakMultiplier(booking.pickup_time, peakRules);
 
+        let extraDropsCharge = 0;
+        try {
+            if (booking.extra_drops) {
+                const stops = typeof booking.extra_drops === 'string' ? JSON.parse(booking.extra_drops) : booking.extra_drops;
+                if (Array.isArray(stops)) {
+                    if (booking.trip_type === 'local') {
+                        extraDropsCharge = stops.length * 50;
+                    } else if (booking.trip_type === 'oneway') {
+                        extraDropsCharge = stops.length * 150;
+                    }
+                }
+            }
+        } catch (e) {
+            console.error("Failed to parse extra_drops in GPS-update calculation", e);
+        }
+
         if (booking.trip_type === 'local') {
             const config = pricingConfig || { base: 150, perKm: 20, minKm: 0 };
             const baseFare = config.base || 0;
@@ -4982,7 +5056,7 @@ app.post('/api/bookings/update-gps-location', authenticateJWT, requireRole(['dri
             const distanceFare = billableDist * config.perKm;
             const baseKmFare = Math.max(baseFare, distanceFare);
             const peakCharge = baseKmFare * peakMult;
-            totalFare = (baseKmFare + peakCharge + waitingCharge) * 1.05;
+            totalFare = (baseKmFare + peakCharge + waitingCharge + extraDropsCharge) + 5;
         } else if (booking.trip_type === 'oneway') {
             const config = pricingConfig || { base: 0, perKm: 13, minKm: 130 };
             const baseFare = config.base || 0;
@@ -4991,7 +5065,7 @@ app.post('/api/bookings/update-gps-location', authenticateJWT, requireRole(['dri
             const distanceFare = billableDist * (config.perKm || 13);
             const baseKmFare = Math.max(baseFare, distanceFare);
             const driverAllowance = billableDist > 250 ? 600 : 400;
-            totalFare = (baseKmFare + (booking.vehicle_type === 'bike' ? 0 : driverAllowance) + waitingCharge) * 1.05;
+            totalFare = (baseKmFare + (booking.vehicle_type === 'bike' ? 0 : driverAllowance) + waitingCharge + extraDropsCharge) + 5;
         } else if (booking.trip_type === 'round') {
             const config = pricingConfig || { base: 0, perKm: 12, minKmPerDay: 250 };
             const baseFare = config.base || 0;
@@ -5009,7 +5083,7 @@ app.post('/api/bookings/update-gps-location', authenticateJWT, requireRole(['dri
             const distanceFare = billableDist * (config.perKm || 12);
             const baseKmFare = Math.max(baseFare, distanceFare);
             const driverAllowance = billableDist > 250 ? 600 : 400;
-            totalFare = ((baseKmFare + (booking.vehicle_type === 'bike' ? 0 : driverAllowance * tripDays)) + waitingCharge) * 1.05;
+            totalFare = ((baseKmFare + (booking.vehicle_type === 'bike' ? 0 : driverAllowance * tripDays)) + waitingCharge) + 5;
         } else if (booking.trip_type === 'rental') {
             const packageVal = booking.rental_package || '2-20';
             const [pMaxHrs, pMaxKm] = packageVal.split('-').map(Number);
@@ -5024,7 +5098,7 @@ app.post('/api/bookings/update-gps-location', authenticateJWT, requireRole(['dri
             const extraHrs = Math.max(0, Math.ceil(durationHrs - pMaxHrs));
             const extraHourCharge = extraHrs * packageConfig.extraHour;
 
-            totalFare = (packageConfig.base + extraKmCharge + extraHourCharge + waitingCharge) * 1.05;
+            totalFare = (packageConfig.base + extraKmCharge + extraHourCharge + waitingCharge) + 5;
         }
 
         const finalFare = `₹${Math.ceil(totalFare)}`;
@@ -5167,9 +5241,14 @@ app.get('/api/proxy/reverse', async (req, res) => {
 
 app.get('/api/proxy/route', async (req, res) => {
     try {
-        const { pickup, drop } = req.query;
+        const { pickup, drop, extraDrops } = req.query;
+        let coordsStr = pickup;
+        if (extraDrops) {
+            coordsStr += ';' + extraDrops;
+        }
+        coordsStr += ';' + drop;
         // Fetch full route geometry for map drawing
-        const url = `https://router.project-osrm.org/route/v1/driving/${pickup};${drop}?overview=full&geometries=geojson`;
+        const url = `https://router.project-osrm.org/route/v1/driving/${coordsStr}?overview=full&geometries=geojson`;
         const response = await axios.get(url);
         res.json(response.data);
     } catch (err) {

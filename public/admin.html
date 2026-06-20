@@ -838,19 +838,29 @@ const bookings = await resB.json();
 if (!body) return;
 body.innerHTML = '';
 if (Array.isArray(bookings)) {
-bookings.slice(0, 5).forEach(b => {
-body.innerHTML += `
-<tr>
-<td data-label="Booking ID">#B${b.id}</td>
-<td data-label="Customer">
-<strong>${b.customer_name}</strong>
-${b.vendor_id ? `<span style="font-size:0.6rem; color:var(--info-blue); font-weight:800; margin-left:5px;">(VENDOR)</span>` : ''}<br>
-<a href="tel:${b.customer_phone}" style="font-size:0.8rem; color:var(--primary-red); text-decoration:none; font-weight:700;">${b.customer_phone || ''}</a>
-</td>
-<td data-label="Route" style="padding: 1.5rem; text-align: left;">
-<span style="font-size:0.65rem; font-weight:800; color:var(--primary-red); text-transform:uppercase; background:rgba(183, 28, 28, 0.15); padding:2px 6px; border-radius:4px; margin-bottom:0.3rem; display:inline-block;">${(b.trip_type === 'round' ? 'Round Trip' : (b.trip_type === 'rental' ? 'Local Rental' : (b.trip_type || 'One Way').replace('_', ' ')))}</span><br>
-${b.pickup_loc} → ${b.drop_loc}
-</td>
+            bookings.slice(0, 5).forEach(b => {
+                let stopsBadge = '';
+                if (b.extra_drops) {
+                    try {
+                        const stops = typeof b.extra_drops === 'string' ? JSON.parse(b.extra_drops) : b.extra_drops;
+                        if (stops && stops.length > 0) {
+                            stopsBadge = ` <span style="font-size:0.65rem; background:rgba(255, 193, 7, 0.15); color:#ffc107; padding:2px 6px; border-radius:4px; margin-left:6px; font-weight:800; text-transform:uppercase;">+${stops.length} Stop${stops.length > 1 ? 's' : ''}</span>`;
+                        }
+                    } catch (e) {}
+                }
+
+                body.innerHTML += `
+                <tr>
+                    <td data-label="Booking ID">#B${b.id}</td>
+                    <td data-label="Customer">
+                        <strong>${b.customer_name}</strong>
+                        ${b.vendor_id ? `<span style="font-size:0.6rem; color:var(--info-blue); font-weight:800; margin-left:5px;">(VENDOR)</span>` : ''}<br>
+                        <a href="tel:${b.customer_phone}" style="font-size:0.8rem; color:var(--primary-red); text-decoration:none; font-weight:700;">${b.customer_phone || ''}</a>
+                    </td>
+                    <td data-label="Route" style="padding: 1.5rem; text-align: left;">
+                        <span style="font-size:0.65rem; font-weight:800; color:var(--primary-red); text-transform:uppercase; background:rgba(183, 28, 28, 0.15); padding:2px 6px; border-radius:4px; margin-bottom:0.3rem; display:inline-block;">${(b.trip_type === 'round' ? 'Round Trip' : (b.trip_type === 'rental' ? 'Local Rental' : (b.trip_type || 'One Way').replace('_', ' ')))}</span><br>
+                        ${b.pickup_loc} → ${b.drop_loc}${stopsBadge}
+                    </td>
 <td data-label="Status"><span class="status-tag status-${b.status}">${b.status}</span></td>
 <td data-label="Actions">${['pending', 'assigned'].includes(b.status) ? `<button class="action-btn" onclick="cancelBooking(${b.id})">Abort</button>` : '<span style="color:#ccc; font-size:0.8rem;">—</span>'}</td>
 </tr>
@@ -939,6 +949,24 @@ financialInfo = `
 </div>
 `;
 }
+            let stopsHtml = '';
+            if (b.extra_drops) {
+                try {
+                    const stops = typeof b.extra_drops === 'string' ? JSON.parse(b.extra_drops) : b.extra_drops;
+                    if (stops && stops.length > 0) {
+                        stopsHtml = `
+                            <div style="margin: 4px 0; padding-left: 10px; border-left: 2px dashed rgba(255, 193, 7, 0.4); display: flex; flex-direction: column; gap: 2px;">
+                                ${stops.map((s, index) => `
+                                    <span style="font-size:0.75rem; color:#ffc107;">📍 Stop #${index + 1}: ${s.address.split(',')[0]}</span>
+                                `).join('')}
+                            </div>
+                        `;
+                    }
+                } catch (e) {
+                    console.error("Failed to parse extra_drops in bookings log", e);
+                }
+            }
+
 body.innerHTML += `
 <tr>
 <td data-label="Booking ID">#B${b.id} ${b.vendor_id ? `<br><span style="background: rgba(10, 132, 255, 0.15); color: var(--info-blue); padding: 2px 6px; border-radius: 4px; font-size: 0.65rem; font-weight: bold; display: inline-block; margin-top: 4px;">Vendor</span>` : ''}</td>
@@ -949,6 +977,7 @@ body.innerHTML += `
 <td data-label="Details" style="padding: 1.5rem; text-align: left;">
 <span style="font-size:0.65rem; font-weight:800; color:var(--primary-red); text-transform:uppercase; background:rgba(183, 28, 28, 0.15); padding:2px 6px; border-radius:4px; margin-bottom:0.3rem; display:inline-block;">${(b.trip_type === 'round' ? 'Round Trip' : (b.trip_type === 'rental' ? 'Local Rental' : (b.trip_type || 'One Way').replace('_', ' ')))}</span><br>
 <strong>${b.pickup_loc}</strong><br>
+${stopsHtml}
 <span style="font-size:0.8rem; color:var(--text-muted)">${b.drop_loc}</span><br>
 <div style="font-size:0.75rem; color:#666; margin-top:4px;">
 <b>Distance:</b> ${b.distance || '0 KM'}

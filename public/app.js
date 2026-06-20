@@ -150,6 +150,24 @@ document.addEventListener('DOMContentLoaded', () => {
     const rentalPackageGroup = document.getElementById('rental-package-group');
     const rentalPackageSelect = document.getElementById('rental-package');
 
+    // Extra Drops Elements
+    const extraDropsContainer = document.getElementById('extra-drops-container');
+    const addDropBtn = document.getElementById('add-drop-btn');
+    const addDropBtnContainer = document.getElementById('add-drop-btn-container');
+    let extraDropCount = 0;
+
+    function updateExtraDropsVisibility() {
+        if (currentCategory === 'local' || currentCategory === 'oneway') {
+            if (addDropBtnContainer) addDropBtnContainer.style.display = 'block';
+            if (extraDropsContainer) extraDropsContainer.style.display = 'flex';
+        } else {
+            if (addDropBtnContainer) addDropBtnContainer.style.display = 'none';
+            if (extraDropsContainer) extraDropsContainer.style.display = 'none';
+            if (extraDropsContainer) extraDropsContainer.innerHTML = '';
+            extraDropCount = 0;
+        }
+    }
+
     // 1. Initialize Date Restrictions (Must be future)
     const today = new Date().toISOString().split('T')[0];
     pickupDate.setAttribute('min', today);
@@ -206,6 +224,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     updateDateTimeFieldsVisibility();
+    updateExtraDropsVisibility();
 
     categoryBtns.forEach(btn => {
         btn.addEventListener('click', () => {
@@ -220,6 +239,7 @@ document.addEventListener('DOMContentLoaded', () => {
             if (strip) strip.classList.remove('visible');
             
             updateDateTimeFieldsVisibility();
+            updateExtraDropsVisibility();
 
             if (currentCategory === 'rental') {
                 destinationGroup.style.display = 'none';
@@ -288,6 +308,89 @@ document.addEventListener('DOMContentLoaded', () => {
     if (passengerInput) {
         passengerInput.addEventListener('change', () => {
             calculateFare(); // Refresh vehicle tiles and prices when capacity changes
+        });
+    }
+
+    if (addDropBtn) {
+        addDropBtn.addEventListener('click', () => {
+            extraDropCount++;
+            const dropId = `extra-drop-${extraDropCount}`;
+            const suggestionId = `extra-drop-suggestions-${extraDropCount}`;
+            
+            const row = document.createElement('div');
+            row.className = 'bk-input-group bk-full extra-drop-row';
+            row.id = `extra-drop-row-${extraDropCount}`;
+            row.style.position = 'relative';
+            row.style.animation = 'fadeIn 0.3s ease';
+            
+            row.innerHTML = `
+                <div class="bk-label-row">
+                    <label style="color: var(--cr-muted); font-size: 0.8rem; font-weight: 600;">Stop #${extraDropCount}</label>
+                    <div class="loc-actions">
+                        <span class="loc-btn" onclick="openMapPicker('${dropId}', event)">
+                            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
+                            Map
+                        </span>
+                        <span class="loc-btn" style="color: #ff5252; background: rgba(255, 82, 82, 0.1);" onclick="removeExtraDrop(${extraDropCount})">
+                            Remove
+                        </span>
+                    </div>
+                </div>
+                <div class="bk-input-wrap">
+                    <input type="text" id="${dropId}" placeholder="Enter stop address" required autocomplete="off" style="border-color: rgba(255,255,255,0.05); font-size: 0.9rem; padding: 10px 14px;">
+                    <div id="${suggestionId}" class="bk-suggestions" style="display:none;"></div>
+                </div>
+            `;
+            
+            extraDropsContainer.appendChild(row);
+            setupAutocomplete(dropId, suggestionId);
+            
+            const input = document.getElementById(dropId);
+            input.addEventListener('blur', () => {
+                setTimeout(calculateFare, 250);
+            });
+            
+            calculateFare();
+        });
+    }
+
+    window.removeExtraDrop = function(id) {
+        const row = document.getElementById(`extra-drop-row-${id}`);
+        if (row) {
+            row.remove();
+            reindexExtraDrops();
+            calculateFare();
+        }
+    };
+
+    function reindexExtraDrops() {
+        const rows = extraDropsContainer.querySelectorAll('.extra-drop-row');
+        extraDropCount = 0;
+        rows.forEach((row) => {
+            extraDropCount++;
+            row.id = `extra-drop-row-${extraDropCount}`;
+            const label = row.querySelector('label');
+            if (label) label.textContent = `Stop #${extraDropCount}`;
+            
+            const mapBtn = row.querySelector('.loc-actions span:nth-child(1)');
+            if (mapBtn) {
+                mapBtn.setAttribute('onclick', `openMapPicker('extra-drop-${extraDropCount}', event)`);
+            }
+            
+            const removeBtn = row.querySelector('.loc-actions span:nth-child(2)');
+            if (removeBtn) {
+                removeBtn.setAttribute('onclick', `removeExtraDrop(${extraDropCount})`);
+            }
+            
+            const input = row.querySelector('input');
+            const newId = `extra-drop-${extraDropCount}`;
+            input.id = newId;
+            
+            const suggestion = row.querySelector('.bk-suggestions');
+            const newSuggestionId = `extra-drop-suggestions-${extraDropCount}`;
+            suggestion.id = newSuggestionId;
+            
+            setupAutocomplete(newId, newSuggestionId);
         });
     }
 
@@ -409,10 +512,27 @@ document.addEventListener('DOMContentLoaded', () => {
         const pickupCoords = document.getElementById('pickup').dataset.coords;
         const dropCoords = document.getElementById('drop').dataset.coords;
 
+        const extraDropRows = extraDropsContainer ? extraDropsContainer.querySelectorAll('.extra-drop-row') : [];
+        const extraDropsArray = [];
+        const extraDropsCoordsArray = [];
+        extraDropRows.forEach(row => {
+            const input = row.querySelector('input');
+            if (input && input.value && input.dataset.coords) {
+                extraDropsArray.push({
+                    address: input.value,
+                    coords: input.dataset.coords
+                });
+                extraDropsCoordsArray.push(input.dataset.coords);
+            }
+        });
+
         if (pickupCoords && dropCoords) {
             try {
                 // OSRM via Proxy
-                const url = `${API_BASE_URL}/api/proxy/route?pickup=${pickupCoords}&drop=${dropCoords}`;
+                let url = `${API_BASE_URL}/api/proxy/route?pickup=${pickupCoords}&drop=${dropCoords}`;
+                if (extraDropsCoordsArray.length > 0) {
+                    url += `&extraDrops=${extraDropsCoordsArray.join(';')}`;
+                }
                 const response = await fetch(url);
                 const data = await response.json();
 
@@ -518,7 +638,7 @@ document.addEventListener('DOMContentLoaded', () => {
             <div id="fb-base-row"></div>
             <div id="fb-allowance-row"></div>
             <div id="fb-peak-row"></div>
-            <div class="fm-row"><span class="fm-label">📊 GST (5%)</span><span class="fm-value" id="fb-gst"></span></div>
+            <div class="fm-row"><span class="fm-label">📊 Platform Fee</span><span class="fm-value" id="fb-platform-fee"></span></div>
             <div class="fm-total-row">
                 <span class="fm-total-label">Estimated Total</span>
                 <span class="fm-total-value" id="fb-total"></span>
@@ -533,7 +653,7 @@ document.addEventListener('DOMContentLoaded', () => {
         document.getElementById('fb-duration').textContent = bd.durationText || window.selectedDuration || '—';
         document.getElementById('fb-vehicle').textContent = bd.vehicleName || '—';
         document.getElementById('fb-rate').textContent = `₹${bd.perKm || '—'}`;
-        document.getElementById('fb-gst').textContent = `₹${bd.gst || 0}`;
+        document.getElementById('fb-platform-fee').textContent = `₹${bd.gst || 0}`;
         document.getElementById('fb-total').textContent = `₹${bd.total || 0}`;
 
         const baseRow = document.getElementById('fb-base-row');
@@ -563,6 +683,18 @@ document.addEventListener('DOMContentLoaded', () => {
             peakRow.innerHTML = '';
         }
 
+        const extraStopsRow = document.getElementById('fb-extra-stops-row') || document.createElement('div');
+        extraStopsRow.id = 'fb-extra-stops-row';
+        if (bd.extraDropsCharge) {
+            extraStopsRow.className = 'fm-row';
+            extraStopsRow.innerHTML = `<span class="fm-label">🛑 Extra Stops (${bd.extraDropsCount})</span><span class="fm-value" id="fb-extra-stops-val"></span>`;
+            peakRow.parentNode.insertBefore(extraStopsRow, peakRow.nextSibling);
+            document.getElementById('fb-extra-stops-val').textContent = `₹${bd.extraDropsCharge}`;
+        } else {
+            extraStopsRow.innerHTML = '';
+            extraStopsRow.className = '';
+        }
+
         overlay.classList.add('open');
     };
 
@@ -589,12 +721,25 @@ document.addEventListener('DOMContentLoaded', () => {
             const minutes = String(now.getMinutes()).padStart(2, '0');
             bookingTime = `${hours}:${minutes}`;
         }
+        const extraDropRows = extraDropsContainer ? extraDropsContainer.querySelectorAll('.extra-drop-row') : [];
+        const extraDropsArray = [];
+        extraDropRows.forEach(row => {
+            const input = row.querySelector('input');
+            if (input && input.value && input.dataset.coords) {
+                extraDropsArray.push({
+                    address: input.value,
+                    coords: input.dataset.coords
+                });
+            }
+        });
+
         pendingBookingData = {
             userId: user.id,
             pickup: document.getElementById('pickup').value,
             pickupCoords: document.getElementById('pickup').dataset.coords,
             drop: document.getElementById('drop').value,
             dropCoords: document.getElementById('drop').dataset.coords,
+            extraDrops: extraDropsArray.length > 0 ? extraDropsArray : null,
             date: bookingDate,
             time: bookingTime,
             passengers: parseInt(passengerInput.value) || 1,
@@ -615,8 +760,15 @@ document.addEventListener('DOMContentLoaded', () => {
         // Populate confirm modal
         const grid = document.getElementById('cm-summary-grid');
         if (grid) {
+            let stopsHtml = '';
+            if (pendingBookingData.extraDrops && pendingBookingData.extraDrops.length > 0) {
+                pendingBookingData.extraDrops.forEach((stop, idx) => {
+                    stopsHtml += `<div class="cm-info-row"><span class="cm-info-label">🛑 Stop #${idx+1}</span><span class="cm-info-value" style="max-width:200px;text-align:right;font-size:0.82rem;">${stop.address}</span></div>`;
+                });
+            }
             grid.innerHTML = `
                 <div class="cm-info-row"><span class="cm-info-label">📍 Pickup</span><span class="cm-info-value" id="cm-pickup" style="max-width:200px;text-align:right;font-size:0.82rem;"></span></div>
+                ${stopsHtml}
                 <div class="cm-info-row"><span class="cm-info-label">🏁 Destination</span><span class="cm-info-value" id="cm-drop" style="max-width:200px;text-align:right;font-size:0.82rem;"></span></div>
                 <div class="cm-info-row"><span class="cm-info-label">🚗 Vehicle</span><span class="cm-info-value" id="cm-vehicle"></span></div>
                 <div class="cm-info-row"><span class="cm-info-label">🛣 Distance</span><span class="cm-info-value" id="cm-distance"></span></div>
@@ -757,6 +909,13 @@ document.addEventListener('DOMContentLoaded', () => {
 
                 const peakMult = currentCategory === 'local' ? getPeakSurcharge(timeForSurcharge) : 0;
 
+                // Collect extra drops count
+                const extraDropRows = extraDropsContainer ? extraDropsContainer.querySelectorAll('.extra-drop-row') : [];
+                const extraDropsCount = Array.from(extraDropRows).filter(row => {
+                    const input = row.querySelector('input');
+                    return input && input.value && input.dataset.coords;
+                }).length;
+
                 if (tType.id === 'local') {
                     const config = info.local;
                     const minKm = typeof config.minKm === 'number' ? config.minKm : 0;
@@ -765,10 +924,15 @@ document.addEventListener('DOMContentLoaded', () => {
                     const baseFareLimit = config.base || 0;
                     const baseKmFare = Math.max(baseFareLimit, distanceFare);
                     const peakCharge = baseKmFare * peakMult;
-                    totalFare = (baseKmFare + peakCharge) * 1.05;
+                    
+                    const extraDropsCharge = extraDropsCount * 50;
+                    totalFare = (baseKmFare + peakCharge + extraDropsCharge) + 5;
 
                     displayDistance = `${distance} KM`;
-                    detailLabel = `Incl. 5% GST.`;
+                    detailLabel = `Incl. Platform Fee.`;
+                    if (extraDropsCount > 0) {
+                        detailLabel += ` (+₹${extraDropsCharge} for ${extraDropsCount} stop(s))`;
+                    }
                     if (peakMult > 0) detailLabel += ` [Peak Hour +25%]`;
                     if (distance < minKm) detailLabel += ` [${minKm}KM Min Applied]`;
                 } else if (tType.id === 'oneway') {
@@ -779,9 +943,14 @@ document.addEventListener('DOMContentLoaded', () => {
                     const baseFareLimit = config.base || 0;
                     const baseKmFare = Math.max(baseFareLimit, distanceFare);
                     const driverAllowance = billableDist > 250 ? 600 : 400;
-                    totalFare = (baseKmFare + (vType === 'bike' ? 0 : driverAllowance)) * 1.05; // Incl 5% GST
+                    
+                    const extraDropsCharge = extraDropsCount * 150;
+                    totalFare = (baseKmFare + (vType === 'bike' ? 0 : driverAllowance) + extraDropsCharge) + 5; // Incl Platform Fee
                     displayDistance = `${distance} KM`;
-                    detailLabel = `Incl. Allowance & 5% GST.`;
+                    detailLabel = `Incl. Allowance & Platform Fee.`;
+                    if (extraDropsCount > 0) {
+                        detailLabel += ` (+₹${extraDropsCharge} for ${extraDropsCount} stop(s))`;
+                    }
                     if (distance < minKm) detailLabel += ` [${minKm}KM Min Applied]`;
                 } else if (tType.id === 'round') {
                     const config = info.round;
@@ -792,9 +961,9 @@ document.addEventListener('DOMContentLoaded', () => {
                     const baseFareLimit = config.base || 0;
                     const baseKmFare = Math.max(baseFareLimit, distanceFare);
                     const driverAllowance = billableDist > 250 ? 600 : 400;
-                    totalFare = (baseKmFare + (vType === 'bike' ? 0 : driverAllowance * tripDays)) * 1.05; // Incl 5% GST
+                    totalFare = (baseKmFare + (vType === 'bike' ? 0 : driverAllowance * tripDays)) + 5; // Incl Platform Fee
                     displayDistance = `${distance} x 2 (${billableDist} KM Billable)`;
-                    detailLabel = `${tripDays} Day(s) • Incl. Allowance & 5% GST.`;
+                    detailLabel = `${tripDays} Day(s) • Incl. Allowance & Platform Fee.`;
                     if (actualTwoWayDist < minKmForTrip * tripDays) detailLabel += ` [${minKmForTrip * tripDays}KM Min Applied]`;
                 } else if (tType.id === 'rental') {
                     if (!info.rental) return;
@@ -804,9 +973,9 @@ document.addEventListener('DOMContentLoaded', () => {
                     if (!config) return;
                     const extraKm = Math.max(0, distance - pMaxKm);
                     const baseFare = config.base + (extraKm * config.extraKm);
-                    totalFare = baseFare * 1.05; // Rental usually no bata, but incl 5% GST
+                    totalFare = baseFare + 5; // Rental usually no bata, but incl Platform Fee
                     displayDistance = distance > 0 ? `${distance} KM` : 'Fixed Base';
-                    detailLabel = `${pMaxHrs}Hr/${pMaxKm}KM • Extra ₹${config.extraHour}/hr, ₹${config.extraKm}/km • Incl. 5% GST.`;
+                    detailLabel = `${pMaxHrs}Hr/${pMaxKm}KM • Extra ₹${config.extraHour}/hr, ₹${config.extraKm}/km • Incl. Platform Fee.`;
                 }
 
                 totalFare = Math.ceil(totalFare);
@@ -879,10 +1048,12 @@ document.addEventListener('DOMContentLoaded', () => {
                         if (vmBtn) { vmBtn.disabled = false; vmBtn.textContent = `Select ${info.name} — ₹${totalFare} →`; }
 
                         // Build breakdown for fare popup
-                        const gstBase = totalFare / 1.05;
-                        const gst = Math.round(totalFare - gstBase);
+                        const gstBase = totalFare - 5;
+                        const gst = 5;
                         const driverAllowanceAmt = (tType.id === 'oneway' || tType.id === 'round') && vType !== 'bike' ? (distance > 250 ? 600 : 400) : 0;
                         const peakSurcharge = tType.id === 'local' ? Math.round(getPeakSurcharge(document.getElementById('pickup-time')?.value) * (Math.max(distance, info.local?.minKm || 0) * (info.local?.perKm || 0))) : 0;
+                        
+                        const extraDropsCharge = tType.id === 'local' ? (extraDropsCount * 50) : (tType.id === 'oneway' ? (extraDropsCount * 150) : 0);
 
                         // Store selected vehicle data
                         selectedVehicleData = {
@@ -901,6 +1072,8 @@ document.addEventListener('DOMContentLoaded', () => {
                                 baseFare: getTripPricing(info, tType.id)?.base || 0,
                                 driverAllowance: driverAllowanceAmt,
                                 peakCharge: peakSurcharge,
+                                extraDropsCount,
+                                extraDropsCharge,
                                 gst,
                                 total: totalFare
                             }
@@ -1198,6 +1371,10 @@ document.addEventListener('DOMContentLoaded', () => {
                 const result = await response.json();
                 alert(`🏨 BOOKING CONFIRMED!\nBooking ID: #B${result.bookingId}\nVerification OTP: ${result.journeyOtp}\n\nYour premium captain will be assigned shortly. Please keep this OTP safe.`);
                 bookingForm.reset();
+                if (extraDropsContainer) {
+                    extraDropsContainer.innerHTML = '';
+                    extraDropCount = 0;
+                }
                 if (fareEstimate) fareEstimate.classList.add('hidden');
                 // Hide fare strip
                 const strip = document.getElementById('fare-strip');

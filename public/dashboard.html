@@ -230,6 +230,47 @@ let initialLoadDone = false;
 let currentActiveIndex = 0;
 let loadedRides = [];
 let currentDriverCoords = null;
+
+let playedReachedSounds = new Set();
+let dashboardAudioCtx = null;
+const unlockDashboardAudio = () => {
+    if (!dashboardAudioCtx) {
+        try { dashboardAudioCtx = new (window.AudioContext || window.webkitAudioContext)(); } catch(e){}
+    }
+    if (dashboardAudioCtx && dashboardAudioCtx.state === 'suspended') {
+        dashboardAudioCtx.resume();
+    }
+};
+['click', 'touchstart', 'keydown'].forEach(evt => document.body.addEventListener(evt, unlockDashboardAudio));
+
+async function playReachedSoundFor5Seconds() {
+    try {
+        if (!dashboardAudioCtx) return;
+        if (dashboardAudioCtx.state === 'suspended') {
+            try { await dashboardAudioCtx.resume(); } catch(e) { console.warn('Audio blocked:', e); }
+        }
+        if (dashboardAudioCtx.state === 'suspended') return;
+        let beeps = 0;
+        const interval = setInterval(() => {
+            if (beeps >= 5) {
+                clearInterval(interval);
+                return;
+            }
+            beeps++;
+            const osc = dashboardAudioCtx.createOscillator();
+            const gain = dashboardAudioCtx.createGain();
+            osc.type = 'sine';
+            osc.frequency.setValueAtTime(600, dashboardAudioCtx.currentTime); // distinct pitch
+            gain.gain.setValueAtTime(0.15, dashboardAudioCtx.currentTime);
+            gain.gain.exponentialRampToValueAtTime(0.01, dashboardAudioCtx.currentTime + 0.5);
+            osc.connect(gain);
+            gain.connect(dashboardAudioCtx.destination);
+            osc.start();
+            osc.stop(dashboardAudioCtx.currentTime + 0.6);
+        }, 1000);
+    } catch(e) {}
+}
+
 document.addEventListener('DOMContentLoaded', async () => {
     let user = null;
     try {
@@ -404,6 +445,10 @@ statusTag.className = `status-pill status-${activeMission.status}`;
 if (activeMission.status === 'assigned' && activeMission.reached_pickup_time) {
 statusTag.textContent = 'ARRIVED';
 statusTag.className = `status-pill status-ongoing`;
+if (!playedReachedSounds.has(activeMission.id)) {
+    playedReachedSounds.add(activeMission.id);
+    playReachedSoundFor5Seconds();
+}
 } else {
 statusTag.textContent = activeMission.status.toUpperCase();
 }
@@ -476,6 +521,27 @@ details.innerHTML = `
 <div style="font-size:0.7rem; text-transform:uppercase; color:var(--text-muted); font-weight:700;">From:</div>
 <div style="font-weight:700; font-size:1.1rem;">${activeMission.pickup_loc}</div>
 </div>
+${(() => {
+    let stopsHtml = '';
+    try {
+        if (activeMission.extra_drops) {
+            const stops = typeof activeMission.extra_drops === 'string' ? JSON.parse(activeMission.extra_drops) : activeMission.extra_drops;
+            if (Array.isArray(stops) && stops.length > 0) {
+                stops.forEach((stop, idx) => {
+                    stopsHtml += `
+                        <div style="margin-bottom:1.5rem; border-left: 2px dashed var(--primary-red); padding-left: 10px; margin-left: 5px;">
+                            <div style="font-size:0.7rem; text-transform:uppercase; color:var(--text-muted); font-weight:700;">Stop #${idx+1}:</div>
+                            <div style="font-weight:700; font-size:1.0rem; color:var(--text-main);">${stop.address}</div>
+                        </div>
+                    `;
+                });
+            }
+        }
+    } catch (e) {
+        console.error('Failed to render active mission stops:', e);
+    }
+    return stopsHtml;
+})()}
 <div>
 <div style="font-size:0.7rem; text-transform:uppercase; color:var(--text-muted); font-weight:700;">To:</div>
 <div style="font-weight:700; font-size:1.1rem;">${activeMission.drop_loc}</div>
@@ -629,14 +695,37 @@ return d.features[0]?.geometry.coordinates;
 const pCoords = await getCoords(activeMission.pickup_loc, activeMission.pickup_coords);
 const dCoords = await getCoords(activeMission.drop_loc, activeMission.drop_coords);
 if (pCoords && dCoords) {
+const markers = [];
 const pMarker = L.marker([pCoords[1], pCoords[0]]).addTo(trackerMap).bindPopup(`<b>📍 Pickup:</b><br>${activeMission.pickup_loc}`);
-const dMarker = L.marker([dCoords[1], dCoords[0]]).addTo(trackerMap).bindPopup(`<b>🏁 Destination:</b><br>${activeMission.drop_loc}`);
+markers.push(pMarker);
+
+let coordsList = [`${pCoords[0]},${pCoords[1]}`];
+let stops = [];
 try {
-const routeRes = await fetch(`https://router.project-osrm.org/route/v1/driving/${pCoords[0]},${pCoords[1]};${dCoords[0]},${dCoords[1]}?overview=full&geometries=geojson`);
-const routeData = await routeRes.json();
-L.geoJSON(routeData.routes[0].geometry, { style: { color: "#B71C1C", weight: 5, opacity: 0.7 } }).addTo(trackerMap);
+    if (activeMission.extra_drops) {
+        stops = typeof activeMission.extra_drops === 'string' ? JSON.parse(activeMission.extra_drops) : activeMission.extra_drops;
+    }
+} catch(e) {}
+
+if (Array.isArray(stops)) {
+    stops.forEach((stop, idx) => {
+        const sc = stop.coords.split(',').map(Number);
+        const sMarker = L.marker([sc[1], sc[0]]).addTo(trackerMap).bindPopup(`<b>🛑 Stop #${idx+1}:</b><br>${stop.address}`);
+        markers.push(sMarker);
+        coordsList.push(`${sc[0]},${sc[1]}`);
+    });
+}
+
+const dMarker = L.marker([dCoords[1], dCoords[0]]).addTo(trackerMap).bindPopup(`<b>🏁 Destination:</b><br>${activeMission.drop_loc}`);
+markers.push(dMarker);
+coordsList.push(`${dCoords[0]},${dCoords[1]}`);
+
+try {
+    const routeRes = await fetch(`https://router.project-osrm.org/route/v1/driving/${coordsList.join(';')}?overview=full&geometries=geojson`);
+    const routeData = await routeRes.json();
+    L.geoJSON(routeData.routes[0].geometry, { style: { color: "#B71C1C", weight: 5, opacity: 0.7 } }).addTo(trackerMap);
 } catch (e) { }
-const group = new L.featureGroup([pMarker, dMarker]);
+const group = new L.featureGroup(markers);
 trackerMap.fitBounds(group.getBounds().pad(0.2));
 }
 trackerMap.invalidateSize();
@@ -985,6 +1074,8 @@ let distance = 0;
 let durationMins = 0;
 let pricing = null;
 let peakRules = [];
+let stops = [];
+let extraDropsCoords = [];
 try {
 // Fetch tariffs and peak rules
 const [tariffRes, peakRes] = await Promise.all([
@@ -1001,15 +1092,28 @@ transformed[t.vehicle_type] = {};
 transformed[t.vehicle_type][t.category] = typeof t.config === 'string' ? JSON.parse(t.config) : t.config;
 });
 pricing = transformed;
-// Get dynamic distance and duration from OSRM proxy if coordinates exist
-if (ride.pickup_coords && ride.drop_coords) {
-const routeRes = await fetch(`${API_BASE_URL}/api/proxy/route?pickup=${ride.pickup_coords}&drop=${ride.drop_coords}`);
-const routeData = await routeRes.json();
-if (routeData.routes && routeData.routes.length > 0) {
-distance = Math.ceil(routeData.routes[0].distance / 1000);
-durationMins = routeData.routes[0].duration ? Math.ceil(routeData.routes[0].duration / 60) : Math.ceil(distance * 1.5);
-}
-}
+        // Get dynamic distance and duration from OSRM proxy if coordinates exist
+        try {
+            if (ride.extra_drops) {
+                stops = typeof ride.extra_drops === 'string' ? JSON.parse(ride.extra_drops) : ride.extra_drops;
+                if (Array.isArray(stops)) {
+                    extraDropsCoords = stops.map(s => s.coords);
+                }
+            }
+        } catch(e) {}
+
+        if (ride.pickup_coords && ride.drop_coords) {
+            let url = `${API_BASE_URL}/api/proxy/route?pickup=${ride.pickup_coords}&drop=${ride.drop_coords}`;
+            if (extraDropsCoords.length > 0) {
+                url += `&extraDrops=${extraDropsCoords.join(';')}`;
+            }
+            const routeRes = await fetch(url);
+            const routeData = await routeRes.json();
+            if (routeData.routes && routeData.routes.length > 0) {
+                distance = Math.ceil(routeData.routes[0].distance / 1000);
+                durationMins = routeData.routes[0].duration ? Math.ceil(routeData.routes[0].duration / 60) : Math.ceil(distance * 2);
+            }
+        }
 } catch (err) {
 console.error("Recalculation error:", err);
 }
@@ -1049,6 +1153,14 @@ if (surcharge > highestSurcharge) highestSurcharge = surcharge;
 return highestSurcharge;
 };
 const peakMult = tType === 'local' ? getPeakSurcharge(pickupTime) : 0;
+let extraDropsCharge = 0;
+if (stops && stops.length > 0) {
+if (tType === 'local') {
+extraDropsCharge = stops.length * 50;
+} else if (tType === 'oneway') {
+extraDropsCharge = stops.length * 150;
+}
+}
 if (tType === 'local') {
 const minKm = typeof config.minKm === 'number' ? config.minKm : 0;
 const billableDist = Math.max(dist, minKm);
@@ -1056,7 +1168,7 @@ const distanceFare = billableDist * config.perKm;
 const baseFareLimit = config.base || 0;
 const baseKmFare = Math.max(baseFareLimit, distanceFare);
 const peakCharge = baseKmFare * peakMult;
-totalFare = (baseKmFare + peakCharge) * 1.05;
+totalFare = (baseKmFare + peakCharge + extraDropsCharge) * 1.05;
 } else if (tType === 'oneway') {
 const minKm = config.minKm || 130;
 const billableDist = Math.max(dist, minKm);
@@ -1064,7 +1176,7 @@ const distanceFare = billableDist * config.perKm;
 const baseFareLimit = config.base || 0;
 const baseKmFare = Math.max(baseFareLimit, distanceFare);
 const driverAllowance = billableDist > 250 ? 600 : 400;
-totalFare = (baseKmFare + (vType === 'bike' ? 0 : driverAllowance)) * 1.05;
+totalFare = (baseKmFare + (vType === 'bike' ? 0 : driverAllowance) + extraDropsCharge) * 1.05;
 } else if (tType === 'round') {
 let tripDays = 1;
 if (pickupDate && returnDate) {
@@ -1113,12 +1225,19 @@ durationMins,
 null,
 ride.rental_package
 );
+let stopsHtml = '';
+if (stops && stops.length > 0) {
+stops.forEach((stop, idx) => {
+stopsHtml += `<div><b>Stop #${idx+1}:</b> ${stop.address}</div>`;
+});
+}
 const today = new Date().toISOString().split('T')[0];
 let htmlContent = `
 <div style="text-align: left; font-family: inherit;">
 <div style="background: rgba(183,28,28,0.05); padding: 1rem; border-radius: 12px; margin-bottom: 1.5rem; border: 1px solid rgba(183,28,28,0.15); font-size: 0.85rem; line-height: 1.5;">
 <div style="font-weight:700; color:var(--primary-red); margin-bottom: 5px; text-transform: uppercase;">Route Details</div>
 <div><b>From:</b> ${ride.pickup_loc}</div>
+${stopsHtml}
 <div><b>To:</b> ${ride.drop_loc}</div>
 <div><b>Vehicle:</b> ${ride.vehicle_type.toUpperCase()} • <b>Category:</b> ${ride.trip_type.toUpperCase()}</div>
 <div><b>Estimated Distance:</b> ${distance} KM</div>
@@ -1224,6 +1343,7 @@ pickup: ride.pickup_loc,
 pickupCoords: ride.pickup_coords,
 drop: ride.drop_loc,
 dropCoords: ride.drop_coords,
+extraDrops: ride.extra_drops || null,
 date: date,
 time: time,
 passengers: parseInt(ride.passengers) || 1,
@@ -1408,7 +1528,8 @@ async function showInvoiceModal(trip) {
             const minKmCharge = breakdown.minKmCharge || 0;
 
             const extraDistanceCharge = Math.max(0, distanceFare - baseFare);
-            const subtotal = distanceFare + peakCharge + driverAllowance + waitingCharge;
+            const extraDropsCharge = breakdown.extraDropsCharge || 0;
+            const subtotal = distanceFare + peakCharge + driverAllowance + waitingCharge + extraDropsCharge;
             const gst = Math.max(0, breakdown.totalFare - subtotal);
 
             fareBreakdownHtml = `
@@ -1444,6 +1565,12 @@ async function showInvoiceModal(trip) {
                     <div style="display:flex; justify-content:space-between; margin-bottom:0.6rem; font-size:0.9rem;">
                         <span style="color:#0a84ff;">Driver Allowance</span>
                         <span style="font-weight:600; color:#0a84ff;">₹${driverAllowance}</span>
+                    </div>` : ''}
+
+                    ${extraDropsCharge > 0 ? `
+                    <div style="display:flex; justify-content:space-between; margin-bottom:0.6rem; font-size:0.9rem;">
+                        <span style="color:var(--text-muted);">Extra Stops Charge (${breakdown.extraDropsCount || 0} stop(s))</span>
+                        <span style="font-weight:600;">₹${extraDropsCharge}</span>
                     </div>` : ''}
 
                     ${waitingCharge > 0 ? `

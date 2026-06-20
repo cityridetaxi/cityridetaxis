@@ -9,6 +9,7 @@
     <!-- PWA Manifest & Offline Support -->
     <link rel="manifest" href="/manifest.json">
     <meta name="theme-color" content="#000000">
+    <meta name="mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <link rel="apple-touch-icon" href="/logo.png">
@@ -87,14 +88,14 @@
                 <div class="driver-info-name" id="driver-name">Loading...</div>
                 <div class="driver-info-car" id="driver-car">Vehicle: Loading...</div>
             </div>
-            <div class="duty-toggle online" id="duty-toggle-btn" onclick="toggleDutyStatus()">
+            <div class="duty-toggle offline" id="duty-toggle-btn" onclick="toggleDutyStatus()">
                 <span class="duty-dot"></span>
-                <span id="duty-status-txt">Online</span>
+                <span id="duty-status-txt">Offline</span>
             </div>
         </div>
 
         <!-- Scanning Radar Bar when Online -->
-        <div class="online-scanning-bar" id="scanning-radar-bar">
+        <div class="online-scanning-bar hidden" id="scanning-radar-bar">
             <div class="scanning-radar"></div>
             <span>ONLINE - Scanning for bookings...</span>
         </div>
@@ -106,7 +107,7 @@
             <section id="view-rides" class="tab-view">
 
                 <!-- Offline Hero Dashboard Standby -->
-                <div class="offline-hero hidden" id="offline-hero-panel">
+                <div class="offline-hero" id="offline-hero-panel">
                     <div class="offline-hero-icon"><i class="ph-bold ph-steering-wheel"></i></div>
                     <div class="offline-hero-title">Ready to Earn?</div>
                     <div class="offline-hero-desc">Toggle the switch at the top to go ONLINE. You will start receiving live ride pings.</div>
@@ -178,6 +179,7 @@
                             <div class="ping-route-lbl">Pickup Location</div>
                             <div class="ping-route-val" id="active-pickup-loc">Address line</div>
                         </div>
+                        <div id="active-stops-list" style="display: flex; flex-direction: column;"></div>
                         <div class="ping-route-node">
                             <span class="ping-route-dot drop"></span>
                             <div class="ping-route-lbl">Dropoff Location</div>
@@ -223,7 +225,7 @@
                 </div>
 
                 <!-- Live Map View when Online -->
-                <div class="map-section" id="map-tracking-panel">
+                <div class="map-section hidden" id="map-tracking-panel">
                     <div class="gps-status-overlay">
                         <span class="gps-status-indicator locked" id="gps-status-dot"></span>
                         <span id="gps-status-text">Acquiring GPS...</span>
@@ -491,6 +493,7 @@
                         <div class="ping-route-lbl">Pickup</div>
                         <div class="ping-route-val" id="ping-pickup-loc">Address line</div>
                     </div>
+                    <div id="ping-extra-stops-list" style="display:flex; flex-direction:column; gap:12px;"></div>
                     <div class="ping-route-node">
                         <span class="ping-route-dot drop"></span>
                         <div class="ping-route-lbl">Dropoff</div>
@@ -568,7 +571,7 @@ if (redirect) window.location.href = redirect;
 return response;
 };
 })();
-let isOnline = true;
+let isOnline = false;
 let driverData = null;
 let gpsWatchId = null;
 let wakeLock = null;
@@ -585,6 +588,22 @@ let activeRideObj = null;
 let waitingTimerInterval = null;
 let audioCtx = null;
 let soundInterval = null;
+
+// Unlock AudioContext on first interaction to bypass browser autoplay restrictions
+const unlockAudio = () => {
+    if (!audioCtx) {
+        try {
+            audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        } catch (e) {}
+    }
+    if (audioCtx && audioCtx.state === 'suspended') {
+        audioCtx.resume();
+    }
+};
+['click', 'touchstart', 'keydown'].forEach(evt => 
+    document.body.addEventListener(evt, unlockAudio)
+);
+
 let earningsChartInstance = null;
 function getDistance(lat1, lon1, lat2, lon2) {
 const R = 6371;
@@ -1207,7 +1226,23 @@ searchingPanel.classList.add('hidden');
 panel.classList.remove('hidden');
 let html = '';
 if (activeJobs.length > 0) {
-html += activeJobs.map(job => `
+html += activeJobs.map(job => {
+    let stopsHtml = '';
+    if (job.extra_drops) {
+        try {
+            const stops = typeof job.extra_drops === 'string' ? JSON.parse(job.extra_drops) : job.extra_drops;
+            if (stops && stops.length > 0) {
+                stopsHtml = stops.map((s, index) => `
+                    <div style="color:var(--text-gray); margin-top:2px; font-size:0.85rem; padding-left:12px; border-left:1px dashed var(--accent-brand);">
+                        📍 Stop #${index + 1}: ${s.address.split(',')[0]}
+                    </div>
+                `).join('');
+            }
+        } catch (e) {
+            console.error("Failed to parse extra_drops in opportunity card", e);
+        }
+    }
+    return `
 <div class="opp-card">
 <div class="opp-card-row">
 <div class="opp-badge-row">
@@ -1219,6 +1254,7 @@ ${job.vendor_id ? '<span class="opp-badge vendor">Vendor</span>' : ''}
 </div>
 <div class="opp-loc-line">
 <div style="font-weight:700;"><span style="color:var(--accent-brand)">📍</span> ${job.pickup_loc}</div>
+${stopsHtml}
 <div style="color:var(--text-gray); margin-top:2px;">🏁 ${job.drop_loc}</div>
 </div>
 <div class="opp-card-row" style="margin-top:6px; border-top:1px solid rgba(255,255,255,0.04); padding-top:10px;">
@@ -1226,7 +1262,8 @@ ${job.vendor_id ? '<span class="opp-badge vendor">Vendor</span>' : ''}
 <button class="payout-btn" style="padding:6px 12px; font-size:0.75rem;" onclick="acceptBookingPing(${job.id})">Accept Ride</button>
 </div>
 </div>
-`).join('');
+`;
+}).join('');
 }
 if (passedJobs.length > 0) {
 html += `
@@ -1234,7 +1271,21 @@ html += `
 Passed Opportunities (Archive)
 </div>
 `;
-html += passedJobs.map(job => `
+html += passedJobs.map(job => {
+    let passedStopsHtml = '';
+    if (job.extra_drops) {
+        try {
+            const stops = typeof job.extra_drops === 'string' ? JSON.parse(job.extra_drops) : job.extra_drops;
+            if (stops && stops.length > 0) {
+                passedStopsHtml = stops.map((s, index) => `
+                    <div style="color:var(--text-gray); margin-top:2px; font-size:0.85rem; padding-left:12px; border-left:1px dashed var(--text-gray); opacity:0.8;">
+                        📍 Stop #${index + 1}: ${s.address.split(',')[0]}
+                    </div>
+                `).join('');
+            }
+        } catch (e) {}
+    }
+    return `
 <div class="opp-card passed-archived" style="opacity: 0.7; border-left: 2px solid var(--text-gray); background: rgba(255,255,255,0.02);">
 <div class="opp-card-row">
 <div class="opp-badge-row">
@@ -1247,6 +1298,7 @@ ${job.vendor_id ? '<span class="opp-badge vendor" style="opacity: 0.7;">Vendor</
 </div>
 <div class="opp-loc-line">
 <div style="font-weight:700; opacity: 0.8;"><span style="color:var(--text-gray)">📍</span> ${job.pickup_loc}</div>
+${passedStopsHtml}
 <div style="color:var(--text-gray); margin-top:2px; opacity: 0.8;">🏁 ${job.drop_loc}</div>
 </div>
 <div class="opp-card-row" style="margin-top:6px; border-top:1px solid rgba(255,255,255,0.04); padding-top:10px;">
@@ -1254,14 +1306,14 @@ ${job.vendor_id ? '<span class="opp-badge vendor" style="opacity: 0.7;">Vendor</
 <button class="payout-btn" style="padding:6px 12px; font-size:0.75rem; background: var(--text-gray); border-color: var(--text-gray);" onclick="acceptBookingPing(${job.id})">Accept Ride</button>
 </div>
 </div>
-`).join('');
+`}).join('');
 }
 list.innerHTML = html;
 }
 function playSynthesizedPing() {
 try {
-if (!audioCtx) {
-audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+if (!audioCtx || audioCtx.state === 'suspended') {
+    return; // Do not attempt to play or create context until user interacts
 }
 const osc = audioCtx.createOscillator();
 const gain = audioCtx.createGain();
@@ -1307,6 +1359,29 @@ document.getElementById('ping-dist-val').textContent = job.distance;
 document.getElementById('ping-duration-val').textContent = job.estimated_duration ? job.estimated_duration : 'N/A';
 document.getElementById('ping-pickup-loc').textContent = job.pickup_loc;
 document.getElementById('ping-drop-loc').textContent = job.drop_loc;
+
+const pingExtraStopsContainer = document.getElementById('ping-extra-stops-list');
+if (pingExtraStopsContainer) {
+    pingExtraStopsContainer.innerHTML = '';
+    if (job.extra_drops) {
+        try {
+            const stops = typeof job.extra_drops === 'string' ? JSON.parse(job.extra_drops) : job.extra_drops;
+            if (stops && stops.length > 0) {
+                stops.forEach((s, idx) => {
+                    const stopNode = document.createElement('div');
+                    stopNode.className = 'ping-route-node';
+                    stopNode.innerHTML = `
+                        <span class="ping-route-dot" style="background:#ffc107; box-shadow: 0 0 8px rgba(255, 193, 7, 0.4);"></span>
+                        <div class="ping-route-lbl" style="color: #ffc107;">Stop #${idx + 1}</div>
+                        <div class="ping-route-val">${s.address}</div>
+                    `;
+                    pingExtraStopsContainer.appendChild(stopNode);
+                });
+            }
+        } catch (e) { console.error("Ping extra drops error", e); }
+    }
+}
+
 document.getElementById('ping-passenger-name').textContent = job.customer_name || 'Passenger';
 document.getElementById('ping-accept-btn').onclick = () => acceptBookingPing(job.id);
 document.getElementById('incoming-ping-screen').classList.remove('hidden');
@@ -1387,8 +1462,12 @@ function clearActiveRouteMap() {
 if (activeRouteLine) { activeRouteLine.remove(); activeRouteLine = null; }
 if (activePickupMarker) { activePickupMarker.remove(); activePickupMarker = null; }
 if (activeDropMarker) { activeDropMarker.remove(); activeDropMarker = null; }
+if (window.activeStopMarkers) {
+    window.activeStopMarkers.forEach(m => m.remove());
+    window.activeStopMarkers = [];
 }
-async function drawTripRouteOnMap(pickupLoc, dropLoc, pCoordsStr, dCoordsStr) {
+}
+async function drawTripRouteOnMap(pickupLoc, dropLoc, pCoordsStr, dCoordsStr, extraDrops) {
 if (!driverMap) return;
 clearActiveRouteMap();
 try {
@@ -1417,7 +1496,33 @@ iconSize: [14, 14]
 });
 activePickupMarker = L.marker([pCoords[1], pCoords[0]], { icon: pinPickup }).addTo(driverMap).bindPopup('<b>Pickup Point</b>');
 activeDropMarker = L.marker([dCoords[1], dCoords[0]], { icon: pinDrop }).addTo(driverMap).bindPopup('<b>Destination Drop</b>');
-const routeRes = await fetch(`${API_BASE_URL}/api/proxy/route?pickup=${pCoords[0]},${pCoords[1]}&drop=${dCoords[0]},${dCoords[1]}`);
+
+// Parse extra drops
+const stops = extraDrops ? (typeof extraDrops === 'string' ? JSON.parse(extraDrops) : extraDrops) : [];
+window.activeStopMarkers = window.activeStopMarkers || [];
+
+stops.forEach((s, idx) => {
+    if (s.coords) {
+        const [lng, lat] = s.coords.split(',').map(Number);
+        const pinStop = L.divIcon({
+            className: 'map-pin-div',
+            html: `<div style="background:#ffc107; width:14px; height:14px; border-radius:50%; border:2.5px solid #000; box-shadow:0 0 10px rgba(0,0,0,0.5);"></div>`,
+            iconSize: [14, 14]
+        });
+        const m = L.marker([lat, lng], { icon: pinStop }).addTo(driverMap).bindPopup(`<b>Stop #${idx + 1}</b><br>${s.address}`);
+        window.activeStopMarkers.push(m);
+    }
+});
+
+let url = `${API_BASE_URL}/api/proxy/route?pickup=${pCoords[0]},${pCoords[1]}&drop=${dCoords[0]},${dCoords[1]}`;
+if (stops.length > 0) {
+    const extraCoords = stops.map(s => s.coords).filter(Boolean).join(';');
+    if (extraCoords) {
+        url += `&extraDrops=${extraCoords}`;
+    }
+}
+
+const routeRes = await fetch(url);
 if (routeRes.ok) {
 const routeData = await routeRes.json();
 if (routeData.routes && routeData.routes[0]) {
@@ -1441,7 +1546,7 @@ dashArray: '10, 10'
 }
 }
 }
-const boundsGroup = new L.featureGroup([activePickupMarker, activeDropMarker]);
+const boundsGroup = new L.featureGroup([activePickupMarker, activeDropMarker, ...window.activeStopMarkers]);
 driverMap.fitBounds(boundsGroup.getBounds().pad(0.25));
 }
 } catch (err) {
@@ -1665,15 +1770,52 @@ if (actualDistEl) actualDistEl.textContent = ride.actual_distance || '0.000 KM';
 }
 document.getElementById('active-pickup-loc').textContent = ride.pickup_loc;
 document.getElementById('active-drop-loc').textContent = ride.drop_loc;
+
+const activeStopsContainer = document.getElementById('active-stops-list');
+if (activeStopsContainer) {
+    activeStopsContainer.innerHTML = '';
+    if (ride.extra_drops) {
+        try {
+            const stops = typeof ride.extra_drops === 'string' ? JSON.parse(ride.extra_drops) : ride.extra_drops;
+            if (stops && stops.length > 0) {
+                stops.forEach((s, idx) => {
+                    const stopNode = document.createElement('div');
+                    stopNode.className = 'ping-route-node';
+                    stopNode.innerHTML = `
+                        <span class="ping-route-dot" style="background:#ffc107; box-shadow: 0 0 8px rgba(255, 193, 7, 0.4);"></span>
+                        <div class="ping-route-lbl" style="color: #ffc107;">Stop #${idx + 1}</div>
+                        <div class="ping-route-val" style="margin-left: 0px;">${s.address}</div>
+                    `;
+                    activeStopsContainer.appendChild(stopNode);
+                });
+            }
+        } catch (e) {
+            console.error("Failed to parse extra_drops in active stops panel", e);
+        }
+    }
+}
+
 const pLngLat = ride.pickup_coords ? ride.pickup_coords.split(',').reverse().join(',') : encodeURIComponent(ride.pickup_loc);
 const dLngLat = ride.drop_coords ? ride.drop_coords.split(',').reverse().join(',') : encodeURIComponent(ride.drop_loc);
+let navDropUrl = `https://www.google.com/maps/search/?api=1&query=${dLngLat}`;
+
+if (ride.extra_drops) {
+    try {
+        const stops = typeof ride.extra_drops === 'string' ? JSON.parse(ride.extra_drops) : ride.extra_drops;
+        if (stops && stops.length > 0) {
+            const waypoints = stops.map(s => s.coords ? s.coords.split(',').reverse().join(',') : encodeURIComponent(s.address)).join('|');
+            navDropUrl = `https://www.google.com/maps/dir/?api=1&origin=${pLngLat}&destination=${dLngLat}&waypoints=${waypoints}&travelmode=driving`;
+        }
+    } catch (e) {}
+}
+
 document.getElementById('nav-pickup-btn').href = `https://www.google.com/maps/search/?api=1&query=${pLngLat}`;
-document.getElementById('nav-drop-btn').href = `https://www.google.com/maps/search/?api=1&query=${dLngLat}`;
+document.getElementById('nav-drop-btn').href = navDropUrl;
 document.getElementById('call-passenger-btn').href = `tel:${ride.customer_phone || ''}`;
 const badge = document.getElementById('active-ride-badge');
 const btnsArea = document.getElementById('active-op-btns');
-if (ride.trip_type === 'local' && window.lastDrawnRideId !== ride.id) {
-drawTripRouteOnMap(ride.pickup_loc, ride.drop_loc, ride.pickup_coords, ride.drop_coords);
+if (ride.drop_coords && window.lastDrawnRideId !== ride.id) {
+drawTripRouteOnMap(ride.pickup_loc, ride.drop_loc, ride.pickup_coords, ride.drop_coords, ride.extra_drops);
 window.lastDrawnRideId = ride.id;
 }
 if (ride.status === 'assigned') {
@@ -2049,6 +2191,12 @@ if (res.ok) {
                 }
                 
                 breakdownHtml += `
+                ${breakdown.extraDropsCharge > 0 ? `
+                <div style="display:flex; justify-content:space-between; margin-bottom:6px; color:var(--accent-brand);">
+                    <span>Extra Stops Charge (${breakdown.extraDropsCount} stop${breakdown.extraDropsCount > 1 ? 's' : ''}):</span>
+                    <span>₹${breakdown.extraDropsCharge}</span>
+                </div>
+                ` : ''}
                 ${breakdown.waitingCharge > 0 ? `
                 <div style="display:flex; justify-content:space-between; margin-bottom:6px; color:var(--danger-red);">
                     <span>Waiting Charges:</span>
@@ -2056,8 +2204,8 @@ if (res.ok) {
                 </div>
                 ` : ''}
                 <div style="display:flex; justify-content:space-between; margin-bottom:6px;">
-                    <span>GST (${breakdown.gstPercent}%):</span>
-                    <span style="font-weight:700;">₹${breakdown.gstAmount}</span>
+                    <span>Platform Fee:</span>
+                    <span style="font-weight:700;">₹${breakdown.platformFee}</span>
                 </div>
                 `;
             } else {
@@ -2336,7 +2484,7 @@ const billableDist = Math.max(distanceKm, minKm);
 const distanceFare = billableDist * config.perKm;
 const baseKmFare = Math.max(baseFare, distanceFare);
 const peakCharge = baseKmFare * peakMult;
-totalFare = (baseKmFare + peakCharge + waitingCharge) * 1.05;
+totalFare = (baseKmFare + peakCharge + waitingCharge) + 5;
 } else if (booking.trip_type === 'oneway') {
 const baseFare = config.base || 0;
 const minKm = typeof config.minKm === 'number' ? config.minKm : 130;
@@ -2344,7 +2492,7 @@ const billableDist = Math.max(distanceKm, minKm);
 const distanceFare = billableDist * (config.perKm || 13);
 const baseKmFare = Math.max(baseFare, distanceFare);
 const driverAllowance = billableDist > 250 ? 600 : 400;
-totalFare = (baseKmFare + (booking.vehicle_type === 'bike' ? 0 : driverAllowance) + waitingCharge) * 1.05;
+totalFare = (baseKmFare + (booking.vehicle_type === 'bike' ? 0 : driverAllowance) + waitingCharge) + 5;
 } else if (booking.trip_type === 'round') {
 const baseFare = config.base || 0;
 let tripDays = 1;
@@ -2361,7 +2509,7 @@ const billableDist = Math.max(distanceKm, minKmForTrip);
 const distanceFare = billableDist * (config.perKm || 12);
 const baseKmFare = Math.max(baseFare, distanceFare);
 const driverAllowance = billableDist > 250 ? 600 : 400;
-totalFare = ((baseKmFare + (booking.vehicle_type === 'bike' ? 0 : driverAllowance * tripDays)) + waitingCharge) * 1.05;
+totalFare = ((baseKmFare + (booking.vehicle_type === 'bike' ? 0 : driverAllowance * tripDays)) + waitingCharge) + 5;
 } else if (booking.trip_type === 'rental') {
 const packageVal = booking.rental_package || '2-20';
 const [pMaxHrs, pMaxKm] = packageVal.split('-').map(Number);
@@ -2371,7 +2519,7 @@ const extraKmCharge = extraKm * packageConfig.extraKm;
 const durationHrs = elapsedMins / 60.0;
 const extraHrs = Math.max(0, Math.ceil(durationHrs - pMaxHrs));
 const extraHourCharge = extraHrs * packageConfig.extraHour;
-totalFare = (packageConfig.base + extraKmCharge + extraHourCharge) * 1.05;
+totalFare = (packageConfig.base + extraKmCharge + extraHourCharge) + 5;
 }
 return `₹${Math.ceil(totalFare)}`;
 } catch (e) {
@@ -2695,7 +2843,21 @@ minKmCharge = minKmPerDay * perKmRate;
 }
 }
 } catch(e) { console.warn('Could not fetch tariff breakdown for driver invoice modal:', e); }
-const displayBaseFare = configBaseFare !== null ? configBaseFare : baseFare;
+let extraDropsCharge = 0;
+let extraStopsCount = 0;
+try {
+    if (ride.extra_drops) {
+        const stops = typeof ride.extra_drops === 'string' ? JSON.parse(ride.extra_drops) : ride.extra_drops;
+        if (Array.isArray(stops) && stops.length > 0) {
+            extraStopsCount = stops.length;
+            if (ride.trip_type === 'local') extraDropsCharge = extraStopsCount * 50;
+            else if (ride.trip_type === 'oneway') extraDropsCharge = extraStopsCount * 150;
+        }
+    }
+} catch(e) {}
+
+const displayBaseFare = (fareNum - waitingCharge - extraDropsCharge) > 0 ? (fareNum - waitingCharge - extraDropsCharge) : (configBaseFare !== null ? configBaseFare : baseFare);
+
 let htmlContent = `
 <div style="text-align:left; font-size:0.85rem; display:flex; flex-direction:column; gap:8px;">
 <div style="font-size: 0.75rem; color: var(--text-gray); text-align: center; border-bottom: 1px dashed rgba(255,255,255,0.1); padding-bottom: 8px;">
@@ -2708,11 +2870,17 @@ let htmlContent = `
 </div>
 <div style="display:flex; justify-content:space-between; margin-top: 4px; gap: 10px;">
 <span style="flex-shrink:0;">Pickup:</span>
-<span style="font-weight:600; color:var(--text-gray); text-align:right; font-size:0.75rem;">${ride.pickup_loc || 'N/A'}</span>
+<span style="font-weight:600; color:var(--text-gray); text-align:right; font-size:0.75rem; max-width:180px; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden;">${ride.pickup_loc || 'N/A'}</span>
 </div>
+${extraStopsCount > 0 ? `
+<div style="display:flex; justify-content:space-between; gap: 10px;">
+<span style="flex-shrink:0;">Extra Stops:</span>
+<span style="font-weight:600; color:var(--text-gray); text-align:right; font-size:0.75rem;">${extraStopsCount} Stop(s)</span>
+</div>
+` : ''}
 <div style="display:flex; justify-content:space-between; gap: 10px;">
 <span style="flex-shrink:0;">Dropoff:</span>
-<span style="font-weight:600; color:var(--text-gray); text-align:right; font-size:0.75rem;">${ride.drop_loc || 'N/A'}</span>
+<span style="font-weight:600; color:var(--text-gray); text-align:right; font-size:0.75rem; max-width:180px; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden;">${ride.drop_loc || 'N/A'}</span>
 </div>
 <div style="border-top: 1px dashed rgba(255,255,255,0.1); margin: 4px 0;"></div>
 <div style="display:flex; justify-content:space-between;">
@@ -2740,6 +2908,12 @@ ${minKmVal > 0 ? `
 <div style="display:flex; justify-content:space-between;">
 <span>Min. KM Charge (${minKmVal} KM):</span>
 <span style="color:var(--text-white);">₹${minKmCharge.toFixed(2)}</span>
+</div>
+` : ''}
+${extraDropsCharge > 0 ? `
+<div style="display:flex; justify-content:space-between; color:var(--accent-brand);">
+<span>Extra Stops Charge:</span>
+<span>+₹${extraDropsCharge.toFixed(2)}</span>
 </div>
 ` : ''}
 ${waitingCharge > 0 ? `
