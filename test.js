@@ -31,11 +31,11 @@ let metrics = {
 // VIRTUAL CUSTOMER
 // ==========================================
 async function simulateCustomer(id) {
-  const client = axios.create({ baseURL: CONFIG.API_URL, headers: { Authorization: `Bearer ${CONFIG.TEST_JWT_TOKEN}` } });
+  const client = axios.create({ baseURL: CONFIG.API_URL });
   
   try {
     // 1. Connect Socket
-    const socket = io(CONFIG.SOCKET_URL, { auth: { token: CONFIG.TEST_JWT_TOKEN }, query: { role: 'customer' } });
+    const socket = io(CONFIG.SOCKET_URL, { query: { role: 'customer' } });
     socket.on('connect', () => metrics.socketsConnected++);
     socket.on('disconnect', () => metrics.socketsConnected--);
 
@@ -44,8 +44,8 @@ async function simulateCustomer(id) {
     setTimeout(() => { running = false; socket.disconnect(); }, CONFIG.TEST_DURATION_SEC * 1000);
 
     while (running) {
-      // Pinging an authenticated endpoint to test DB & Network
-      await measureRequest(client, 'GET', '/api/auth/session');
+      // Pinging the public index to test raw Node.js capacity
+      await measureRequest(client, 'GET', '/');
       await sleep(5000);
     }
   } catch (err) {
@@ -57,10 +57,10 @@ async function simulateCustomer(id) {
 // VIRTUAL DRIVER
 // ==========================================
 async function simulateDriver(id) {
-  const client = axios.create({ baseURL: CONFIG.API_URL, headers: { Authorization: `Bearer ${CONFIG.TEST_JWT_TOKEN}` } });
+  const client = axios.create({ baseURL: CONFIG.API_URL });
   
   try {
-    const socket = io(CONFIG.SOCKET_URL, { auth: { token: CONFIG.TEST_JWT_TOKEN }, query: { role: 'driver' } });
+    const socket = io(CONFIG.SOCKET_URL, { query: { role: 'driver' } });
     socket.on('connect', () => metrics.socketsConnected++);
     socket.on('disconnect', () => metrics.socketsConnected--);
 
@@ -68,8 +68,8 @@ async function simulateDriver(id) {
     setTimeout(() => { running = false; socket.disconnect(); }, CONFIG.TEST_DURATION_SEC * 1000);
 
     while (running) {
-      // Hit a driver specific endpoint
-      await measureRequest(client, 'GET', '/api/auth/session');
+      // Hit a public endpoint
+      await measureRequest(client, 'GET', '/');
       if (socket.connected) socket.emit('location_update', { lat: 40.71, lng: -74.00 });
       await sleep(3000);
     }
