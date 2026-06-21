@@ -1953,6 +1953,18 @@ cron.schedule('59 23 * * *', () => {
     sendDailyReport();
 });
 
+// Schedule: 6:00 AM Daily Deduct Daily Commission
+cron.schedule('0 6 * * *', async () => {
+    try {
+        if (db) {
+            await db.query('UPDATE taxi_drivers SET wallet_balance = wallet_balance - 10 WHERE is_blocked = 0');
+            console.log('--- DAILY 10Rs DEDUCTION COMPLETED ---');
+        }
+    } catch (err) {
+        console.error('Failed to deduct daily 10rs:', err);
+    }
+});
+
 // --- PEAK RULES API ---
 app.get('/api/peak-rules', async (req, res) => {
     try {
@@ -3198,9 +3210,11 @@ app.post('/api/bookings/accept', authenticateJWT, requireRole(['driver']), (req,
         const [checks] = await db.query(`
             SELECT 
               (SELECT fare FROM taxi_bookings WHERE id = ? AND status = 'pending') AS booking_fare,
+              (SELECT vendor_id FROM taxi_bookings WHERE id = ? AND status = 'pending') AS vendor_id,
+              (SELECT vendor_markup FROM taxi_bookings WHERE id = ? AND status = 'pending') AS vendor_markup,
               (SELECT wallet_balance FROM taxi_drivers WHERE id = ?) AS wallet_balance,
               (SELECT id FROM taxi_bookings WHERE driver_id = ? AND status = 'assigned' LIMIT 1) AS active_booking_id
-        `, [bookingId, driverId, driverId]);
+        `, [bookingId, bookingId, bookingId, driverId, driverId]);
 
         const check = checks[0] || {};
 
@@ -3214,11 +3228,14 @@ app.post('/api/bookings/accept', authenticateJWT, requireRole(['driver']), (req,
             return res.status(400).json({ error: 'Ground Control: You already have an active mission locked in. Complete your current duty before accepting new targets.' });
         }
 
-        const bookingFare = parseFloat(check.booking_fare.replace(/[^0-9.]/g, '')) || 0;
-        const requiredBalance = bookingFare * 0.10;
+        const vendorMarkup = parseFloat(check.vendor_markup) || 0;
+        const isVendorRide = check.vendor_id !== null && check.vendor_id !== undefined;
+        
+        // Minimum balance required: 300 Rs (plus vendor markup if it's a vendor ride)
+        const requiredBalance = 300 + (isVendorRide ? vendorMarkup : 0);
 
         if (parseFloat(check.wallet_balance) < requiredBalance) {
-            return res.status(400).json({ error: `Insufficient funds. Need ₹${requiredBalance.toFixed(2)}.` });
+            return res.status(400).json({ error: `Insufficient funds. Minimum wallet balance required is ₹${requiredBalance.toFixed(2)}.` });
         }
 
         // Atomic conditional update to prevent race conditions
@@ -3231,11 +3248,9 @@ app.post('/api/bookings/accept', authenticateJWT, requireRole(['driver']), (req,
             return res.status(400).json({ error: 'Ride no longer available (accepted by another pilot).' });
         }
 
-        // Deduct wallet balance only for the winning driver
-        await db.query(
-            'UPDATE taxi_drivers SET wallet_balance = wallet_balance - ? WHERE id = ?',
-            [requiredBalance, driverId]
-        );
+        // Note: We no longer deduct a 10% commission on accept.
+        // Daily commission of 10rs is deducted via a cron job.
+        // Vendor profit is deducted in the finish-trip route.
 
         // Fetch driver name and booking user_id to notify relevant parties
         const [[driverRow], [bookingRow]] = await Promise.all([
@@ -3755,13 +3770,9 @@ app.post('/api/admin/transfer-ride', async (req, res) => {
         const [bookings] = await db.query('SELECT fare, status FROM taxi_bookings WHERE id = ?', [bookingId]);
         if (bookings.length === 0) return res.status(404).json({ error: 'Booking not found.' });
 
-        const fare = bookings[0].fare;
-        const requiredBalance = (parseFloat(fare.replace(/[^0-9.]/g, '')) || 0) * 0.10;
-
         await db.query('UPDATE taxi_bookings SET driver_id = ?, status = "assigned" WHERE id = ?', [newDriverId, bookingId]);
-        await db.query('UPDATE taxi_drivers SET wallet_balance = wallet_balance - ? WHERE id = ?', [requiredBalance, newDriverId]);
 
-        res.json({ success: true, message: `Ride #B${bookingId} assigned/transferred. Fee deducted.` });
+        res.json({ success: true, message: `Ride #B${bookingId} assigned/transferred successfully.` });
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
@@ -4654,6 +4665,11 @@ app.post('/api/bookings/finish-trip', authenticateJWT, requireRole(['driver']), 
 
             const nextStatus = booking.vendor_id ? "completed" : "finished";
             const updatePromises = [];
+            
+            // --- PLATFORM FEE DEDUCTION ---
+            updatePromises.push(db.query('UPDATE taxi_drivers SET wallet_balance = wallet_balance - 5 WHERE id = ?', [booking.driver_id]));
+            console.log(`[FINANCE] Deducted ₹5 platform fee from Driver #${booking.driver_id} for Ride #B${bookingId}`);
+
             if (vendorProfitDeducted > 0) {
                 updatePromises.push(db.query('UPDATE taxi_drivers SET wallet_balance = wallet_balance - ? WHERE id = ?', [vendorProfitDeducted, booking.driver_id]));
                 console.log(`[FINANCE] Deducted ₹${vendorProfitDeducted} vendor profit from Driver #${booking.driver_id} for Ride #B${bookingId}`);
@@ -4851,6 +4867,11 @@ app.post('/api/bookings/finish-trip', authenticateJWT, requireRole(['driver']), 
 
             const nextStatus = (booking.vendor_id || booking.trip_type === 'local') ? "completed" : "finished";
             const updatePromises = [];
+            
+            // --- PLATFORM FEE DEDUCTION ---
+            updatePromises.push(db.query('UPDATE taxi_drivers SET wallet_balance = wallet_balance - 5 WHERE id = ?', [booking.driver_id]));
+            console.log(`[FINANCE] Deducted ₹5 platform fee from Driver #${booking.driver_id} for Ride #B${bookingId}`);
+
             if (vendorProfitDeducted > 0) {
                 updatePromises.push(db.query('UPDATE taxi_drivers SET wallet_balance = wallet_balance - ? WHERE id = ?', [vendorProfitDeducted, booking.driver_id]));
                 console.log(`[FINANCE] Deducted ₹${vendorProfitDeducted} vendor profit from Driver #${booking.driver_id} for Ride #B${bookingId}`);

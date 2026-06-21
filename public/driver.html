@@ -350,7 +350,7 @@
                     </div>
                     <div class="offline-notice-banner" style="background: rgba(183, 28, 28, 0.04); border-color: rgba(183, 28, 28, 0.15); color: var(--text-white);">
                         <i class="ph-bold ph-shield-check" style="color:var(--accent-brand); font-size:1.1rem;"></i>
-                        <span style="font-size: 0.75rem;">10% platform commission is automatically adjusted on booking acceptance. No monthly subscription fees.</span>
+                        <span style="font-size: 0.75rem;">₹10/day platform access fee is automatically deducted at 6 AM. A flat ₹5 platform fee applies per ride completion.</span>
                     </div>
                 </div>
 
@@ -791,14 +791,14 @@ clearInterval(radarMsgInterval);
 radarMsgInterval = null;
 }
 }
-function toggleDutyStatus() {
+function proceedToOnline() {
 const btn = document.getElementById('duty-toggle-btn');
 const txt = document.getElementById('duty-status-txt');
 const scanner = document.getElementById('scanning-radar-bar');
 const offlineHero = document.getElementById('offline-hero-panel');
 const mapPanel = document.getElementById('map-tracking-panel');
 const oppsPanel = document.getElementById('opportunities-panel');
-if (!isOnline) {
+
 isOnline = true;
 btn.className = 'duty-toggle online';
 txt.textContent = 'Online';
@@ -820,6 +820,57 @@ timer: 2000,
 showConfirmButton: false,
 ...swalDarkOpts
 });
+}
+
+function toggleDutyStatus() {
+const btn = document.getElementById('duty-toggle-btn');
+const txt = document.getElementById('duty-status-txt');
+const scanner = document.getElementById('scanning-radar-bar');
+const offlineHero = document.getElementById('offline-hero-panel');
+const mapPanel = document.getElementById('map-tracking-panel');
+const oppsPanel = document.getElementById('opportunities-panel');
+if (!isOnline) {
+if (!navigator.geolocation) {
+Swal.fire({ title: 'GPS Error', text: 'Geolocation is not supported by your browser.', icon: 'error', ...swalDarkOpts });
+return;
+}
+
+Swal.fire({
+title: 'Verifying GPS Signal...',
+text: 'Please wait while we lock onto your location coordinates.',
+allowOutsideClick: false,
+didOpen: () => {
+Swal.showLoading();
+},
+...swalDarkOpts
+});
+
+navigator.geolocation.getCurrentPosition(
+(position) => {
+Swal.close();
+proceedToOnline();
+},
+(error) => {
+Swal.close();
+let errMsg = 'Please turn on your GPS location to go online.';
+if (error.code === error.PERMISSION_DENIED) {
+errMsg = 'Location permission is denied. Please allow location access in your browser or device settings to go online.';
+} else if (error.code === error.POSITION_UNAVAILABLE) {
+errMsg = 'Location information is unavailable. Please strictly turn on your device GPS location to proceed.';
+} else if (error.code === error.TIMEOUT) {
+errMsg = 'The request to get user location timed out. Please check your GPS signal and ensure location is turned on.';
+}
+
+Swal.fire({
+title: 'Location Required',
+text: errMsg,
+icon: 'warning',
+confirmButtonText: 'OK',
+...swalDarkOpts
+});
+},
+{ enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
+);
 } else {
 isOnline = false;
 btn.className = 'duty-toggle offline';
@@ -2244,17 +2295,19 @@ if (res.ok) {
                     <div style="font-weight:800; font-size:0.75rem; color:var(--text-gray); margin-bottom:8px; text-transform:uppercase; letter-spacing:1px; border-bottom:1px solid rgba(255,255,255,0.06); padding-bottom:4px;">Fare Breakdown</div>
                     ${breakdownHtml}
                 </div>
-                ${data.vendorProfit > 0 ? `
-                <div style="border-top:1px dashed rgba(255,255,255,0.1); padding-top:8px; margin-top:4px; display:flex; flex-direction:column; gap:4px;">
+                    <div style="display:flex; justify-content:space-between; color:var(--danger-red);">
+                        <span>Platform Fee (Deducted):</span>
+                        <span>-₹5.00</span>
+                    </div>
+                    ${data.vendorProfit > 0 ? `
                     <div style="display:flex; justify-content:space-between; color:var(--danger-red);">
                         <span>Partner Markup (Deducted):</span>
                         <span>-₹${parseFloat(data.vendorProfit).toFixed(2)}</span>
-                    </div>
+                    </div>` : ''}
                     <div style="display:flex; justify-content:space-between; font-weight:800; font-size:0.95rem; background:rgba(52,199,89,0.06); padding:6px; border-radius:6px; border:1px solid rgba(52,199,89,0.12); margin-top:4px;">
                         <span style="color:var(--text-white);">Your Net Earnings:</span>
-                        <span style="color:var(--success-green);">₹${(parseFloat(data.finalFare.replace(/[^0-9.]/g,'')) - parseFloat(data.vendorProfit)).toFixed(2)}</span>
+                        <span style="color:var(--success-green);">₹${(parseFloat(data.finalFare.replace(/[^0-9.]/g,'')) - parseFloat(data.vendorProfit || 0) - 5).toFixed(2)}</span>
                     </div>
-                </div>` : ''}
             </div>
             `;
 
@@ -2269,7 +2322,7 @@ if (data.vendorProfit > 0) {
 const totalFareVal = parseFloat(data.finalFare.replace(/[^0-9.]/g, '')) || 0;
 const originalFare = totalFareVal;
 const vendorProfit = parseFloat(data.vendorProfit) || 0;
-const netEarnings = originalFare - vendorProfit;
+const netEarnings = originalFare - vendorProfit - 5;
 await Swal.fire({
 title: 'Vendor Booking Notice',
 html: `
@@ -2346,27 +2399,32 @@ otp: otp
 hideProcessingLoader();
 if (res.ok) {
 const data = await res.json();
+const fareValue = parseFloat(data.totalFare ? data.totalFare.replace(/[^0-9.]/g,'') : (data.finalFare ? data.finalFare.replace(/[^0-9.]/g,'') : 0)) || 0;
+const vendorMarkupValue = parseFloat(data.vendorProfit) || 0;
+const driverNetShare = fareValue - vendorMarkupValue - 5;
+
 let htmlContent = `<span style="font-weight:700; color:var(--success-green);">Ride verified successfully!</span><br><br>`;
-if (data.vendorProfit > 0) {
 htmlContent += `
 <div style="text-align:left; background:rgba(255,255,255,0.02); padding:12px; border-radius:12px; font-size:0.8rem; border:1px solid var(--border-color); display:flex; flex-direction:column; gap:4px;">
 <div style="display:flex; justify-content:space-between;">
 <span>Total Collected:</span>
-<span>₹${parseFloat(data.totalFare.replace(/[^0-9.]/g,'')).toFixed(2)}</span>
+<span>₹${fareValue.toFixed(2)}</span>
 </div>
 <div style="display:flex; justify-content:space-between; color:var(--danger-red);">
-<span>Partner Markup (Deducted):</span>
-<span>-₹${data.vendorProfit.toFixed(2)}</span>
+<span>Platform Fee (Deducted):</span>
+<span>-₹5.00</span>
 </div>
+${vendorMarkupValue > 0 ? `
+<div style="display:flex; justify-content:space-between; color:var(--danger-red);">
+<span>Partner Markup (Deducted):</span>
+<span>-₹${vendorMarkupValue.toFixed(2)}</span>
+</div>` : ''}
 <div style="display:flex; justify-content:space-between; font-weight:800; border-top:1px solid rgba(255,255,255,0.05); padding-top:6px; margin-top:4px;">
 <span>YOUR NET SHARE:</span>
-<span style="color:var(--accent-brand);">₹${data.baseFare.toFixed(2)}</span>
+<span style="color:var(--accent-brand);">₹${driverNetShare.toFixed(2)}</span>
 </div>
 </div>
 `;
-} else {
-htmlContent += `Ride earnings have been credited to your wallet balance.`;
-}
 await Swal.fire({
 title: 'Completed!',
 html: htmlContent,
@@ -2374,10 +2432,10 @@ icon: 'success',
 ...swalDarkOpts
 });
 if (data.vendorProfit > 0) {
-const totalFareVal = parseFloat(data.totalFare.replace(/[^0-9.]/g, '')) || 0;
+const totalFareVal = parseFloat(data.totalFare ? data.totalFare.replace(/[^0-9.]/g, '') : (data.finalFare ? data.finalFare.replace(/[^0-9.]/g, '') : 0)) || 0;
 const originalFare = totalFareVal;
 const vendorProfit = parseFloat(data.vendorProfit) || 0;
-const netEarnings = originalFare - vendorProfit;
+const netEarnings = originalFare - vendorProfit - 5;
 await Swal.fire({
 title: 'Vendor Booking Notice',
 html: `
@@ -2775,7 +2833,7 @@ hour: '2-digit', minute: '2-digit'
 }
 const vendorMarkup = ride.vendor_id ? parseFloat(ride.vendor_markup || 0) : 0;
 const fareNum = parseFloat((ride.fare || '0').toString().replace(/[^0-9.]/g,'')) || 0;
-const netEarnings = fareNum - vendorMarkup;
+const netEarnings = fareNum - vendorMarkup - 5;
 let timeDurationStr = 'N/A';
 let waitingCharge = 0;
 let baseFare = fareNum;
@@ -2926,6 +2984,10 @@ ${waitingCharge > 0 ? `
 <span>Total Collected:</span>
 <span style="color:var(--text-white); font-weight:800;">₹${fareNum.toFixed(2)}</span>
 </div>
+<div style="display:flex; justify-content:space-between; color:var(--danger-red); margin-top:4px;">
+<span>Platform Fee (Deducted):</span>
+<span>-₹5.00</span>
+</div>
 ${vendorMarkup > 0 ? `
 <div style="display:flex; justify-content:space-between; color:var(--danger-red);">
 <span>Partner Markup (Deducted):</span>
@@ -2937,7 +2999,7 @@ ${vendorMarkup > 0 ? `
 </div>` : `
 <div style="display:flex; justify-content:space-between; font-size: 1.1rem; font-weight:800; color:var(--success-green); margin-top: 4px; border-top: 1px solid rgba(255,255,255,0.05); padding-top: 6px;">
 <span>Your Net Earnings:</span>
-<span>₹${fareNum.toFixed(2)}</span>
+<span>₹${netEarnings.toFixed(2)}</span>
 </div>
 `}
 </div>
