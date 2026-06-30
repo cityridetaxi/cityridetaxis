@@ -703,6 +703,18 @@
                             </select>
                         </div>
 
+                        <!-- Special Place Type (Surcharge) -->
+                        <div class="bk-input-group bk-full" id="special-place-group">
+                            <label for="special-place-type" style="display:flex; align-items:center; gap:6px;">
+                                🏛️ Destination Type
+                                <span style="font-size:0.72rem; font-weight:600; color:var(--cr-muted); background:rgba(108,99,255,0.12); border:1px solid rgba(108,99,255,0.3); border-radius:20px; padding:1px 8px; letter-spacing:0.3px;">Special Surcharge</span>
+                            </label>
+                            <select id="special-place-type">
+                                <option value="">None (No special surcharge)</option>
+                                <!-- Populated dynamically by app.js -->
+                            </select>
+                        </div>
+
                         <!-- Hidden vehicle type (used by JS) -->
                         <div style="display:none;">
                             <select id="vehicle-type">

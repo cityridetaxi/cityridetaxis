@@ -1505,6 +1505,41 @@ async function initDB() {
             console.log('Default peak rules initialized.');
         }
 
+        // Special Location Charges Table
+        await db.query(`
+            CREATE TABLE IF NOT EXISTS taxi_special_location_charges (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                place_type VARCHAR(100) NOT NULL UNIQUE,
+                display_name VARCHAR(150) NOT NULL,
+                surcharge_percentage DECIMAL(5,2) DEFAULT 0.00,
+                is_active TINYINT DEFAULT 1,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+            )
+        `);
+
+        // Seed default special location charges if table is empty
+        const [spRows] = await db.query('SELECT COUNT(*) as cnt FROM taxi_special_location_charges');
+        if (spRows[0].cnt === 0) {
+            const defaultSpecialCharges = [
+                ['mall', 'Shopping Mall', 10.00],
+                ['cinema', 'Cinema Theatre', 10.00],
+                ['beach', 'Beach / Waterfront', 15.00],
+                ['resort', 'Resort / Hotel', 15.00],
+                ['restaurant', 'Restaurant / Dine-In', 10.00],
+                ['railway_station', 'Railway Station', 5.00]
+            ];
+            for (const [pt, dn, sp] of defaultSpecialCharges) {
+                await db.query('INSERT INTO taxi_special_location_charges (place_type, display_name, surcharge_percentage) VALUES (?, ?, ?)', [pt, dn, sp]);
+            }
+            console.log('✅ Default special location charges initialized.');
+        }
+
+        // Migration: add special_place_type to taxi_bookings if missing
+        try {
+            await db.query('ALTER TABLE taxi_bookings ADD COLUMN special_place_type VARCHAR(50) DEFAULT NULL');
+            console.log('✅ Migration: special_place_type column added to taxi_bookings.');
+        } catch (e) { /* Already exists */ }
+
         // Insert default tariffs if empty
         try {
             const [tariffRows] = await db.query('SELECT COUNT(*) as cnt FROM taxi_tariffs');
@@ -2749,6 +2784,7 @@ app.post('/api/bookings/create', authenticateJWT, requireRole(['user']), (req, r
         const status = booking.driverId ? 'assigned' : 'pending';
         const driverId = booking.driverId || null;
         const extraDropsStr = booking.extraDrops ? (typeof booking.extraDrops === 'string' ? booking.extraDrops : JSON.stringify(booking.extraDrops)) : null;
+        const specialPlaceType = booking.specialPlaceType || null;
         const values = [
             booking.userId || 1,
             String(booking.pickup || ''),
@@ -2775,9 +2811,10 @@ app.post('/api/bookings/create', authenticateJWT, requireRole(['user']), (req, r
             distStr,  // estimated_distance (static, never changes)
             fareStr,  // estimated_fare (static, never changes)
             durationStr, // estimated_duration
-            driverId
+            driverId,
+            specialPlaceType
         ];
-        const [result] = await db.query('INSERT INTO taxi_bookings (user_id, pickup_loc, pickup_coords, drop_loc, drop_coords, extra_drops, pickup_date, pickup_time, passengers, vehicle_type, trip_type, fare, distance, journey_otp, end_otp, status, vendor_id, vendor_markup, rental_package, return_date, passenger_name, passenger_phone, estimated_distance, estimated_fare, estimated_duration, driver_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', values);
+        const [result] = await db.query('INSERT INTO taxi_bookings (user_id, pickup_loc, pickup_coords, drop_loc, drop_coords, extra_drops, pickup_date, pickup_time, passengers, vehicle_type, trip_type, fare, distance, journey_otp, end_otp, status, vendor_id, vendor_markup, rental_package, return_date, passenger_name, passenger_phone, estimated_distance, estimated_fare, estimated_duration, driver_id, special_place_type) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', values);
 
         // 🔴 Socket.IO: Notify all drivers + admin of new opportunity
         const newBookingPayload = {
@@ -2844,6 +2881,17 @@ app.get('/api/bookings/fare-breakdown/:bookingId', authenticateJWT, requireRole(
         const [tariffRows] = await db.query('SELECT config FROM taxi_tariffs WHERE vehicle_type = ? AND category = ?', [b.vehicle_type, categoryKey]);
         const [peakRules] = await db.query('SELECT * FROM taxi_peak_rules WHERE is_active = 1');
 
+        // Fetch special location charge for this booking
+        let specialLocationSurchargePercent = 0;
+        let specialLocationDisplayName = null;
+        if (b.special_place_type) {
+            const [spRows] = await db.query('SELECT display_name, surcharge_percentage FROM taxi_special_location_charges WHERE place_type = ? AND is_active = 1', [b.special_place_type]);
+            if (spRows.length > 0) {
+                specialLocationSurchargePercent = parseFloat(spRows[0].surcharge_percentage) || 0;
+                specialLocationDisplayName = spRows[0].display_name;
+            }
+        }
+
         let pricingConfig = null;
         if (tariffRows.length > 0) {
             pricingConfig = typeof tariffRows[0].config === 'string' ? JSON.parse(tariffRows[0].config) : tariffRows[0].config;
@@ -2895,6 +2943,7 @@ app.get('/api/bookings/fare-breakdown/:bookingId', authenticateJWT, requireRole(
         // Reconstruct fare components from tariff
         let baseFare = 0, distanceFare = 0, peakCharge = 0, platformFee = 5, driverAllowance = 0;
         let extraKmCharge = 0, extraHrCharge = 0, minKmVal = 0, minKmCharge = 0, packageBase = 0;
+        let specialLocationCharge = 0;
         
         if (pricingConfig && b.trip_type === 'local') {
             const config = pricingConfig;
@@ -2903,9 +2952,9 @@ app.get('/api/bookings/fare-breakdown/:bookingId', authenticateJWT, requireRole(
             baseFare = config.base || 0;
             distanceFare = Math.max(billable * (config.perKm || 0), baseFare);
             peakCharge = distanceFare * peakMult;
+            specialLocationCharge = Math.round(distanceFare * specialLocationSurchargePercent / 100);
             minKmVal = minKm;
             minKmCharge = minKm * (config.perKm || 0);
-            const subTotal = distanceFare + peakCharge + waitingCharge + extraDropsCharge;
             platformFee = 5;
         } else if (pricingConfig && b.trip_type === 'oneway') {
             const config = pricingConfig;
@@ -2913,9 +2962,9 @@ app.get('/api/bookings/fare-breakdown/:bookingId', authenticateJWT, requireRole(
             const billable = Math.max(distKm, minKm);
             distanceFare = billable * (config.perKm || 13);
             driverAllowance = (b.vehicle_type === 'bike') ? 0 : (billable > 250 ? 600 : 400);
+            specialLocationCharge = Math.round(distanceFare * specialLocationSurchargePercent / 100);
             minKmVal = minKm;
             minKmCharge = minKm * (config.perKm || 13);
-            const subTotal = distanceFare + driverAllowance + waitingCharge + extraDropsCharge;
             platformFee = 5;
         } else if (pricingConfig && b.trip_type === 'round') {
             const config = pricingConfig;
@@ -2933,9 +2982,9 @@ app.get('/api/bookings/fare-breakdown/:bookingId', authenticateJWT, requireRole(
             const billable = Math.max(distKm, minKmForTrip);
             distanceFare = billable * (config.perKm || 12);
             driverAllowance = (b.vehicle_type === 'bike' ? 0 : ((billable > 250 ? 600 : 400) * tripDays));
+            specialLocationCharge = Math.round(distanceFare * specialLocationSurchargePercent / 100);
             minKmVal = minKmForTrip;
             minKmCharge = minKmForTrip * (config.perKm || 12);
-            const subTotal = distanceFare + driverAllowance + waitingCharge;
             platformFee = 5;
         } else if (pricingConfig && b.trip_type === 'rental') {
             const config = pricingConfig;
@@ -2959,8 +3008,7 @@ app.get('/api/bookings/fare-breakdown/:bookingId', authenticateJWT, requireRole(
                 const durationHrs = durationMins / 60;
                 const extraHrs = Math.max(0, Math.ceil(durationHrs - pMaxHrs));
                 extraHrCharge = extraHrs * (packageConfig.extraHour || 0);
-                
-                const subTotal = packageBase + extraKmCharge + extraHrCharge + waitingCharge;
+                specialLocationCharge = Math.round((packageBase + extraKmCharge + extraHrCharge) * specialLocationSurchargePercent / 100);
                 platformFee = 5;
             }
         }
@@ -2987,6 +3035,10 @@ app.get('/api/bookings/fare-breakdown/:bookingId', authenticateJWT, requireRole(
             extraDrops: extraDropsList,
             extraDropsCount: extraDropsCount,
             extraDropsCharge: extraDropsCharge,
+            specialPlaceType: b.special_place_type || null,
+            specialLocationDisplayName: specialLocationDisplayName,
+            specialLocationSurchargePercent: specialLocationSurchargePercent,
+            specialLocationCharge: specialLocationCharge,
             fareStr: b.fare,
             status: b.status,
             driverName: b.driver_name,
@@ -4312,8 +4364,11 @@ app.post('/api/bookings/start-journey', authenticateJWT, requireRole(['driver'])
             }
             const tariffPromise = db.query('SELECT config FROM taxi_tariffs WHERE vehicle_type = ? AND category = ?', [booking.vehicle_type, booking.trip_type]);
             const peakRulesPromise = db.query('SELECT * FROM taxi_peak_rules WHERE is_active = 1');
+            const specialChargePromise = booking.special_place_type
+                ? db.query('SELECT surcharge_percentage FROM taxi_special_location_charges WHERE place_type = ? AND is_active = 1', [booking.special_place_type])
+                : Promise.resolve([[]]);
 
-            const [[vendorTariffRows], [tariffRows], [peakRules]] = await Promise.all([vendorTariffPromise, tariffPromise, peakRulesPromise]);
+            const [[vendorTariffRows], [tariffRows], [peakRules], [spChargeRows]] = await Promise.all([vendorTariffPromise, tariffPromise, peakRulesPromise, specialChargePromise]);
 
             if (vendorTariffRows.length > 0) {
                 pricingConfig = typeof vendorTariffRows[0].config === 'string' ? JSON.parse(vendorTariffRows[0].config) : vendorTariffRows[0].config;
@@ -4322,6 +4377,7 @@ app.post('/api/bookings/start-journey', authenticateJWT, requireRole(['driver'])
             }
 
             const peakMult = getPeakMultiplier(booking.pickup_time, peakRules);
+            const specialSurchargePct = spChargeRows.length > 0 ? (parseFloat(spChargeRows[0].surcharge_percentage) / 100) : 0;
 
             let extraDropsCharge = 0;
             try {
@@ -4347,7 +4403,8 @@ app.post('/api/bookings/start-journey', authenticateJWT, requireRole(['driver'])
                 const distanceFare = billableDist * config.perKm;
                 const baseKmFare = Math.max(baseFare, distanceFare);
                 const peakCharge = baseKmFare * peakMult;
-                dynamicFare = (baseKmFare + peakCharge + extraDropsCharge) + 5;
+                const specialCharge = baseKmFare * specialSurchargePct;
+                dynamicFare = (baseKmFare + peakCharge + specialCharge + extraDropsCharge) + 5;
             } else if (booking.trip_type === 'oneway') {
                 const config = pricingConfig || { base: 0, perKm: 13, minKm: 130 };
                 const baseFare = config.base || 0;
@@ -4356,7 +4413,8 @@ app.post('/api/bookings/start-journey', authenticateJWT, requireRole(['driver'])
                 const distanceFare = billableDist * (config.perKm || 13);
                 const baseKmFare = Math.max(baseFare, distanceFare);
                 const driverAllowance = billableDist > 250 ? 600 : 400;
-                dynamicFare = (baseKmFare + (booking.vehicle_type === 'bike' ? 0 : driverAllowance) + extraDropsCharge) + 5;
+                const specialCharge = baseKmFare * specialSurchargePct;
+                dynamicFare = (baseKmFare + (booking.vehicle_type === 'bike' ? 0 : driverAllowance) + specialCharge + extraDropsCharge) + 5;
             } else if (booking.trip_type === 'round') {
                 const config = pricingConfig || { base: 0, perKm: 12, minKmPerDay: 250 };
                 const baseFare = config.base || 0;
@@ -4374,7 +4432,8 @@ app.post('/api/bookings/start-journey', authenticateJWT, requireRole(['driver'])
                 const distanceFare = billableDist * (config.perKm || 12);
                 const baseKmFare = Math.max(baseFare, distanceFare);
                 const driverAllowance = billableDist > 250 ? 600 : 400;
-                dynamicFare = ((baseKmFare + (booking.vehicle_type === 'bike' ? 0 : driverAllowance * tripDays))) + 5;
+                const specialCharge = baseKmFare * specialSurchargePct;
+                dynamicFare = ((baseKmFare + (booking.vehicle_type === 'bike' ? 0 : driverAllowance * tripDays) + specialCharge)) + 5;
             }
 
             dynamicFareStr = `₹${Math.ceil(dynamicFare)}`;
@@ -4567,8 +4626,12 @@ app.post('/api/bookings/finish-trip', authenticateJWT, requireRole(['driver']), 
             [bookingId]
         );
         const peakRulesPromise = db.query('SELECT * FROM taxi_peak_rules WHERE is_active = 1');
+        const specialChargeFinishPromise = booking.special_place_type
+            ? db.query('SELECT surcharge_percentage FROM taxi_special_location_charges WHERE place_type = ? AND is_active = 1', [booking.special_place_type])
+            : Promise.resolve([[]]);
 
-        const [[gpsLogs], [peakRules]] = await Promise.all([gpsLogsPromise, peakRulesPromise]);
+        const [[gpsLogs], [peakRules], [spFinishRows]] = await Promise.all([gpsLogsPromise, peakRulesPromise, specialChargeFinishPromise]);
+        const specialSurchargePct = spFinishRows.length > 0 ? (parseFloat(spFinishRows[0].surcharge_percentage) / 100) : 0;
 
         // Calculate pre-ride waiting charge (5 min grace time, then ₹2/min)
         let preRideWaitingCharge = 0;
@@ -4651,7 +4714,8 @@ app.post('/api/bookings/finish-trip', authenticateJWT, requireRole(['driver']), 
 
                     const totalExtra = extraKmCharge + extraHrCharge;
                     const baseWithExtra = packageConfig.base + totalExtra + waitingCharge;
-                    const finalFareNum = Math.ceil(baseWithExtra + 5); // Incl 5% GST
+                    const specialCharge = (packageConfig.base + totalExtra) * specialSurchargePct;
+                    const finalFareNum = Math.ceil(baseWithExtra + specialCharge + 5); // Incl platform fee
 
                     finalFareStr = `₹${finalFareNum}`;
                 }
@@ -4798,6 +4862,7 @@ app.post('/api/bookings/finish-trip', authenticateJWT, requireRole(['driver']), 
             }
 
             const peakMult = getPeakMultiplier(booking.pickup_time, peakRules);
+            // specialSurchargePct already fetched at top of finish-trip for both rental and standard trips
 
             let extraDropsCharge = 0;
             try {
@@ -4823,7 +4888,8 @@ app.post('/api/bookings/finish-trip', authenticateJWT, requireRole(['driver']), 
                 const distanceFare = billableDist * config.perKm;
                 const baseKmFare = Math.max(baseFare, distanceFare);
                 const peakCharge = baseKmFare * peakMult;
-                totalFare = (baseKmFare + peakCharge + waitingCharge + extraDropsCharge) + 5;
+                const specialCharge = baseKmFare * specialSurchargePct;
+                totalFare = (baseKmFare + peakCharge + specialCharge + waitingCharge + extraDropsCharge) + 5;
             } else if (booking.trip_type === 'oneway') {
                 const config = pricingConfig || { base: 0, perKm: 13, minKm: 130 };
                 const baseFare = config.base || 0;
@@ -4832,7 +4898,8 @@ app.post('/api/bookings/finish-trip', authenticateJWT, requireRole(['driver']), 
                 const distanceFare = billableDist * (config.perKm || 13);
                 const baseKmFare = Math.max(baseFare, distanceFare);
                 const driverAllowance = billableDist > 250 ? 600 : 400;
-                totalFare = (baseKmFare + (booking.vehicle_type === 'bike' ? 0 : driverAllowance) + waitingCharge + extraDropsCharge) + 5;
+                const specialCharge = baseKmFare * specialSurchargePct;
+                totalFare = (baseKmFare + (booking.vehicle_type === 'bike' ? 0 : driverAllowance) + specialCharge + waitingCharge + extraDropsCharge) + 5;
             } else if (booking.trip_type === 'round') {
                 const config = pricingConfig || { base: 0, perKm: 12, minKmPerDay: 250 };
                 const baseFare = config.base || 0;
@@ -4850,7 +4917,8 @@ app.post('/api/bookings/finish-trip', authenticateJWT, requireRole(['driver']), 
                 const distanceFare = billableDist * (config.perKm || 12);
                 const baseKmFare = Math.max(baseFare, distanceFare);
                 const driverAllowance = billableDist > 250 ? 600 : 400;
-                totalFare = ((baseKmFare + (booking.vehicle_type === 'bike' ? 0 : driverAllowance * tripDays)) + waitingCharge) + 5;
+                const specialCharge = baseKmFare * specialSurchargePct;
+                totalFare = ((baseKmFare + (booking.vehicle_type === 'bike' ? 0 : driverAllowance * tripDays) + specialCharge) + waitingCharge) + 5;
             }
 
             const finalFareStr = `₹${Math.ceil(totalFare)}`;
@@ -5336,7 +5404,7 @@ app.get('/api/monitor/stats', async (req, res) => {
     try {
         const tables = [
             'taxi_bookings', 'taxi_drivers', 'taxi_passengers', 'passengers',
-            'taxi_vendors', 'taxi_tariffs', 'taxi_peak_rules'
+            'taxi_vendors', 'taxi_tariffs', 'taxi_peak_rules', 'taxi_special_location_charges'
         ];
         const stats = {};
         for (const table of tables) {
@@ -5408,6 +5476,67 @@ app.post('/api/admin/peak-rules/delete', async (req, res) => {
         res.json({ success: true });
     } catch (err) {
         res.status(500).json({ error: 'Failed to delete peak rule' });
+    }
+});
+
+// --- SPECIAL LOCATION CHARGES CONTROLLER ---
+app.get('/api/special-location-charges', async (req, res) => {
+    try {
+        const [rows] = await db.query('SELECT * FROM taxi_special_location_charges ORDER BY id ASC');
+        res.json(rows);
+    } catch (err) {
+        res.status(500).json({ error: 'Failed to fetch special location charges' });
+    }
+});
+
+app.post('/api/admin/special-location-charges/add', async (req, res) => {
+    try {
+        const { place_type, display_name, surcharge_percentage } = req.body;
+        if (!place_type || !display_name) return res.status(400).json({ error: 'place_type and display_name are required.' });
+        const safePlaceType = String(place_type).toLowerCase().replace(/[^a-z0-9_]/g, '_');
+        await db.query(
+            'INSERT INTO taxi_special_location_charges (place_type, display_name, surcharge_percentage) VALUES (?, ?, ?)',
+            [safePlaceType, display_name, parseFloat(surcharge_percentage) || 0]
+        );
+        res.json({ success: true });
+    } catch (err) {
+        res.status(500).json({ error: 'Failed to add special location charge. Place type may already exist.' });
+    }
+});
+
+app.post('/api/admin/special-location-charges/update', async (req, res) => {
+    try {
+        const { id, display_name, surcharge_percentage, is_active } = req.body;
+        if (!id) return res.status(400).json({ error: 'ID is required.' });
+        await db.query(
+            'UPDATE taxi_special_location_charges SET display_name = ?, surcharge_percentage = ?, is_active = ? WHERE id = ?',
+            [display_name, parseFloat(surcharge_percentage) || 0, is_active ? 1 : 0, id]
+        );
+        res.json({ success: true });
+    } catch (err) {
+        res.status(500).json({ error: 'Failed to update special location charge.' });
+    }
+});
+
+app.post('/api/admin/special-location-charges/toggle', async (req, res) => {
+    try {
+        const { id } = req.body;
+        if (!id) return res.status(400).json({ error: 'ID is required.' });
+        await db.query('UPDATE taxi_special_location_charges SET is_active = NOT is_active WHERE id = ?', [id]);
+        res.json({ success: true });
+    } catch (err) {
+        res.status(500).json({ error: 'Failed to toggle special location charge.' });
+    }
+});
+
+app.post('/api/admin/special-location-charges/delete', async (req, res) => {
+    try {
+        const { id } = req.body;
+        if (!id) return res.status(400).json({ error: 'ID is required.' });
+        await db.query('DELETE FROM taxi_special_location_charges WHERE id = ?', [id]);
+        res.json({ success: true });
+    } catch (err) {
+        res.status(500).json({ error: 'Failed to delete special location charge.' });
     }
 });
 

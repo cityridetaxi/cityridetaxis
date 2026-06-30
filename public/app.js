@@ -397,17 +397,23 @@ document.addEventListener('DOMContentLoaded', () => {
     // --- Dynamic Tariff Storage ---
     let pricing = null;
     let peakRules = [];
+    let specialLocationCharges = []; // [{id, place_type, display_name, surcharge_percentage, is_active}]
 
     async function fetchTariffs() {
         try {
-            // Fetch Standard Tariffs
-            const res = await fetch(`${API_BASE_URL}/api/tariffs`);
+            // Fetch Standard Tariffs, Peak Rules, and Special Location Charges in parallel
+            const [res, peakRes, spRes] = await Promise.all([
+                fetch(`${API_BASE_URL}/api/tariffs`),
+                fetch(`${API_BASE_URL}/api/peak-rules`),
+                fetch(`${API_BASE_URL}/api/special-location-charges`)
+            ]);
             const data = await res.json();
-            
-            // Fetch Peak Rules
-            const peakRes = await fetch(`${API_BASE_URL}/api/peak-rules`);
             peakRules = await peakRes.json();
+            const spData = await spRes.json();
+            specialLocationCharges = Array.isArray(spData) ? spData.filter(c => c.is_active) : [];
             console.log('⚡ Dynamic Peak Rules Active:', peakRules);
+            console.log('🏗️ Special Location Charges Loaded:', specialLocationCharges.length, 'active');
+            populateSpecialPlaceDropdown();
 
             // Transform array into nested object structure expected by renderVehicleOptions
             const transformed = Object.create(null);
@@ -443,6 +449,8 @@ document.addEventListener('DOMContentLoaded', () => {
             console.log('✅ Tariffs synchronized with Mainframe.');
         } catch (err) {
             console.error('Tariff fetch failed, using emergency fallback.', err);
+            specialLocationCharges = [];
+            populateSpecialPlaceDropdown();
             // Fallback to hardcoded values if API fails
             pricing = {
                 bike: {
@@ -499,8 +507,44 @@ document.addEventListener('DOMContentLoaded', () => {
     // Initial Fetch
     fetchTariffs();
 
+    // --- Special Location Dropdown Population ---
+    function populateSpecialPlaceDropdown() {
+        const sel = document.getElementById('special-place-type');
+        if (!sel) return;
+        // Preserve current value
+        const currentVal = sel.value;
+        // Keep the "None" option only
+        sel.innerHTML = '<option value="">None (No special surcharge)</option>';
+        specialLocationCharges.forEach(c => {
+            const opt = document.createElement('option');
+            opt.value = c.place_type;
+            opt.textContent = `${c.display_name} (+${parseFloat(c.surcharge_percentage).toFixed(0)}%)`;
+            sel.appendChild(opt);
+        });
+        if (currentVal) sel.value = currentVal;
+    }
+
+    function getSelectedSpecialCharge() {
+        const sel = document.getElementById('special-place-type');
+        if (!sel || !sel.value) return { placeType: null, surchargePercent: 0, displayName: null };
+        const found = specialLocationCharges.find(c => c.place_type === sel.value);
+        if (!found) return { placeType: null, surchargePercent: 0, displayName: null };
+        return {
+            placeType: found.place_type,
+            surchargePercent: parseFloat(found.surcharge_percentage) || 0,
+            displayName: found.display_name
+        };
+    }
+
+    // Wire special place dropdown to recalculate fare
+    const specialPlaceSel = document.getElementById('special-place-type');
+    if (specialPlaceSel) {
+        specialPlaceSel.addEventListener('change', calculateFare);
+    }
+
     // 4. Fare Calculation Logic - ZERO KEY SOLUTION (OSRM)
     async function calculateFare() {
+
         // Check if user is logged in
         const user = JSON.parse(localStorage.getItem('cityride_member'));
         if (!user) {
@@ -695,6 +739,20 @@ document.addEventListener('DOMContentLoaded', () => {
             extraStopsRow.className = '';
         }
 
+        // Special location charge row
+        const specialRow = document.getElementById('fb-special-row') || document.createElement('div');
+        specialRow.id = 'fb-special-row';
+        if (bd.specialLocationCharge && bd.specialLocationCharge > 0) {
+            specialRow.className = 'fm-row';
+            specialRow.innerHTML = `<span class="fm-label">🏛️ ${bd.specialLocationName || 'Special Location'} (+${(bd.specialSurchargePct || 0).toFixed(0)}%)</span><span class="fm-value" style="color:#6c63ff;" id="fb-special-val"></span>`;
+            const insertAfter = extraStopsRow.parentNode ? extraStopsRow : peakRow;
+            insertAfter.parentNode.insertBefore(specialRow, insertAfter.nextSibling);
+            document.getElementById('fb-special-val').textContent = `₹${bd.specialLocationCharge}`;
+        } else {
+            specialRow.innerHTML = '';
+            specialRow.className = '';
+        }
+
         overlay.classList.add('open');
     };
 
@@ -749,7 +807,9 @@ document.addEventListener('DOMContentLoaded', () => {
             rentalPackage: selectedVehicleData.tripType === 'rental' ? document.getElementById('rental-package').value : null,
             fare: `₹${selectedVehicleData.fare}`,
             distance: `${selectedVehicleData.distanceKm} KM`,
-            estimatedDuration: window.selectedDuration || null
+            estimatedDuration: window.selectedDuration || null,
+            specialPlaceType: selectedVehicleData.specialPlaceType || null
+
         };
 
         const fareNum = selectedVehicleData.fare || 0;
@@ -909,6 +969,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
                 const peakMult = currentCategory === 'local' ? getPeakSurcharge(timeForSurcharge) : 0;
 
+                // Get selected special location surcharge
+                const { placeType: selectedPlaceType, surchargePercent: specialSurchargePct, displayName: specialDisplayName } = getSelectedSpecialCharge();
+
                 // Collect extra drops count
                 const extraDropRows = extraDropsContainer ? extraDropsContainer.querySelectorAll('.extra-drop-row') : [];
                 const extraDropsCount = Array.from(extraDropRows).filter(row => {
@@ -924,9 +987,10 @@ document.addEventListener('DOMContentLoaded', () => {
                     const baseFareLimit = config.base || 0;
                     const baseKmFare = Math.max(baseFareLimit, distanceFare);
                     const peakCharge = baseKmFare * peakMult;
-                    
+                    const specialCharge = Math.round(baseKmFare * specialSurchargePct / 100);
+
                     const extraDropsCharge = extraDropsCount * 50;
-                    totalFare = (baseKmFare + peakCharge + extraDropsCharge) + 5;
+                    totalFare = (baseKmFare + peakCharge + specialCharge + extraDropsCharge) + 5;
 
                     displayDistance = `${distance} KM`;
                     detailLabel = `Incl. Platform Fee.`;
@@ -934,6 +998,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         detailLabel += ` (+₹${extraDropsCharge} for ${extraDropsCount} stop(s))`;
                     }
                     if (peakMult > 0) detailLabel += ` [Peak Hour +25%]`;
+                    if (specialSurchargePct > 0) detailLabel += ` [🏗️ ${specialDisplayName} +${specialSurchargePct.toFixed(0)}%]`;
                     if (distance < minKm) detailLabel += ` [${minKm}KM Min Applied]`;
                 } else if (tType.id === 'oneway') {
                     const config = info.oneway;
@@ -943,14 +1008,16 @@ document.addEventListener('DOMContentLoaded', () => {
                     const baseFareLimit = config.base || 0;
                     const baseKmFare = Math.max(baseFareLimit, distanceFare);
                     const driverAllowance = billableDist > 250 ? 600 : 400;
-                    
+                    const specialCharge = Math.round(baseKmFare * specialSurchargePct / 100);
+
                     const extraDropsCharge = extraDropsCount * 150;
-                    totalFare = (baseKmFare + (vType === 'bike' ? 0 : driverAllowance) + extraDropsCharge) + 5; // Incl Platform Fee
+                    totalFare = (baseKmFare + (vType === 'bike' ? 0 : driverAllowance) + specialCharge + extraDropsCharge) + 5; // Incl Platform Fee
                     displayDistance = `${distance} KM`;
                     detailLabel = `Incl. Allowance & Platform Fee.`;
                     if (extraDropsCount > 0) {
                         detailLabel += ` (+₹${extraDropsCharge} for ${extraDropsCount} stop(s))`;
                     }
+                    if (specialSurchargePct > 0) detailLabel += ` [🏗️ ${specialDisplayName} +${specialSurchargePct.toFixed(0)}%]`;
                     if (distance < minKm) detailLabel += ` [${minKm}KM Min Applied]`;
                 } else if (tType.id === 'round') {
                     const config = info.round;
@@ -961,9 +1028,11 @@ document.addEventListener('DOMContentLoaded', () => {
                     const baseFareLimit = config.base || 0;
                     const baseKmFare = Math.max(baseFareLimit, distanceFare);
                     const driverAllowance = billableDist > 250 ? 600 : 400;
-                    totalFare = (baseKmFare + (vType === 'bike' ? 0 : driverAllowance * tripDays)) + 5; // Incl Platform Fee
+                    const specialCharge = Math.round(baseKmFare * specialSurchargePct / 100);
+                    totalFare = (baseKmFare + (vType === 'bike' ? 0 : driverAllowance * tripDays) + specialCharge) + 5; // Incl Platform Fee
                     displayDistance = `${distance} x 2 (${billableDist} KM Billable)`;
                     detailLabel = `${tripDays} Day(s) • Incl. Allowance & Platform Fee.`;
+                    if (specialSurchargePct > 0) detailLabel += ` [🏗️ ${specialDisplayName} +${specialSurchargePct.toFixed(0)}%]`;
                     if (actualTwoWayDist < minKmForTrip * tripDays) detailLabel += ` [${minKmForTrip * tripDays}KM Min Applied]`;
                 } else if (tType.id === 'rental') {
                     if (!info.rental) return;
@@ -973,9 +1042,11 @@ document.addEventListener('DOMContentLoaded', () => {
                     if (!config) return;
                     const extraKm = Math.max(0, distance - pMaxKm);
                     const baseFare = config.base + (extraKm * config.extraKm);
-                    totalFare = baseFare + 5; // Rental usually no bata, but incl Platform Fee
+                    const specialCharge = Math.round(baseFare * specialSurchargePct / 100);
+                    totalFare = baseFare + specialCharge + 5; // Rental incl special charge + Platform Fee
                     displayDistance = distance > 0 ? `${distance} KM` : 'Fixed Base';
                     detailLabel = `${pMaxHrs}Hr/${pMaxKm}KM • Extra ₹${config.extraHour}/hr, ₹${config.extraKm}/km • Incl. Platform Fee.`;
+                    if (specialSurchargePct > 0) detailLabel += ` [🏗️ ${specialDisplayName} +${specialSurchargePct.toFixed(0)}%]`;
                 }
 
                 totalFare = Math.ceil(totalFare);
@@ -1048,12 +1119,28 @@ document.addEventListener('DOMContentLoaded', () => {
                         if (vmBtn) { vmBtn.disabled = false; vmBtn.textContent = `Select ${info.name} — ₹${totalFare} →`; }
 
                         // Build breakdown for fare popup
-                        const gstBase = totalFare - 5;
                         const gst = 5;
                         const driverAllowanceAmt = (tType.id === 'oneway' || tType.id === 'round') && vType !== 'bike' ? (distance > 250 ? 600 : 400) : 0;
                         const peakSurcharge = tType.id === 'local' ? Math.round(getPeakSurcharge(document.getElementById('pickup-time')?.value) * (Math.max(distance, info.local?.minKm || 0) * (info.local?.perKm || 0))) : 0;
-                        
                         const extraDropsCharge = tType.id === 'local' ? (extraDropsCount * 50) : (tType.id === 'oneway' ? (extraDropsCount * 150) : 0);
+
+                        // Compute special location charge for breakdown
+                        let specialLocationCharge = 0;
+                        if (specialSurchargePct > 0) {
+                            const tripConfig = getTripPricing(info, tType.id);
+                            if (tType.id === 'local') {
+                                const config = info.local;
+                                const minKm = typeof config.minKm === 'number' ? config.minKm : 0;
+                                const billableDist = Math.max(distance, minKm);
+                                const baseKmFare = Math.max(config.base || 0, billableDist * config.perKm);
+                                specialLocationCharge = Math.round(baseKmFare * specialSurchargePct / 100);
+                            } else if (tripConfig) {
+                                const minKm = tripConfig.minKm || tripConfig.minKmPerDay || 0;
+                                const billableDist = Math.max(distance, minKm);
+                                const baseKmFare = Math.max(tripConfig.base || 0, billableDist * (tripConfig.perKm || 0));
+                                specialLocationCharge = Math.round(baseKmFare * specialSurchargePct / 100);
+                            }
+                        }
 
                         // Store selected vehicle data
                         selectedVehicleData = {
@@ -1064,6 +1151,7 @@ document.addEventListener('DOMContentLoaded', () => {
                             distanceKm: distance,
                             displayDistance: displayDistance.toString(),
                             durationText: etaText,
+                            specialPlaceType: selectedPlaceType,
                             breakdown: {
                                 vehicleName: info.name,
                                 distanceKm: distance,
@@ -1074,6 +1162,9 @@ document.addEventListener('DOMContentLoaded', () => {
                                 peakCharge: peakSurcharge,
                                 extraDropsCount,
                                 extraDropsCharge,
+                                specialLocationCharge,
+                                specialLocationName: specialDisplayName,
+                                specialSurchargePct,
                                 gst,
                                 total: totalFare
                             }

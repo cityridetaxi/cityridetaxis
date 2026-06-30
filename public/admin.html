@@ -478,6 +478,33 @@
                     </tbody>
                 </table>
             </div>
+
+            <!-- Special Location Charges Section -->
+            <div class="stage-header" style="margin-top: 4rem;">
+                <div>
+                    <h1>Special Location <span class="text-accent">Charges</span></h1>
+                    <p>Percentage surcharge applied when the destination is a special place type (Mall, Cinema, Beach, etc.)</p>
+                </div>
+                <button class="btn btn-primary" onclick="openSpecialLocationModal()" style="padding: 0.8rem 1.5rem; background: #6c63ff;">+ Add Location Type</button>
+            </div>
+
+            <div class="data-table-container">
+                <table class="cityride-table">
+                    <thead>
+                        <tr>
+                            <th>Place Type</th>
+                            <th>Display Name</th>
+                            <th>Surcharge (%)</th>
+                            <th>Status</th>
+                            <th>Last Updated</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="special-location-table-body">
+                        <!-- Loaded via JS -->
+                    </tbody>
+                </table>
+            </div>
         </div>
 
         <!-- System Settings Tab -->
@@ -2082,9 +2109,112 @@ method: 'POST',
 headers: { 'Content-Type': 'application/json' },
 body: JSON.stringify({ id })
 });
-if (res.ok) loadPeakRules();
+if (res.ok) {
+        loadPeakRules();
+        loadSpecialLocationCharges();
+}
 } catch (err) { alert('Failed to delete rule'); }
 }
+
+// ============================================================
+// SPECIAL LOCATION CHARGES CRUD
+// ============================================================
+let _specialLocationData = [];
+async function loadSpecialLocationCharges() {
+    try {
+        const res = await fetch(`${API_BASE_URL}/api/special-location-charges`);
+        const charges = await res.json();
+        _specialLocationData = charges;
+        const body = document.getElementById('special-location-table-body');
+        if (!body) return;
+        body.innerHTML = '';
+        if (!charges.length) {
+            body.innerHTML = '<tr><td colspan="6" style="text-align:center; color:#888;">No special location charges configured.</td></tr>';
+            return;
+        }
+        charges.forEach(c => {
+            const isActive = c.is_active;
+            const updated = c.updated_at ? new Date(c.updated_at).toLocaleDateString() : '—';
+            const row = document.createElement('tr');
+            row.innerHTML = `
+                <td data-label="Place Type"><code style="color:#a78bfa; font-size:0.85rem;">${c.place_type}</code></td>
+                <td data-label="Display Name"><strong>${c.display_name}</strong></td>
+                <td data-label="Surcharge (%)" style="color:#6c63ff; font-weight:700;">${parseFloat(c.surcharge_percentage).toFixed(1)}%</td>
+                <td data-label="Status"><span style="font-size:0.75rem; font-weight:800; padding:3px 10px; border-radius:20px; background:${isActive ? 'rgba(46,125,50,0.2)' : 'rgba(183,28,28,0.15)'}; color:${isActive ? '#66bb6a' : '#ef5350'};">${isActive ? 'Active' : 'Inactive'}</span></td>
+                <td data-label="Updated">${updated}</td>
+                <td data-label="Actions" style="white-space:nowrap;">
+                    <button class="action-btn" onclick="openSpecialLocationModal(${c.id})" style="margin-right:4px;">Edit</button>
+                    <button class="action-btn" onclick="toggleSpecialLocation(${c.id})" style="background:${isActive ? 'rgba(183,28,28,0.15)' : 'rgba(46,125,50,0.15)'}; margin-right:4px;">${isActive ? 'Disable' : 'Enable'}</button>
+                    <button class="action-btn" onclick="deleteSpecialLocation(${c.id})" style="background:rgba(183,28,28,0.15); color:#ef5350;">Del</button>
+                </td>
+            `;
+            body.appendChild(row);
+        });
+    } catch (err) { console.error('Failed to load special location charges', err); }
+}
+
+function openSpecialLocationModal(chargeId) {
+    const modal = document.getElementById('special-location-modal');
+    if (!modal) return;
+    const charge = chargeId ? _specialLocationData.find(c => c.id === chargeId) : null;
+    document.getElementById('sl-id').value = charge ? charge.id : '';
+    document.getElementById('sl-place-type').value = charge ? charge.place_type : '';
+    document.getElementById('sl-place-type').disabled = !!charge; // can't change place_type after creation
+    document.getElementById('sl-display-name').value = charge ? charge.display_name : '';
+    document.getElementById('sl-percent').value = charge ? charge.surcharge_percentage : '';
+    document.getElementById('sl-is-active').value = charge ? (charge.is_active ? '1' : '0') : '1';
+    modal.querySelector('h3').textContent = charge ? 'Edit Special Location Charge' : 'Add Special Location Charge';
+    modal.style.display = 'flex';
+}
+function closeSpecialLocationModal() {
+    const modal = document.getElementById('special-location-modal');
+    if (modal) modal.style.display = 'none';
+}
+async function saveSpecialLocation(e) {
+    e.preventDefault();
+    const id = document.getElementById('sl-id').value;
+    const data = {
+        place_type: document.getElementById('sl-place-type').value,
+        display_name: document.getElementById('sl-display-name').value,
+        surcharge_percentage: document.getElementById('sl-percent').value,
+        is_active: document.getElementById('sl-is-active').value === '1'
+    };
+    try {
+        const endpoint = id
+            ? `${API_BASE_URL}/api/admin/special-location-charges/update`
+            : `${API_BASE_URL}/api/admin/special-location-charges/add`;
+        if (id) data.id = id;
+        const res = await fetch(endpoint, { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(data) });
+        if (res.ok) {
+            alert(id ? 'Location charge updated!' : 'Location charge added!');
+            closeSpecialLocationModal();
+            loadSpecialLocationCharges();
+        } else {
+            const err = await res.json();
+            alert(err.error || 'Failed to save charge');
+        }
+    } catch (err) { alert('Failed to save special location charge'); }
+}
+async function toggleSpecialLocation(id) {
+    try {
+        const res = await fetch(`${API_BASE_URL}/api/admin/special-location-charges/toggle`, {
+            method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ id })
+        });
+        if (res.ok) loadSpecialLocationCharges();
+        else alert('Failed to toggle status');
+    } catch (err) { alert('Failed to toggle status'); }
+}
+async function deleteSpecialLocation(id) {
+    if (!confirm('Remove this special location charge permanently?')) return;
+    try {
+        const res = await fetch(`${API_BASE_URL}/api/admin/special-location-charges/delete`, {
+            method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ id })
+        });
+        if (res.ok) loadSpecialLocationCharges();
+        else alert('Failed to delete');
+    } catch (err) { alert('Failed to delete'); }
+}
+
 let _activeTab = 'overview';
 document.querySelectorAll('.nav-item').forEach(item => {
 item.addEventListener('click', () => {
@@ -2140,7 +2270,63 @@ setInterval(() => { loadTabData(_activeTab); }, 5000);
                     </div>
                     <div style="margin-top: 2rem;">
                         <button type="submit" class="btn btn-primary" style="width: 100%; background: #e65100;">Add
+                <button class="close-map" onclick="closePeakRuleModal()">×</button>
+            </div>
+            <div style="padding: 2rem;">
+                <form onsubmit="savePeakRule(event)">
+                    <input type="hidden" id="p-id">
+                    <div class="input-group">
+                        <label>Start Time</label>
+                        <input type="time" id="p-start" required>
+                    </div>
+                    <div class="input-group" style="margin-top: 1rem;">
+                        <label>End Time</label>
+                        <input type="time" id="p-end" required>
+                    </div>
+                    <div class="input-group" style="margin-top: 1rem;">
+                        <label>Surcharge Percentage (%)</label>
+                        <input type="number" id="p-percent" placeholder="e.g. 25" required>
+                    </div>
+                    <div style="margin-top: 2rem;">
+                        <button type="submit" class="btn btn-primary" style="width: 100%; background: #e65100;">Add
                             Rule</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Special Location Charges Modal -->
+    <div id="special-location-modal" class="map-modal" style="display: none;">
+        <div class="map-modal-content" style="max-width: 460px; width: 95%;">
+            <div class="map-header" style="background: #6c63ff;">
+                <h3>Add Special Location Charge</h3>
+                <button class="close-map" onclick="closeSpecialLocationModal()">×</button>
+            </div>
+            <div style="padding: 2rem;">
+                <form onsubmit="saveSpecialLocation(event)">
+                    <input type="hidden" id="sl-id">
+                    <div class="input-group">
+                        <label>Place Type Key <span style="font-size:0.75rem; color:#888;">(e.g. mall, cinema — lowercase, no spaces)</span></label>
+                        <input type="text" id="sl-place-type" placeholder="e.g. mall" pattern="[a-z0-9_]+" required>
+                    </div>
+                    <div class="input-group" style="margin-top: 1rem;">
+                        <label>Display Name</label>
+                        <input type="text" id="sl-display-name" placeholder="e.g. Shopping Mall" required>
+                    </div>
+                    <div class="input-group" style="margin-top: 1rem;">
+                        <label>Surcharge Percentage (%)</label>
+                        <input type="number" id="sl-percent" placeholder="e.g. 10" step="0.5" min="0" max="100" required>
+                    </div>
+                    <div class="input-group" style="margin-top: 1rem;">
+                        <label>Status</label>
+                        <select id="sl-is-active" style="width:100%; padding:0.75rem 1rem; border-radius:10px; font-family:inherit; font-size:1rem; border:1px solid rgba(0,0,0,0.1);">
+                            <option value="1">Active</option>
+                            <option value="0">Inactive</option>
+                        </select>
+                    </div>
+                    <div style="margin-top: 2rem;">
+                        <button type="submit" class="btn btn-primary" style="width: 100%; background: #6c63ff;">Save Charge</button>
                     </div>
                 </form>
             </div>
